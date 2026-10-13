@@ -170,7 +170,33 @@ npm run test:strict    # 逐文件执行 vitest 并校验无文件被漏跑（�
    文档里的文件数/行数一律写「冻结快照 + 采集时间」，**从属句里的数字改写成不依赖数值的表述**
    （如「不计入上表合计」），否则主合计一变从属句就会再次过期。
 
-## 环境坑（Windows + npm 10.9.7）
-npm 的 optional dependencies bug 会导致 `@rollup/rollup-win32-x64-msvc`、`@esbuild/win32-x64` 缺失，
+## 版本控制
+- 远端：**https://github.com/YangZheyuan12/easy-daily-schedule**（公开）。`main` 跟踪 `origin/main`。
+- `.gitignore` 取舍有约定含义，不要随手改：`.workbuddy/memory/` **入库**（项目知识）；
+  `.workbuddy/tmp/` **不入库**（scratch，40 MB）；**唯一例外** `!.workbuddy/tmp/overflow-scan.js`
+  （字号改动必跑的裁字扫描器）。
+  ⚠️ 遗留：`tmp/` 里其它长期有用的验证脚本（`screenshot.js` / `nav-metrics.js` / `round4-verify.js` /
+  `motion*.js`）**没入库**，`tmp` 一被清理就会丢；更干净的做法是移进 `scripts/`，尚未做。
+- 提交 author 是 `杨喆媛 <517130023@qq.com>`，**未关联 GitHub 账号**（`verified: false`、无 `login`）
+  → 不计入贡献图。要么把该邮箱加进 GitHub Settings → Emails 验证，要么改用
+  `{id}+YangZheyuan12@users.noreply.github.com`。
+
+## 环境坑（Windows）
+
+**① git：代理 shell 里的 `git` 不是用户在用的那个。**
+`which -a git` 里 WorkBuddy 自带的 PortableGit（`/mingw64/bin/git`）**排在用户真实的
+`/d/apps/Git/cmd/git` 前面**。PortableGit 的 `credential.helper = helper-selector`（不可用），
+用户真实 git 的 `credential.helper = manager`（GCM 2.7.3）。
+→ **凡涉及凭据的操作（push / pull / fetch 私有库）必须显式调用 `/d/apps/Git/cmd/git.exe`**，
+否则会误判「凭据已就绪」。项目 git 不在 `C:\Program Files\Git`，而在 **`D:\apps\Git`**。
+
+**② 统计数字必须能找到独立印证路径。** 已踩四次（
+非 ASCII 路径被 `core.quotePath` 转义致 38 张 PNG 漏审、`tr -d '\0'` 把行数压成 1、
+`git trees?recursive=1` 把 41 个目录算成文件……）。
+具体规则：用 git 路径列表做统计一律 `-z` + `xargs -0`；
+`trees?recursive=1` 只数 `"type": "blob"`；
+**数字报出去之前先找第二条独立路径核对**（如 131 src + 38 designs + 3 docs + 2 scripts + 5 + 12 = 191）。
+
+**③ npm 的 optional dependencies bug** 会导致 `@rollup/rollup-win32-x64-msvc`、`@esbuild/win32-x64` 缺失，
 vite/vitest 启动即报 MODULE_NOT_FOUND。
 解法：`npm install @rollup/rollup-win32-x64-msvc @esbuild/win32-x64 --no-save`
