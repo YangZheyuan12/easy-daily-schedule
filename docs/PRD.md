@@ -4,7 +4,7 @@
 | --- | --- |
 | 文档语言 | 中文 |
 | 项目名称 | `daily_schedule_app` |
-| 技术栈 | Vite + React + MUI + Tailwind CSS（移动端优先 H5） |
+| 技术栈 | Vite + React + Tailwind CSS（移动端优先 H5） |
 | 目标平台 | 移动端优先 H5（手机浏览器 / PWA），二期可转微信小程序 |
 | 数据存储 | 一期本地优先（IndexedDB + localStorage），数据访问抽象为 Repository 仓储接口，二期无缝切换云端同步 |
 | 分支形态 | 缩进树形列表（无限层级），非画布式节点图 |
@@ -660,7 +660,7 @@ erDiagram
 | --- | --- | --- |
 | 构建 | Vite 5+ | 冷启动快，HMR 体验好 |
 | 框架 | React 18+ | 团队通用 |
-| UI | MUI + Tailwind CSS | MUI 提供抽屉 / 对话框等移动端组件，Tailwind 负责布局与间距 |
+| UI | Tailwind CSS + 自研组件 | Tailwind 负责布局 / 间距 / 安全区；抽屉 / 对话框等移动端组件自研（`src/components/ui/`），不引入第三方 UI 组件库 |
 | 路由 | React Router | 5 个 Tab + 详情页 |
 | 状态 | 轻量方案（Zustand 或 Context + useReducer） | 由架构师定，避免过度设计 |
 | 存储 | IndexedDB（业务）+ localStorage（偏好） | 统一由 Repository 层封装 |
@@ -671,7 +671,7 @@ erDiagram
 | 关注点 | 说明 |
 | --- | --- |
 | **存储层替换** | 小程序无 IndexedDB，需实现 `WxStorageRepository`（基于 `wx.setStorageSync` / 文件或云开发数据库）。**Repository 抽象的价值在此刻兑现，业务代码零改动** |
-| **UI 组件替换** | MUI 无法在小程序运行。建议业务组件与 UI 组件分层，二期用 Taro / uni-app 重编译，或按小程序原生组件重写 UI 层 |
+| **UI 组件替换** | 坚持「业务组件与 UI 组件分层」：UI 层为自研组件（`src/components/ui/`），二期用 Taro / uni-app 重编译，或按小程序原生组件重写 UI 层即可，业务代码零改动 |
 | **输入体验** | 小程序无 `visualViewport`，需改用 `adjust-position` / `cursor-spacing` 处理键盘避让 |
 | **富文本** | 小程序 `rich-text` 能力有限，P0 用纯文本可平滑迁移；若 P1 上富文本需评估 editor 组件兼容性 |
 | **通知** | H5 的 Notification API 需替换为小程序订阅消息，且需用户主动授权、一次性订阅 |

@@ -52,6 +52,8 @@
 
 > `*` = P1 阶段新建文件（不在 P0 文件清单内）。
 
+> **⚠️ 存档说明（早期 MUI 相关产出物不反映现状）**：早期 **T03 / T15** 计划中的 `src/theme/muiTheme.ts` 与 **T10** 的 MUI `Drawer`（`ItemDrawer`）**均未落地**。实现期已放弃 MUI，改为 **Tailwind CSS + 自研 `ui/` 组件**（详见 `ARCHITECTURE.md` §2.1）。因此本文各任务描述与批次说明里出现的 `muiTheme.ts`、MUI `Drawer`、`MUI/Tailwind 主题底座` 等产出物**仅为早期计划，不代表实际交付**；按本项目约定，这些历史行**保留原文、不逐条改写**。
+
 ### P0 续 · 用户新批准功能（T17 – T22）
 
 > 用户新批准的三项 P0 功能（PRD R-030 自我状态 / R-031 时间轴页 / R-032 日历年视图）。**依赖闭包内仅含 P0 任务（T12 及其前置）**，不引入 P1/P2 依赖。
@@ -131,14 +133,14 @@
 
 ### T01 项目基础设施与构建配置（0.5d）
 
-1. `package.json`：按 `ARCHITECTURE.md` §8.1/§8.2 声明依赖（**P1 依赖先不装**），脚本 `dev` / `build` / `preview` / `test` / `lint`。
+1. `package.json`：按 `ARCHITECTURE.md` §8.1/§8.2 声明依赖（**P1 依赖先不装**），脚本 `dev` / `build` / `preview` / `test` / `test:watch` / `test:strict` / `check:layers` / `typecheck` / `verify`（**无 `lint` / `format`**）。
 2. `vite.config.ts`：配置 `@` → `src` 别名、`server.host=true`（手机真机调试）。
-3. `tailwind.config.ts`：**必须** `corePlugins: { preflight: false }`（§9.7），content 覆盖 `./src/**/*.{ts,tsx}`。
+3. `tailwind.config.ts`：content 覆盖 `./index.html` 与 `./src/**/*.{ts,tsx}`；**不要关闭 Tailwind preflight**（保持默认 `true`）—— 早期为与 MUI 共存曾计划设 `corePlugins: { preflight: false }`，该方案已随 MUI 废弃，关闭 preflight 会导致按钮 / 输入框等基础样式失真（见 §9.7「样式约定」）。
 4. `.eslintrc.cjs`：**必须**写入 §3.3 的分层约束 overrides（domain/services 禁浏览器 API、UI 禁 import repositories）。
 5. `index.html`：`viewport` 含 `width=device-width, initial-scale=1, viewport-fit=cover`（刘海屏安全区必需）。
 6. `src/main.tsx` / `src/App.tsx`：先渲染一个「Hello」占位，验证 `npm run dev` 可跑。
 
-- **完成判据**：`npm run dev` 启动成功；手机/DevTools 375px 视口无横向滚动；`npm run lint` 通过。
+- **完成判据**：`npm run dev` 启动成功；手机/DevTools 375px 视口无横向滚动；`npm run typecheck` 与 `npm run check:layers` 通过。
 
 ### T02 领域层（0.3d）
 
@@ -357,7 +359,7 @@ graph TD
 
 | 里程碑 | 名称 | 包含任务 | 完成标准（可验证） |
 | --- | --- | --- | --- |
-| **M1** | **骨架可跑** | T01、T02、T03、T04 | ① `npm run dev` 启动 < 2s；② DevTools 中 IndexedDB 建库成功（4 张表 + 复合索引）；③ `tsc --noEmit` 与 `npm run lint` 零错误；④ 手工调用 `ItemRepository.upsertMany` → `listBySection` 数据往返成功 |
+| **M1** | **骨架可跑** | T01、T02、T03、T04 | ① `npm run dev` 启动 < 2s；② DevTools 中 IndexedDB 建库成功（4 张表 + 复合索引）；③ `tsc --noEmit` 与 `npm run check:layers` 零错误；④ 手工调用 `ItemRepository.upsertMany` → `listBySection` 数据往返成功 |
 | **M2** | **树形编辑闭环** | T05、T06、T07、T09、T10 | ① `npm run test` 全绿（树算法 ≥ 15 case）；② 板块详情页可：回车连续新增 5 条 → Tab 降级 → Shift+Tab 升级 → 折叠 → 勾选；③ 删除含子项条目并撤销，层级/顺序/折叠态完整恢复；④ **刷新浏览器后数据 100% 保留**；⑤ 4 个 Tab 可切换 |
 | **M3** | **P0 全量完成（原闭环）** | T08、T11、T12 | ① 首页四板块卡片与完成态一致；② 日期切换（前/后/今天/选择器）数据与日期严格对应；③ 每日任务页增删改勾选排序可用，「继承昨日」连点 3 次不产生重复数据；④ 375/390/430px 三档视口无横向滚动；⑤ 分层红线检查：`src/domain` + `src/services` 中 `window`/`localStorage`/`indexedDB` 出现次数 = 0；⑥ PRD R-001～R-016（除被 R-030 取代的 R-004、R-014）全部验收通过。**注**：原「首页完成度环形图（R-004）」「每日总评（R-014）」已由 R-030（SelfStatus 自我状态双评分）取代，其验收改由 M5 承接 |
 | **M4** | **P1 增强** | T13、T14、T15、T16 | ① 模板 ≥ 3 套，一键应用合并去重不覆盖；② 统计页周/月趋势 + 热力日历，点击某日跳转详情；③ JSON 导出/导入完整还原；添加到主屏全屏启动、断网可用；深色模式跟随系统 + 手动切换；首次打开引导卡片 + 载入示例数据；④ 真拖拽排序含插入指示线，跨父级移动层级正确 |
@@ -380,7 +382,7 @@ graph TD
 | --- | --- |
 | **任务** | T01 基础设施、T02 领域层、T03 工具与主题（T03 可与 T02 并行） |
 | **产出物** | 一个 `npm run dev` 能跑起来的空壳 App（Hello 页面）；完整的类型契约 `Item/Task/Day/DailyReview` + 4 个 Repository 接口；日期工具与 MUI/Tailwind 主题底座 |
-| **验证** | `npm run lint` + `tsc --noEmit` 零错误；`toDateKey` 时区用例正确 |
+| **验证** | `npm run check:layers` + `npm run typecheck` 零错误；`toDateKey` 时区用例正确 |
 | **注意** | 此时**不要写任何 UI 业务组件**；`.eslintrc.cjs` 的分层规则必须先落地，否则后面返工 |
 
 ### 批次 2：数据与业务内核（T04 → T05）｜2.0d ★ 关键批次
@@ -427,7 +429,7 @@ graph TD
 | # | 风险 | 影响 | 规避措施 |
 | --- | --- | --- | --- |
 | R1 | `treeService` 边界情况（首层 Shift+Tab、Tab 无前兄弟、order 精度耗尽）漏测 | 数据脏、层级错乱 | T05 强制先写单测；case 覆盖见 T05 完成判据 |
-| R2 | MUI + Tailwind 样式互相覆盖，调试耗时 | 样式返工 | 严格遵守 §9.7（关 preflight、布局用 Tailwind、外观用 MUI、类名用 `clsx`） |
+| R2 | 样式方案反复 / 类名写法不统一，调试耗时 | 样式返工 | 遵守 §9.7「样式约定（Tailwind + clsx）」：**preflight 保持开启**、布局用 Tailwind、条件类名一律用 `clsx()`（本项目不用任何 UI 组件库，样式风险只来自自研 `ui/` 组件的一致性） |
 | R3 | 防抖落盘漏写导致数据丢失 | P0 验收不通过 | 所有写入唯一出口 `persistenceService`；`usePageLifecycle` 全局注册一次 |
 | R4 | 撤销恢复丢失层级/折叠态 | R-007 不通过 | 严守「软删只改 `deletedAt`」+ 撤销用快照覆盖 |
 | R5 | 移动端键盘遮挡输入框 | 体验硬伤 | `useKeyboardAvoid` 在 T10 必须完成，且抽屉 `maxHeight ≤ 85vh` |

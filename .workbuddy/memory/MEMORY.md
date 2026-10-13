@@ -41,7 +41,8 @@
 ## 架构红线（CRITICAL）
 1. **分层严格单向**：UI → Store → services → domain；repositories 作为适配器实现 domain/ports
 2. `src/domain/`、`src/services/` **禁止** window / document / localStorage / indexedDB / visualViewport
-   —— 迁微信小程序 100% 复用的前提，ESLint `no-restricted-globals` + `check:layers` 双卡口
+   —— 迁微信小程序 100% 复用的前提，由自写零依赖脚本 `scripts/check-layers.mjs`
+   （`npm run check:layers`）卡口。**项目无 eslint / prettier 依赖，不要写成 ESLint**
 3. `src/repositories/` 是唯一允许碰存储 API 的地方；`repositories/index.ts` 是**唯一装配点**
 4. 树用**邻接表**（`id` + `parentId` + 同层 `order`），不用嵌套 JSON / 物化路径
 5. **软删只改 `deletedAt`，其他字段一律不动** —— 撤销能完整恢复层级/顺序/折叠态的根本前提
@@ -201,3 +202,21 @@ npm run test:strict    # 逐文件执行 vitest 并校验无文件被漏跑（�
 **③ npm 的 optional dependencies bug** 会导致 `@rollup/rollup-win32-x64-msvc`、`@esbuild/win32-x64` 缺失，
 vite/vitest 启动即报 MODULE_NOT_FOUND。
 解法：`npm install @rollup/rollup-win32-x64-msvc @esbuild/win32-x64 --no-save`
+
+**④ 沙箱代理的放行名单会变，别信「刚才还能推」。**
+`git push` 失败的两种表现：直连 `Failed to connect to github.com:443`（沙箱禁直连）、
+走代理 `CONNECT tunnel failed, response 502`（代理不放行该主机）。
+逐主机探测：`curl -x $http_proxy -o /dev/null -w "%{http_code}" https://<host>`。
+实测某次：`api.github.com` → 200、`codeload.github.com` → 301，但 **`github.com` → 000**
+→ 此时**无法 push**（codeload 只能拉归档不能推），需用户在自己终端推。
+`dangerouslyDisableSandbox: true` **不解除网络限制**，清掉代理后直连仍不通。
+
+## ⚠️ 已知未修问题（发现即记账，别重复发现）
+- **键盘避让实际未接通**：`src/hooks/useKeyboardAvoid.ts:19` 把键盘高度写进根元素 CSS 变量
+  `--keyboard-offset`，但**全仓库没有任何地方消费它**（`src/` + `index.html` + css 均无
+  `var(--keyboard-offset)`）→ 抽屉打开时输入框可能被键盘挡住。需确认是否真 bug。
+- **文档仍把分层红线说成由 ESLint 强制**（真实是 `scripts/check-layers.mjs`，项目无 eslint 依赖）：
+  `ARCHITECTURE.md:23/24/2106` + §3.3 标题与伪配置、`TASKS.md:31/139/180/386/394/436`。
+  **但 `ARCHITECTURE.md:255` 已有正确更正注**，故属「内部不一致」；TASKS 几处多为历史任务行，
+  按约定应「保留原文 + supersede 说明」。
+- **PRD `L667`** 仍写「图表｜环形图用 SVG 手写或轻量库」，而环形图 UI 已移除。

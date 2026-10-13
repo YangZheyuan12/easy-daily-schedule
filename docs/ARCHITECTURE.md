@@ -14,7 +14,7 @@
 
 ## 〇、架构总纲（一句话）
 
-> **把「树形编辑」这件最难的事做成纯函数内核（零 DOM、零存储 API），用 Repository 接口隔离存储，用 Zustand 做乐观更新编排；UI 层（MUI + Tailwind）与业务内核完全解耦，二期换 UI 框架 / 换存储实现均不动业务代码。**
+> **把「树形编辑」这件最难的事做成纯函数内核（零 DOM、零存储 API），用 Repository 接口隔离存储，用 Zustand 做乐观更新编排；UI 层（Tailwind + 自研 `ui/` 组件）与业务内核完全解耦，二期换 UI 框架 / 换存储实现均不动业务代码。**
 
 三条不可妥协的架构红线：
 
@@ -37,7 +37,7 @@
 | D3 | **删除撤销要完整恢复层级/顺序/折叠态** | **软删除只写 `deletedAt`，不改任何其他字段**；撤销即「按快照原样 upsert」。这是「完整恢复」能成立的根本前提 | `services/itemMutationService.ts`、`undoService.ts` |
 | D4 | **持久化时机**（防抖 / 离散立即 / 生命周期 flush）分散在各处会漏写 | 唯一出口 `PersistenceScheduler`：「脏实体 Map（按实体 id 去重）+ 500ms debounce + flush(reason)」，页面生命周期 hook 只调 `flush()` | `services/persistenceService.ts`、`hooks/usePageLifecycle.ts` |
 | D5 | **完成度口径歧义**（子项是否计入分母、父条目勾选是否联动） | 口径收敛为纯函数 `progressService`，全 App 唯一来源；子项**不重复计入**板块分母（PRD 7.3） | `services/progressService.ts` |
-| D6 | **二期迁移小程序**（无 IndexedDB / 无 MUI / 无 visualViewport） | ① Repository 接口化；② 业务层零浏览器 API；③ 键盘避让、存储、UI 三处差异点全部集中在可被替换的目录 | 全文「迁移约束」小节 |
+| D6 | **二期迁移小程序**（无 IndexedDB / 无 visualViewport） | ① Repository 接口化；② 业务层零浏览器 API；③ 键盘避让、存储、UI 三处差异点全部集中在可被替换的目录 | 全文「迁移约束」小节 |
 
 ### 1.2 架构模式
 
@@ -61,14 +61,14 @@ UI → Store → Service → Domain(接口)
 | 构建 | **Vite** | ^5.4 | 冷启动 <1s、HMR 极快；`vite-plugin-pwa` 生态成熟 | CRA / Webpack | CRA 已废弃；Webpack 配置成本高、HMR 慢 |
 | 框架 | **React** | ^18.3 | 团队通用；`useSyncExternalStore` 让 Zustand 无撕裂 | Vue 3 | 团队栈与 PRD 已定 React |
 | 语言 | **TypeScript** | ^5.5（strict） | 树形结构 + Repository 接口必须有类型契约兜底 | JS | 邻接表 `parentId`/`level` 极易出错，无类型不可控 |
-| UI 组件 | **MUI** | ^5.16 | Drawer / Dialog / Snackbar / SwipeableDrawer 开箱即用，正是本 App 高频组件 | antd-mobile / 全手写 | antd-mobile 与 Tailwind 共存度一般；全手写成本高 |
-| 样式 | **Tailwind CSS** | ^3.4 | 布局 / 间距 / 安全区（`env(safe-area-inset-*)`）写起来最快，移动端适配友好 | CSS Modules / Emotion 纯手写 | 与 MUI 混用需配置（见 §8.6），但单位成本仍最低 |
+| UI 组件 | **Tailwind CSS + 自研 `ui/` 组件** | ^3.4 | Tailwind 负责布局 / 间距 / 安全区，高频移动端组件（抽屉 `Sheet` / 确认弹窗 `ConfirmDialog` / 提示 `Toast` / 图标 `Icon`）自研，与样式体系同源、零额外包体、迁小程序时可整体重写 | MUI / antd-mobile / 全手写无样式体系 | 放弃 **MUI**：与 Tailwind 的 preflight 冲突需额外处理、包体 +约 300KB、迁小程序时组件全部不可用而重写成本更高（见 `README.md`）；antd-mobile 与 Tailwind 共存度一般 |
+| 样式 | **Tailwind CSS** | ^3.4 | 布局 / 间距 / 安全区（`env(safe-area-inset-*)`）写起来最快，移动端适配友好 | CSS Modules / Emotion 纯手写 | 单位成本仍最低，且与自研 `ui/` 组件同源、无需额外适配（Emotion 属 MUI 样式引擎，已随 MUI 一并移除） |
 | 路由 | **React Router** | ^6.26 | 5 Tab（含 `/timeline`）+ 详情页 + `?date=` query 支持完善 | TanStack Router | 生态与迁移资料少 |
 | 状态管理 | **Zustand** | ^4.5 | 见 §2.2 | Context + useReducer | 见 §2.2 |
 | 存储 | **Dexie**（IndexedDB 封装） | ^4.0 | 见 §2.3 | `idb` / 原生 IndexedDB | 见 §2.3 |
 | ID 生成 | **nanoid** | ^5.0 | 跨平台一致（小程序可用），21 字符，~1KB | `crypto.randomUUID` | 需 HTTPS/secure context，小程序无；调试环境易踩坑 |
 | 日期 | **自写 `utils/date.ts`** | — | 只需「YYYY-MM-DD 键 / 加减天 / 周区间」约 60 行，零依赖最利于迁移 | dayjs(2KB) / date-fns | 需求极简，引入库反而增加迁移面 |
-| 图表 | **手写 SVG 环形图** | — | 环形图 = 4 段 `stroke-dasharray`，约 140 行，零包体 | ECharts / recharts | ECharts ~300KB+，PRD 明确不引入 |
+| 图表 | **不引入图表库** | — | 日历打点用**手写 CSS**；进度展示由 `SelfStatusCard` 承担（原手写 SVG 环形图已移除），无需任何图形库 | ECharts / recharts | ECharts ~300KB+，PRD 明确不引入 |
 | 防抖/节流 | **自写 `utils/debounce.ts`** | — | 30 行 | lodash.debounce | 为一个函数引包不值 |
 | 单元测试 | **Vitest** | ^2.0 | 与 Vite 同构，零配置跑纯函数内核单测 | Jest | 需额外 babel/ts 配置 |
 
@@ -1826,35 +1826,29 @@ computeRingData(items):
 | --- | --- | --- | --- |
 | `react` | `^18.3.1` | UI 框架 | |
 | `react-dom` | `^18.3.1` | React DOM 渲染 | |
-| `react-router-dom` | `^6.26.0` | 路由（5 Tab + 详情页 + `?date=`） | |
-| `@mui/material` | `^5.16.7` | 移动端组件（Drawer / Dialog / Snackbar / IconButton） | 锁 v5（v6 与 Tailwind 共存仍在磨合） |
-| `@emotion/react` | `^11.13.0` | MUI 样式引擎（peer） | |
-| `@emotion/styled` | `^11.13.0` | MUI 样式引擎（peer） | |
-| `@mui/icons-material` | `^5.16.7` | 图标（板块图标 / 折叠箭头） | 按需引入以控包体 |
+| `react-router-dom` | `^6.28.0` | 路由（5 Tab + 详情页 + `?date=`） | |
 | `zustand` | `^4.5.5` | 状态管理（见 §2.2） | |
-| `dexie` | `^4.0.8` | IndexedDB 封装（见 §2.3） | |
-| `nanoid` | `^5.0.7` | 实体 ID 生成 | |
-| `clsx` | `^2.1.1` | className 条件拼接（MUI + Tailwind 混用必备） | |
+| `dexie` | `^4.0.10` | IndexedDB 封装（见 §2.3） | |
+| `nanoid` | `^5.0.9` | 实体 ID 生成 | |
+| `clsx` | `^2.1.1` | className 条件拼接（条件类名一律用它，禁止字符串拼接） | |
 
 ### 8.2 `devDependencies`
 
 | 包名 | 版本 | 用途 |
 | --- | --- | --- |
-| `typescript` | `^5.5.4` | 类型系统（strict 模式） |
-| `vite` | `^5.4.0` | 构建与开发服务器 |
-| `@vitejs/plugin-react` | `^4.3.1` | React 插件（Fast Refresh） |
-| `tailwindcss` | `^3.4.10` | 原子化 CSS |
-| `postcss` | `^8.4.41` | PostCSS |
+| `typescript` | `^5.6.3` | 类型系统（strict 模式） |
+| `vite` | `^5.4.11` | 构建与开发服务器 |
+| `@vitejs/plugin-react` | `^4.3.4` | React 插件（Fast Refresh） |
+| `tailwindcss` | `^3.4.17` | 原子化 CSS |
+| `postcss` | `^8.4.49` | PostCSS |
 | `autoprefixer` | `^10.4.20` | 浏览器前缀 |
-| `eslint` | `^8.57.0` | 代码检查 + **分层约束**（§3.3） |
-| `@typescript-eslint/parser` | `^8.0.0` | TS 解析 |
-| `@typescript-eslint/eslint-plugin` | `^8.0.0` | TS 规则 |
-| `eslint-plugin-react-hooks` | `^4.6.2` | Hooks 规则 |
-| `eslint-plugin-import` | `^2.29.1` | import 顺序与分层校验 |
-| `prettier` | `^3.3.3` | 格式化 |
-| `vitest` | `^2.0.5` | 纯函数内核单测 |
-| `@types/react` | `^18.3.3` | React 类型 |
-| `@types/react-dom` | `^18.3.0` | React DOM 类型 |
+| `vitest` | `^2.1.8` | 纯函数内核单测 |
+| `jsdom` | `^25.0.1` | 组件测试的 DOM 环境 |
+| `fake-indexeddb` | `^6.2.5` | 测试用的 IndexedDB 实现 |
+| `@types/react` | `^18.3.12` | React 类型 |
+| `@types/react-dom` | `^18.3.1` | React DOM 类型 |
+
+> 注：分层红线（§3.3）由**零依赖 node 脚本** `scripts/check-layers.mjs`（`npm run check:layers`）卡口，**不依赖 ESLint**（项目已无 `eslint` / `prettier` 依赖）。
 
 ### 8.3 P1 阶段再引入（**P0 不装**）
 
@@ -1928,21 +1922,19 @@ const addSibling = (afterId: EntityId | null) => {
 - **切换日期 / 页面隐藏** → `flush()`（强制落盘）
 - 脏实体各自按 `id` 去重（`selfStatus` 按 `date`），`PersistenceService` 内部维护 items / tasks / selfStatus / timeSlots / inspirations 五张脏表 —— 不存在 `item:${id}` 这类前缀 key
 
-### 9.7 MUI + Tailwind 共存约定（**易踩坑，必须遵守**）
+### 9.7 样式约定（Tailwind + clsx）
 
 | 约定 | 说明 |
 | --- | --- |
-| 关闭 Tailwind preflight | `tailwind.config.ts` 设 `corePlugins: { preflight: false }`，由 MUI 的 `<CssBaseline />` 统一做样式重置，避免双重置导致按钮/输入框样式错乱 |
-| 样式优先级 | MUI 用 Emotion（运行时注入 `<style>`，默认在 `<head>` 末尾），Tailwind 在 CSS 文件。若需 Tailwind 覆盖 MUI，用 `StyledEngineProvider injectFirst` **或** 直接用 `sx` 属性 —— **推荐后者** |
+| **不得关闭 Tailwind preflight** | 早期为与 MUI 共存曾计划在 `tailwind.config.ts` 设 `corePlugins: { preflight: false }`，该方案随 MUI 一并废弃。`preflight` 提供基础样式重置，关闭它会导致按钮 / 输入框等基础样式失真 —— **保持 Tailwind 默认（`true`）** |
 | 布局用 Tailwind | `flex` / `gap` / `p-4` / `pb-[env(safe-area-inset-bottom)]` 用 Tailwind |
-| 组件外观用 MUI | 抽屉 / 弹窗 / 勾选框 / 星级交互用 MUI，主题统一在 `muiTheme.ts` |
 | 条件类名 | 一律用 `clsx()`，禁止字符串拼接 |
 
 ### 9.8 键盘避让（**迁移点**）
 
-- H5：`useKeyboardAvoid.ts` 监听 `window.visualViewport` 的 `resize`，计算 `window.innerHeight - visualViewport.height` 作为底部偏移；
-- 抽屉打开时把该偏移应用到 `Drawer` 的 `sx.bottom`，保证输入框可见；
-- **迁移小程序时**：无 `visualViewport`，改用 `adjust-position` / `cursor-spacing`，只需替换此 hook 与 `ItemDrawer` 的底部样式（业务层零改动）。
+- H5：`src/hooks/useKeyboardAvoid.ts`（由 `AppShell` 挂载）监听 `window.visualViewport` 的 `resize` / `scroll`，把键盘高度差写入根元素的 CSS 变量 `--keyboard-offset`；
+- 抽屉为**自研组件**：基础抽屉 `src/components/ui/Sheet.tsx`（`maxHeight ≤ 85vh` + 内部滚动 + 下拉关闭），条目编辑抽屉 `src/components/item/ItemSheet.tsx`；底部留白用 `env(safe-area-inset-bottom)` 显式叠加，**不涉及 MUI `Drawer` / `sx` API**；
+- **迁移小程序时**：无 `visualViewport`，改用 `adjust-position` / `cursor-spacing`，只需替换此 hook 与抽屉的底部样式（业务层零改动）。
 
 ### 9.9 IndexedDB 表结构（Dexie schema）
 
@@ -2474,7 +2466,7 @@ export function resolveCalendarSelection(
 | Q7 | **软删除物理清理时机**？ | 启动时清理 / 定时清理 | **启动时清理 `now - 7d` 之前的软删记录**（保留 7 天缓冲，避免误清） | `bootstrap.ts` |
 | Q8 | **P0 拖拽排序**是否用「上/下移按钮」替代真拖拽？ | 按钮替代 / P0 就上 dnd-kit | **P0 用上/下移按钮**（PRD §6.3 已允许），R-018 真拖拽放 P1 | `TaskRow` / `TreeRow` |
 | Q9 | **多标签页并发写**是否处理？ | 不处理 / 加锁 | **一期不处理**（个人工具、单实例场景）。P2 云同步时再引入冲突策略 | `persistenceService` |
-| Q10 | **MUI 版本**锁 v5 还是上 v6？ | v5.16 / v6.x | **锁 v5.16**。v6 与 Tailwind 共存案例仍少，且本 App 重度依赖 Drawer/Dialog | 依赖清单 |
+| Q10 | **为什么最终不用 MUI / 组件库**？ | 用组件库（MUI / antd-mobile）/ 全手写 | **全手写**（Tailwind + 自研 `ui/` 组件）。原因：MUI 与 Tailwind preflight 冲突、包体 +约 300KB、迁小程序时组件全废重写成本更高 | 依赖清单 / §2.1 |
 | Q11 | **描述是否上富文本**？ | P0 纯文本 / P0 上轻量富文本 | **P0 纯文本**（PRD §10.2 指出小程序 `rich-text` 能力有限，纯文本可平滑迁移） | `DescriptionEditor` |
 | Q12 | **示例数据**是否需要内置？ | 需要 / 不需要 | **需要，P1（R-024）**；P0 空状态只显示引导文案，不放「载入示例」按钮 | `EmptyState` |
 
@@ -2488,7 +2480,7 @@ export function resolveCalendarSelection(
 | 2 | UI 框架 | Taro / uni-app 重编译，或按小程序原生组件重写 | `src/pages/`、`src/components/`（**全量重写**） |
 | 3 | 键盘避让 | `adjust-position` / `cursor-spacing` | `src/hooks/useKeyboardAvoid.ts` |
 | 4 | 路由 | 小程序 `tabBar` + `navigateTo` | `src/router/` |
-| 5 | 图标 | `@mui/icons-material` → 图标字体 / SVG | `SectionIcon.tsx` 等 |
+| 5 | 图标 | 自研 SVG 图标（`Icon.tsx`）→ 图标字体 / 小程序原生 `icon` | `src/components/ui/Icon.tsx` |
 | 6 | 业务内核 | **✅ 零改动** | `src/domain/`、`src/services/` |
 | 7 | 状态层 | **✅ 零改动**（Zustand 是纯 JS 模块） | `src/store/`（除 `bootstrap.ts` 的生命周期注册需改） |
 
