@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no"
+    />
+    <meta name="theme-color" content="#FBF8F2" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <title>日程表 · 今日完成</title>
+    <script>
+      /**
+       * 首屏防闪烁：在 React 挂载前先把 data-theme 打上。
+       *
+       * 读取的是 LocalSettingsRepository 的同一份存储（前缀 'dsa:' + 'theme'），
+       * 值为 JSON 字符串。任何异常一律退到默认主题 'paper'，绝不阻塞启动。
+       */
+      (function () {
+        var COLORS = { paper: '#FBF8F2', plain: '#FFFFFF', nocturne: '#0B0E14' };
+        var id = 'paper';
+        try {
+          var raw = localStorage.getItem('dsa:theme');
+          var parsed = raw ? JSON.parse(raw) : null;
+          if (parsed === 'plain' || parsed === 'nocturne') id = parsed;
+        } catch (e) {
+          /* 隐私模式 / 存储禁用，用默认主题即可 */
+        }
+        document.documentElement.dataset.theme = id;
+        var meta = document.querySelector('meta[name="theme-color"]');
+        if (meta) meta.setAttribute('content', COLORS[id]);
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

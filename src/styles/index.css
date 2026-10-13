@@ -1,0 +1,575 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ==========================================================================
+   主题变量 · 三套可切换主题
+   --------------------------------------------------------------------------
+   用法：<html data-theme="paper | plain | nocturne">
+   所有变量都是 `R G B` 三元组（不带 rgb() 包裹），
+   这样 Tailwind 的 `bg-surface/95` 这类透明度修饰符才能生效。
+
+   三套主题不是「换配色」，而是换形态 —— 底色、卡片、圆角、分隔策略、
+   阴影、信息密度六个维度同时变。对应画布《三主题规范 · 形态对比》。
+
+   新增主题只需：① 加一段 [data-theme='x'] ② 在 src/theme/themes.ts 注册。
+   ========================================================================== */
+
+:root,
+[data-theme='paper'] {
+  /* —— C · 纸感暖白（主方案 / 默认）—— 日记本：纸片卡片 + 木质重音，长期低压力 */
+  --c-app: 251 248 242; /* #FBF8F2 页面底 */
+  --c-surface: 255 254 250; /* #FFFEFA 纸面 */
+  --c-sunken: 244 239 228; /* #F4EFE4 下沉 */
+  --c-line: 234 227 213; /* #EAE3D5 暖灰细线 */
+  --c-edge-strong: 216 208 192; /* #D8D0C0 勾选框空态 */
+
+  --c-ink: 45 42 36; /* #2D2A24 暖墨 */
+  --c-ink-soft: 74 69 57; /* #4A4539 */
+  --c-ink-muted: 107 100 85; /* #6B6455 */
+  --c-ink-faint: 163 155 139; /* #A39B8B */
+
+  --c-accent: 156 107 63; /* #9C6B3F 木质 */
+  --c-accent-soft: 244 239 228; /* #F4EFE4 */
+  --c-accent-fg: 255 255 255;
+
+  --c-heart: 201 107 89; /* #C96B59 */
+  --c-star: 191 145 64; /* #BF9140 */
+
+  --c-work: 59 130 246; /* #3B82F6 */
+  --c-study: 139 92 246; /* #8B5CF6 */
+  --c-fitness: 249 115 22; /* #F97316 */
+  --c-life: 16 185 129; /* #10B981 */
+
+  --r-xs: 4px;
+  --r-sm: 10px;
+  --r-card: 14px;
+  --r-sheet: 18px;
+  --r-pill: 999px;
+
+  --shadow-card: 0 1px 2px rgb(45 42 36 / 4%);
+  --leading-body: 1.6; /* 密度：适中 */
+}
+
+/* ==========================================================================
+   字号刻度（Font scale）
+   --------------------------------------------------------------------------
+   八个语义档位，组件里**只许用语义类名**（`text-body` / `text-heading` …），
+   不要写 `text-[15px]` —— 整站字号调整（如「整体再大一点」）只改这张表，
+   不用去 20 多个文件里逐个找。这与颜色用 CSS 变量是同一套思路。
+
+   为什么用角色名而不是 `--fs-15`：档位会随整体缩放漂移，
+   名字里带像素值一年后必然说谎（"fs-13" 实际是 15px）。
+
+   | 类名            | 现状 | 角色                                      |
+   | --------------- | ---- | ----------------------------------------- |
+   | text-micro      | 12px | **极小计数徽标**（子项 2/3、折叠 N）      |
+   | text-caption    | 13px | 辅助文案、计数、字段标签、底部 Tab 标签   |
+   | text-meta       | 14px | 次级按钮、chip、时间轴时间列、节标题      |
+   | text-body       | 15px | 正文：输入框、条目、说明                  |
+   | text-lead       | 16px | 顶层条目、时间块标题、主按钮、任务行      |
+   | text-heading    | 18px | 板块组头、月份、摘要卡标题、抽屉标题      |
+   | text-title      | 24px | 页面主标题、日期标题                      |
+   | text-display    | 32px | 大数字（进度百分比）                      |
+
+   两条约定：
+   ① **13px 是「可读文字」的地板。** 「今日」是基准屏（组头 18 / 顶层条目 16 /
+      子项与输入 15 / 计数 13），其余各屏的正文与辅助文字都不得比它更小；
+      12px 只留给真正塞不下更多空间的计数徽标。
+   ② 档位是**留白敏感**的：每次提档都要跑一次裁字扫描（`.workbuddy/tmp/overflow-scan.js`），
+      否则会出现「字号只大 1px，尾巴被省略号吃掉」这种截图里看不出来的回归。
+
+   注意：**字号不进主题系统**。三套主题换的是形态、配色、信息密度（行距），
+   不是「另一个 App 的字号」—— 同一份内容在深色下变小会很怪。
+
+   历史：底部 Tab 标签曾是独立的 11px 档位（`text-label`）。导航整体放大后它
+   并入了 `text-caption`（13px），11px 档位随之删除 —— 留一个只有零个使用者的
+   档位在表里，比删掉它更容易误导后来人。
+   ========================================================================== */
+:root {
+  --fs-micro: 12px;
+  --fs-caption: 13px;
+  --fs-meta: 14px;
+  --fs-body: 15px;
+  --fs-lead: 16px;
+  --fs-heading: 18px;
+  --fs-title: 24px;
+  --fs-display: 32px;
+}
+
+[data-theme='plain'] {
+  /* —— A · 素白极简（浅色）—— 效率机器：无卡片，靠 1px 细线切分，方角、零阴影 */
+  --c-app: 255 255 255; /* #FFFFFF 底与面同色 = 没有「卡片」这个概念 */
+  --c-surface: 255 255 255;
+  --c-sunken: 247 247 248; /* #F7F7F8 */
+  --c-line: 233 233 238; /* #E9E9EE 冷灰细线 */
+  --c-edge-strong: 211 214 219; /* #D3D6DB */
+
+  --c-ink: 17 17 20; /* #111114 */
+  --c-ink-soft: 58 61 68;
+  --c-ink-muted: 110 114 122; /* #6E727A */
+  --c-ink-faint: 168 172 180; /* #A8ACB4 */
+
+  --c-accent: 17 17 20; /* 纯黑重音 */
+  --c-accent-soft: 242 242 244; /* #F2F2F4 */
+  --c-accent-fg: 255 255 255;
+
+  --c-heart: 217 83 79; /* #D9534F */
+  --c-star: 217 164 65; /* #D9A441 */
+
+  --c-work: 59 130 246;
+  --c-study: 139 92 246;
+  --c-fitness: 249 115 22;
+  --c-life: 16 185 129;
+
+  --r-xs: 2px;
+  --r-sm: 2px;
+  --r-card: 4px; /* 近方角 */
+  --r-sheet: 4px;
+  --r-pill: 4px;
+
+  --shadow-card: 0 0 0 0 rgb(0 0 0 / 0%); /* 零阴影 */
+  --leading-body: 1.35; /* 密度：最紧凑 */
+}
+
+[data-theme='nocturne'] {
+  /* —— B · 夜航微光（深色）—— 夜间专注：圆润卡片 + 无线条 + 重音发光 */
+  --c-app: 11 14 20; /* #0B0E14 */
+  --c-surface: 22 27 36; /* #161B24 */
+  --c-sunken: 30 36 49; /* #1E2431 */
+  --c-line: 35 42 54; /* #232A36 亮度差即分隔 */
+  --c-edge-strong: 58 66 82; /* #3A4252 */
+
+  --c-ink: 242 244 248; /* #F2F4F8 */
+  --c-ink-soft: 199 206 218;
+  --c-ink-muted: 154 163 178; /* #9AA3B2 */
+  --c-ink-faint: 95 104 120; /* #5F6878 */
+
+  --c-accent: 91 140 255; /* #5B8CFF 微光蓝 */
+  --c-accent-soft: 27 36 54; /* #1B2436 */
+  --c-accent-fg: 255 255 255;
+
+  --c-heart: 240 100 94; /* #F0645E */
+  --c-star: 229 176 84; /* #E5B054 */
+
+  /* 深色底下原色会显脏，统一提亮一档 */
+  --c-work: 110 155 255; /* #6E9BFF */
+  --c-study: 167 139 250; /* #A78BFA */
+  --c-fitness: 251 146 60; /* #FB923C */
+  --c-life: 52 211 153; /* #34D399 */
+
+  --r-xs: 8px;
+  --r-sm: 12px;
+  --r-card: 20px;
+  --r-sheet: 22px;
+  --r-pill: 999px;
+
+  --shadow-card: 0 0 0 0 rgb(0 0 0 / 0%);
+  --shadow-glow: 0 0 0 1px rgb(91 140 255 / 25%), 0 6px 20px rgb(91 140 255 / 18%);
+  --leading-body: 1.5; /* 密度：最松 */
+
+  /* 让原生滚动条 / 表单控件跟随深色 */
+  color-scheme: dark;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-app text-ink antialiased;
+    font-family:
+      -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei',
+      'Helvetica Neue', Arial, sans-serif;
+    line-height: var(--leading-body);
+    /* 移动端禁止双击缩放与长按选中干扰 */
+    -webkit-tap-highlight-color: transparent;
+    overscroll-behavior-y: none;
+  }
+
+  /* 输入框在移动端默认会带内阴影与圆角，统一清除 */
+  input,
+  textarea,
+  button {
+    @apply appearance-none bg-transparent;
+    font-family: inherit;
+  }
+
+  textarea {
+    resize: none;
+  }
+
+  /* 主题切换时给一次整体过渡。
+     用 CSS 变量自身做过渡代价太高（会连带触发大量重排），
+     这里只对颜色相关属性做 180ms 过渡，圆角/行距保持瞬变。 */
+  .theme-transition,
+  .theme-transition * {
+    transition:
+      background-color 180ms ease,
+      border-color 180ms ease,
+      color 180ms ease,
+      fill 180ms ease,
+      stroke 180ms ease;
+  }
+}
+
+@layer utilities {
+  /*
+    ⚠️ 这里原本有两个 `.safe-top` / `.safe-bottom`（`padding-*: env(safe-area-inset-*)`），
+    已被删除 —— 它们是**覆盖式**的：`padding-bottom: env(...)` 会把同一元素上的
+    `pb-4` / `pb-6` 一起抹掉（非刘海屏下 inset 为 0，等于把留白清零）。
+    实测后果：底部导航胶囊直接贴到屏幕下边缘，日期栏的 `pt-2` 归零。
+
+    安全区**只能叠加，不能替代**。一律在组件里写显式的 calc：
+      `pb-[calc(16px+env(safe-area-inset-bottom))]`
+      `pt-[calc(8px+env(safe-area-inset-top))]`
+    tailwind.config 里的 `spacing.safe` 同理（会变成 `pb-safe`），也已移除。
+  */
+
+  /* 隐藏滚动条但保留滚动能力 */
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
+
+/* ==========================================================================
+   动效语言 · 纸感（Motion）
+   --------------------------------------------------------------------------
+   四条规则，写新动画前先读一遍：
+
+   1. **纸张不弹跳。** 大于 30px 的面（页面块、抽屉、列表行）只用「落定」缓动
+      `--m-ease-out`，绝不回弹；只有 ≤20px 的微元素（勾选、心 / 星、日历圆点）
+      允许一点过冲 `--m-ease-spring`。回弹是大面积动效廉价感的头号来源。
+   2. **动效只在「状态真的变了」时发生。** 循环动画只允许出现一次（到点提醒的
+      两次呼吸）—— 装饰性循环动效会持续抢注意力，在每天要打开几十次的工具里是负担。
+   3. **方向即语义。** 下一天从右侧进、上一天从左侧进；Tab 指示器横向滑动；
+      抽屉从底部升起。用户靠方向就知道「发生了什么」，不用看内容。
+   4. **时长分四层，超过 340ms 就迟钝了。**
+      `--m-dur-1` 微反馈（按压 / 变色）· `--m-dur-2` 元素（勾选 / 心星）
+      `--m-dur-3` 容器（列表行 / Tab 指示器 / 月份切换）· `--m-dur-4` 面板（抽屉 / 横幅）
+
+   动效**不随主题变**：三套主题换的是形态与配色，不是「另一个 App 的手感」。
+   `prefers-reduced-motion` 下整体退化为瞬时（见文件末尾），这是无障碍硬要求。
+   ========================================================================== */
+:root {
+  --m-dur-1: 120ms;
+  --m-dur-2: 200ms;
+  --m-dur-3: 280ms;
+  --m-dur-4: 340ms;
+
+  --m-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --m-ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --m-ease-spring: cubic-bezier(0.34, 1.5, 0.64, 1);
+  --m-ease-sheet: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+/* —— 位移类：从哪进 —— */
+@keyframes m-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes m-slide-left {
+  from {
+    opacity: 0;
+    transform: translateX(-12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes m-slide-right {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes m-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes m-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+/* —— 面板类：抽屉 —— */
+@keyframes m-sheet-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: none;
+  }
+}
+
+@keyframes m-sheet-down {
+  from {
+    transform: none;
+  }
+  to {
+    transform: translateY(100%);
+  }
+}
+
+/* —— 层级切换类：月视图 ↔ 年视图，用缩放表达「拉近 / 拉远」 —— */
+/*
+  进入**年**视图 = 视角拉远（从一个月展开到一整年）：从略小长大到位。
+  进入**月**视图 = 视角拉近（钻进某个月）：从略大收拢到位。
+  两者都只用 ease-out、不带过冲 —— 整块面板回弹会立刻显得廉价（规则 1）。
+  缩放幅度刻意压在 3.5%~4%：够看出方向，又不至于让人眼跟着画面晃。
+*/
+@keyframes m-zoom-out {
+  from {
+    opacity: 0;
+    transform: scale(0.965);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes m-zoom-in {
+  from {
+    opacity: 0;
+    transform: scale(1.04);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* —— 微反馈类：勾选 / 心星 / 日历选中圆 —— */
+@keyframes m-tick-pop {
+  0% {
+    transform: scale(0.76);
+  }
+  58% {
+    transform: scale(1.14);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes m-soft-pop {
+  0% {
+    transform: scale(0.86);
+  }
+  62% {
+    transform: scale(1.06);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* 勾选的那一笔画出来（配合 stroke-dasharray 写在 .m-tick 里） */
+@keyframes m-check-draw {
+  from {
+    stroke-dashoffset: 22;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* 撤销条剩余时间：5s → 0（时长由行内 style 给，避免和 UNDO_WINDOW_MS 两处魔数） */
+@keyframes m-countdown {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+
+/* 到点提醒：两次轻微呼吸后停住，不做无限脉冲 */
+@keyframes m-breathe {
+  0%,
+  100% {
+    background-color: rgb(var(--c-star) / 10%);
+  }
+  45% {
+    background-color: rgb(var(--c-star) / 22%);
+  }
+}
+
+@layer utilities {
+  /* 容器落定：stagger 由行内 animationDelay 给（列表按顺序落下） */
+  .m-rise {
+    animation: m-rise var(--m-dur-3) var(--m-ease-out) both;
+  }
+
+  .m-slide-left {
+    animation: m-slide-left var(--m-dur-3) var(--m-ease-out) both;
+  }
+
+  .m-slide-right {
+    animation: m-slide-right var(--m-dur-3) var(--m-ease-out) both;
+  }
+
+  .m-fade {
+    animation: m-fade var(--m-dur-2) var(--m-ease-out) both;
+  }
+
+  /*
+    视角拉远（进年视图） / 拉近（进月视图）。
+    transform-origin 钉在**顶边**：段控就在这块面板正上方，顶边不动、
+    只往下方展开或收拢，两个控件之间就不会在动画里「挤」一下。
+  */
+  .m-zoom-out {
+    animation: m-zoom-out var(--m-dur-3) var(--m-ease-out) both;
+    transform-origin: 50% 0;
+  }
+
+  .m-zoom-in {
+    animation: m-zoom-in var(--m-dur-3) var(--m-ease-out) both;
+    transform-origin: 50% 0;
+  }
+
+  /* 抽屉 / 遮罩：进场不带 fill，退场 forwards 维持到最后再卸载 */
+  .m-sheet-up {
+    animation: m-sheet-up var(--m-dur-3) var(--m-ease-sheet);
+  }
+
+  .m-sheet-down {
+    animation: m-sheet-down var(--m-dur-2) var(--m-ease-in-out) forwards;
+  }
+
+  .m-fade-out {
+    animation: m-fade-out var(--m-dur-2) var(--m-ease-in-out) forwards;
+  }
+
+  /* 勾选：盒子弹一下 + 那一勾从左到右画出来（只在「刚变化」时挂这个类） */
+  .m-tick {
+    animation: m-tick-pop var(--m-dur-3) var(--m-ease-spring);
+  }
+
+  .m-tick svg path {
+    stroke-dasharray: 22;
+    animation: m-check-draw var(--m-dur-2) var(--m-ease-out) 70ms both;
+  }
+
+  /* 日历选中圆 / 心星：比勾选更轻的过冲 */
+  .m-pop-soft {
+    animation: m-soft-pop var(--m-dur-2) var(--m-ease-spring);
+  }
+
+  /*
+    划掉线：**只在勾选那一刻画出来**。
+    用 background 而不是 line-through —— line-through 是瞬间出现的，
+    而且和文字颜色一起淡入时看着像「脏了一块」。background-size 能真的从左画到右，
+    且首次渲染（打开页面时已经是完成态）不会播动画（transition 不跑初始值）。
+  */
+  .m-strike {
+    background-image: linear-gradient(currentColor, currentColor);
+    background-repeat: no-repeat;
+    background-position: 0 center;
+    background-size: 0% 1.3px;
+    transition:
+      background-size var(--m-dur-3) var(--m-ease-out),
+      color var(--m-dur-2) var(--m-ease-out);
+  }
+
+  .m-strike[data-done='true'] {
+    background-size: 100% 1.3px;
+  }
+
+  /*
+    输入框版的划掉线：`<input>` 里塞不了行内 span，background-size 方案会横贯整个
+    输入框（标题很短时会画出一条长线），所以这里退回 text-decoration ——
+    浏览器自己按文字宽度画，位置永远是对的，只是「淡入」而非「画出」。
+    两者时长同源（280ms / 200ms），观感差别可以忽略。
+  */
+  .m-strike-ink {
+    text-decoration: line-through;
+    text-decoration-thickness: 1.3px;
+    text-decoration-color: transparent;
+    transition:
+      text-decoration-color var(--m-dur-3) var(--m-ease-out),
+      color var(--m-dur-2) var(--m-ease-out);
+  }
+
+  .m-strike-ink[data-done='true'] {
+    text-decoration-color: currentColor;
+  }
+
+  /* 折叠箭头 / 任何「翻一下」的图标旋转 */
+  .m-flip {
+    transition: transform var(--m-dur-2) var(--m-ease-out);
+  }
+
+  /* 统一按压反馈：只动 transform，120ms，不触发重排 */
+  .press {
+    transition: transform var(--m-dur-1) var(--m-ease-out);
+  }
+
+  .press:active {
+    transform: scale(0.96);
+  }
+
+  /*
+    隐形点击区外扩（用绝对定位的伪元素，**不占布局**）。
+    勾选框视觉上只有 16px，直接当点击区手指根本点不中；
+    但把按钮本身撑大又会让整行变高（行高是被标题的 24px 行距决定的）。
+    伪元素外扩就能同时满足：视觉尺寸不变、命中区到 32px、行高不变。
+  */
+  .tap-expand {
+    position: relative;
+  }
+
+  .tap-expand::after {
+    content: '';
+    position: absolute;
+    inset: calc(-1 * var(--tap, 8px));
+  }
+}
+
+/*
+  无障碍硬要求：用户要求「减少动态效果」时全部退化为瞬时。
+  留 1ms 而不是 0 —— 有些浏览器对 0s 动画不会触发 animationend，
+  会让「动画结束再卸载」的地方（抽屉退场）卡住不关。
+*/
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -1,0 +1,28 @@
+# ---------- 依赖与构建产物 ----------
+node_modules
+dist
+dist-ssr
+
+# ---------- 编辑器 / 系统 ----------
+.vscode/
+.idea/
+.DS_Store
+*.local
+Thumbs.db
+
+# ---------- 缓存与一次性临时文件 ----------
+.vite
+coverage
+*.log
+*.tsbuildinfo
+# vitest 的编译缓存（由 test:strict 生成，可随时重建）
+.tmp-vitest/
+# vite 启动时写出的时间戳临时文件
+vite.config.ts.timestamp-*.mjs
+
+# ---------- 代理工作目录 ----------
+# .workbuddy/memory 要入库：它记录架构决策、项目约定与踩坑教训，是跨会话的项目知识。
+# .workbuddy/tmp 是 scratch：截图、一次性复现脚本、导出的 jsonl、html 板子，不入库。
+.workbuddy/tmp/*
+# 例外：这是项目约定要求「每次改字号都要跑」的裁字扫描器，是长期工具不是 scratch，必须入库。
+!.workbuddy/tmp/overflow-scan.js
