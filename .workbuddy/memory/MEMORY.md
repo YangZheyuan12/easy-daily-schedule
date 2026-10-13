@@ -64,7 +64,7 @@
   否则会盖掉组件里的 `leading-*`。**字号不进主题系统**，只定义一份。
 - **两条铁律**：① **13px 是可读文字的地板**，「今日」是基准屏（组头 18 / 顶层条目 16 / 子项与输入 15 /
   计数 13），其余屏不得更小；12px 只留给塞不下的计数徽标（目前仅 `TreeRow`）。
-  ② **每次提档都要跑裁字扫描** `.workbuddy/tmp/overflow-scan.js`。
+  ② **每次提档都要跑裁字扫描** `scripts/tools/overflow-scan.js`。
 - 今日页层级：组头 heading(18,600) ＞ 顶层条目 lead(16) ＞ 内联添加 body(15, 弱化色)。
 - **`PageHeader` 副标题 = `text-body`(15)**，**四屏共用**（任务/日历/我的/板块详情）→ 改它必跑裁字扫描。
 - `DateNavigator.subtitleText` 用 `text-caption`(13)；时间轴时间列 14（**列宽必须 ≥100px**，否则 `09:00–10:00` 折行）。
@@ -173,10 +173,11 @@ npm run test:strict    # 逐文件执行 vitest 并校验无文件被漏跑（�
 ## 版本控制
 - 远端：**https://github.com/YangZheyuan12/easy-daily-schedule**（公开）。`main` 跟踪 `origin/main`。
 - `.gitignore` 取舍有约定含义，不要随手改：`.workbuddy/memory/` **入库**（项目知识）；
-  `.workbuddy/tmp/` **不入库**（scratch，40 MB）；**唯一例外** `!.workbuddy/tmp/overflow-scan.js`
-  （字号改动必跑的裁字扫描器）。
-  ⚠️ 遗留：`tmp/` 里其它长期有用的验证脚本（`screenshot.js` / `nav-metrics.js` / `round4-verify.js` /
-  `motion*.js`）**没入库**，`tmp` 一被清理就会丢；更干净的做法是移进 `scripts/`，尚未做。
+  `.workbuddy/tmp/` **不入库**（scratch，40 MB）。
+- 验证脚本不入 tmp：长期有用的界面验证 / 截图 / 度量工具已迁到 **`scripts/tools/`**（入库，
+  见其 `README.md`）；字号改动必跑的裁字扫描器即 `scripts/tools/overflow-scan.js`。原 `tmp/` 下的
+  脚本（`screenshot.js` / `nav-metrics.js` / `round4-verify.js` / `motion*.js` 等）已全部移出，
+  故 `.gitignore` 不再保留 `!.workbuddy/tmp/overflow-scan.js` 这条例外。
 - 提交 author 是 `杨喆媛 <517130023@qq.com>`，**未关联 GitHub 账号**（`verified: false`、无 `login`）
   → 不计入贡献图。要么把该邮箱加进 GitHub Settings → Emails 验证，要么改用
   `{id}+YangZheyuan12@users.noreply.github.com`。

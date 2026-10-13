@@ -7,7 +7,8 @@
  */
 const puppeteer = require('puppeteer-core');
 
-const BASE = 'http://localhost:5173';
+// 端口可用 BASE_URL 覆盖（默认沿用原地址，不改默认行为）
+const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const PROBE = () => {
@@ -44,7 +45,9 @@ const PROBE = () => {
 (async () => {
   const browser = await puppeteer.launch({
     headless: 'new',
-    executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe',
+    // 浏览器路径可用 CHROME_PATH 覆盖（默认沿用原路径，不改默认行为）
+    executablePath:
+      process.env.CHROME_PATH || 'C:/Program Files/Google/Chrome/Application/chrome.exe',
     args: ['--no-sandbox', '--disable-gpu'],
   });
   const page = await browser.newPage();

@@ -22,7 +22,6 @@ vite.config.ts.timestamp-*.mjs
 
 # ---------- 代理工作目录 ----------
 # .workbuddy/memory 要入库：它记录架构决策、项目约定与踩坑教训，是跨会话的项目知识。
-# .workbuddy/tmp 是 scratch：截图、一次性复现脚本、导出的 jsonl、html 板子，不入库。
+# .workbuddy/tmp 是 scratch：截图、导出的 jsonl、html 板子等一次性产物，不入库。
+#   长期有用的验证脚本已迁出到 scripts/tools/（入库，见其 README），不再是 tmp 的例外。
 .workbuddy/tmp/*
-# 例外：这是项目约定要求「每次改字号都要跑」的裁字扫描器，是长期工具不是 scratch，必须入库。
-!.workbuddy/tmp/overflow-scan.js

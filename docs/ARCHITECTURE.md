@@ -572,18 +572,18 @@ export interface SectionConfig {
 }
 
 /** 渲染用可见行（由 treeService.buildVisibleRows 产出，非存储实体） */
-export interface TreeRow {
+export interface VisibleRow {
   item: Item
+  /** 缩进深度，0 起 */
   depth: number
-  /** 各祖先层级是否为「最后一个兄弟」，用于画 │ 或 空格 */
-  ancestorsIsLast: boolean[]
-  /** 自己是否为同层最后一个，用于画 └ 或 ├ */
-  isLast: boolean
-  /** 直系子项数（未删除） */
-  childCount: number
-  /** 直系子项完成数 */
-  childDoneCount: number
+  /** 是否有子条目 */
   hasChildren: boolean
+  /** 子条目数量（含所有后代） */
+  descendantCount: number
+  /** 直系子项的完成情况，形如 { done: 2, total: 5 }；无子项时为 null */
+  childrenProgress: { done: number; total: number } | null
+  /** 祖先链上的 id 列表，由浅到深，用于折叠判断 */
+  ancestorIds: string[]
 }
 
 /** 板块完成度快照（progressService 产出） */
@@ -593,19 +593,36 @@ export interface SectionProgress {
   total: number
   /** 顶层已完成数 */
   done: number
-  /** 0–100 整数百分比；total=0 时为 0 */
-  percent: number
-  /** 卡片预览用：前 2 条顶层条目标题 */
-  preview: string[]
+  /** 完成率 0–1（**不是** 0–100 百分数）；total=0 时为 0 */
+  ratio: number
+  /** 预览条目：顶层前 PREVIEW_ITEM_COUNT 条 */
+  preview: Item[]
 }
 
-/** 环形图数据（progressService 产出） */
+/** 环形图的一段（progressService 产出） */
+export interface RingSegment {
+  sectionId: SectionKey
+  name: string
+  color: string
+  /** 完成率 0–1；total=0 时为 0 */
+  ratio: number
+  done: number
+  total: number
+}
+
+/**
+ * 环形图整体数据（progressService 产出）。
+ *
+ * 注意：渲染进度环的 UI 已移除（进度展示改由 `SelfStatusCard` 承担），
+ * 但本类型与 `computeRingData` 作为**数据层**保留 —— `overall` 现供日历摘要卡复用。
+ */
 export interface RingData {
   /** 四板块分段，顺序固定 work/study/fitness/life */
-  segments: Array<{ sectionId: SectionKey; percent: number; color: string; label: string }>
-  /** 中心总完成率：四板块顶层完成数之和 ÷ 顶层总数之和 */
-  overallPercent: number
-  hasData: boolean
+  segments: RingSegment[]
+  /** 加权总完成率 0–1：Σ(四板块顶层完成) ÷ Σ(四板块顶层总数) */
+  overall: number
+  /** 没有任何条目时为 true（用于渲染空状态） */
+  isEmpty: boolean
 }
 
 /**
@@ -1153,25 +1170,33 @@ classDiagram
         +string color
         +int order
     }
-    class TreeRow {
+    class VisibleRow {
         +Item item
         +int depth
-        +bool[] ancestorsIsLast
-        +bool isLast
-        +int childCount
-        +int childDoneCount
+        +bool hasChildren
+        +int descendantCount
+        +object childrenProgress
+        +EntityId[] ancestorIds
     }
     class SectionProgress {
         +SectionKey sectionId
         +int total
         +int done
-        +int percent
-        +string[] preview
+        +float ratio
+        +Item[] preview
+    }
+    class RingSegment {
+        +SectionKey sectionId
+        +string name
+        +string color
+        +float ratio
+        +int done
+        +int total
     }
     class RingData {
-        +Segment[] segments
-        +int overallPercent
-        +bool hasData
+        +RingSegment[] segments
+        +float overall
+        +bool isEmpty
     }
     class TimeSlot {
         +EntityId id
@@ -1283,33 +1308,42 @@ classDiagram
 
     class TreeService {
         <<纯函数>>
-        +buildVisibleRows(items) TreeRow[]
-        +createSibling(items, afterId) MutationResult
-        +indent(items, id) MutationResult
-        +outdent(items, id) MutationResult
+        +buildVisibleRows(items) VisibleRow[]
+        +createSiblingAfter(items, afterId, draft, clock) CreateResult
+        +indent(items, id, clock) TreeMutation
+        +outdent(items, id, clock) TreeMutation
         +collectSubtreeIds(items, rootId) EntityId[]
-        +reindexSiblings(items, parentId) Item[]
+        +reindexSiblings(items, parentId) TreeMutation
     }
     class ProgressService {
         <<纯函数>>
-        +calcSectionProgress(items, key) SectionProgress
-        +calcRingData(items) RingData
-        +calcChildProgress(items, parentId) Progress
+        +computeSectionProgress(items, sectionId) SectionProgress
+        +computeAllSections(items) Record
+        +computeRingData(items) RingData
+        +computeTaskProgress(tasks) object
     }
     class InheritService {
         <<纯函数>>
-        +planInherit(today, yesterday) InheritPlan
+        +inheritUnfinishedTasks(todayTasks, yesterdayTasks, today, clock) InheritResult
     }
     class UndoService {
-        +pushSnapshot(s) void
-        +popSnapshot(id) UndoSnapshot
-        +expireSnapshots(now) void
+        +push(entry) void
+        +canUndo() bool
+        +consume() UndoEntry
+        +clear() void
+        +peek() UndoEntry
     }
     class PersistenceService {
-        +schedule(key, write) void
-        +scheduleImmediate(key, write) Promise
-        +flush(reason) Promise
+        +markItem(item) void
+        +markItems(items) void
+        +markTask(task) void
+        +markTasks(tasks) void
+        +markSelfStatus(status) void
+        +markTimeSlot(slot) void
         +markInspiration(row) void
+        +scheduleImmediate() Promise
+        +hasPending() bool
+        +flush(reason) Promise
     }
     class DiaryService {
         <<纯函数>>
@@ -1383,9 +1417,10 @@ classDiagram
     Day "1" --> "0..*" Inspiration : date
     Day "1" --> "0..1" DailySelfStatus : date
 
-    TreeRow --> Item : 包装渲染
+    VisibleRow --> Item : 包装渲染
     SectionProgress ..> Item : 聚合顶层条目
-    RingData --> SectionProgress : 四段汇总
+    RingData --> RingSegment : 包含四段
+    RingSegment ..> Item : 汇总顶层条目
     MonthMiniSummary ..> DaySummary : 全年聚合
     DiaryGroup --> DiaryEntry : 包含
     DiaryEntry --> Item : 顶层/子项
@@ -1435,7 +1470,7 @@ sequenceDiagram
     autonumber
     actor U as 用户
     participant TI as ItemTitleInput
-    participant TK as useTreeKeyboard
+    participant TK as useTreeEditor
     participant IS as useItemStore
     participant TS as treeService
     participant PS as persistenceService
@@ -1446,10 +1481,10 @@ sequenceDiagram
     U->>TI: 在「完成需求评审」行按 Enter
     TI->>TK: onEnter(itemId)
     TK->>IS: addSibling(itemId)
-    IS->>TS: createSibling(items, itemId, draft)
-    TS-->>IS: MutationResult{items, changedIds:[newId], ok:true}
+    IS->>TS: createSiblingAfter(items, itemId, draft, clock)
+    TS-->>IS: CreateResult{items, touched:[newId], newId}
     IS->>IS: setState(items) —— 乐观更新 UI
-    IS->>PS: scheduleImmediate(`item:${newId}`, upsert)
+    IS->>PS: scheduleImmediate()
     PS->>IR: upsertMany([newItem])
     IR->>DB: bulkPut（单事务）
     DB-->>IR: ok
@@ -1459,14 +1494,14 @@ sequenceDiagram
     U->>TI: 输入「整理评审材料」后按 Tab
     TI->>TK: onTab(itemId)
     TK->>IS: indent(itemId)
-    IS->>TS: indent(items, itemId)
-    TS->>TS: 找同层前一个兄弟 prev（无 → ok:false 不做操作）
+    IS->>TS: indent(items, itemId, clock)
+    TS->>TS: 找同层前一个兄弟 prev（无 → 原样返回 {items, touched:[]}，不做操作）
     TS->>TS: newParentId=prev.id; level=prev.level+1<br/>order=maxChildOrder(prev)+ORDER_STEP
     TS->>TS: prev.collapsed=false（自动展开以显示新子项）
     TS->>TS: 自身子树 level 递归 +1
-    TS-->>IS: MutationResult{items, changedIds:[self, ...subtree, prev]}
+    TS-->>IS: TreeMutation{items, touched:[self, ...subtree, prev]}
     IS->>IS: setState → 缩进动画 / 引导线重绘
-    IS->>PS: scheduleImmediate(`item:${self}`, upsertMany)
+    IS->>PS: scheduleImmediate()
     PS->>IR: upsertMany(changed items)
     IR->>DB: bulkPut
 
@@ -1474,8 +1509,8 @@ sequenceDiagram
     U->>TI: 继续输入「整理评审材料 v2」
     TI->>IS: updateTitle(id, text)（每次 onChange）
     IS->>IS: setState（内存更新，不落盘）
-    IS->>PS: schedule(`item:${id}`, upsert)
-    PS->>PS: 重置 500ms 定时器（同 key 覆盖，只保留最后一次）
+    IS->>PS: markItems([item])
+    PS->>PS: 重置 500ms 定时器（同一脏实体 id 覆盖，只保留最后一次）
     U->>TI: 停止输入 500ms
     PS->>IR: upsertMany([item])
     IR->>DB: bulkPut
@@ -1507,7 +1542,7 @@ sequenceDiagram
     participant DB as IndexedDB
 
     U->>TR: 左滑 / 抽屉内点「删除条目」
-    TR->>TS: calcChildProgress(items, id) → 子项数 3
+    TR->>TS: countDescendants(items, id) → 子项数 3
     alt 存在子分支
         TR->>CD: 打开确认「该条目下还有 3 个子项，确定一并删除？」
         CD-->>U: 等待确认
@@ -1516,12 +1551,12 @@ sequenceDiagram
     CD->>IS: removeWithSubtree(id)
     IS->>TS: collectSubtreeIds(items, id)
     TS-->>IS: [id, c1, c2, c3]（DFS 收集整棵子树）
-    IS->>MS: softDelete(items, ids, now)
+    IS->>MS: planDelete(items, id, clock)
     MS->>MS: **仅置 deletedAt=now，其余字段一律不动**
-    MS-->>IS: {items, snapshot: 4 条 Item 深拷贝}
-    IS->>US: pushSnapshot({id, label:'完成需求评审', items: snapshot})
+    MS-->>IS: DeletePlan{items, touched, undo:{snapshot: 4 条 Item 深拷贝, ids, label}}
+    IS->>US: push({snapshot, ids, label:'已删除「完成需求评审」等 4 项'})
     IS->>IS: setState → 行从可见列表消失
-    IS->>PS: scheduleImmediate(`item:bulk`, softDeleteMany)
+    IS->>PS: scheduleImmediate()
     PS->>IR: softDeleteMany(ids, now)
     IR->>DB: 按 id 批量 put（deletedAt 置时间戳）
     IS->>SB: showUndo('已删除「完成需求评审」等 4 项', 5s)
@@ -1530,24 +1565,24 @@ sequenceDiagram
     alt 用户点「撤销」（5s 内）
         U->>SB: 点击撤销
         SB->>IS: undoDelete()
-        IS->>US: popSnapshot(id)
-        US-->>IS: snapshot（4 条完整 Item 副本）
-        IS->>MS: restore(items, snapshot)
+        IS->>US: consume()
+        US-->>IS: UndoEntry（含 4 条完整 Item 快照）
+        IS->>MS: planUndo(items, entry)
         MS->>MS: 直接以快照覆盖（层级/order/折叠态天然完整）
-        MS-->>IS: {items, changedIds}
+        MS-->>IS: {items, touched}
         IS->>IS: setState → 整棵子树原位恢复
-        IS->>PS: scheduleImmediate(`item:bulk`, upsertMany)
+        IS->>PS: scheduleImmediate()
         PS->>IR: upsertMany(snapshot)（deletedAt=null）
         IR->>DB: bulkPut
         IS->>SB: hide()
     else 5s 超时
-        SB->>IS: onExpire → US.expireSnapshots(now)
+        SB->>IS: onExpire → US.clear()
         Note over IS,DB: 撤销窗口结束，数据仍为软删态
         Note over DB: 下次启动 bootstrap 时<br/>purgeDeleted(before = now - 7d) 物理清理
     end
 ```
 
-### 6.3 应用启动 → 加载某日数据 → 计算完成度 → 渲染环形图
+### 6.3 应用启动 → 加载某日数据 → 计算完成度
 
 ```mermaid
 sequenceDiagram
@@ -1564,7 +1599,6 @@ sequenceDiagram
     participant IS as useItemStore
     participant PR as progressService
     participant V as TodayPage
-    participant RG as CompletionRing
 
     M->>B: bootstrap()
     B->>RP: createRepositories()
@@ -1576,7 +1610,7 @@ sequenceDiagram
     DS->>DR: getOrCreate(today) → Day（惰性创建）
     DS->>SR: get(today) → DailySelfStatus | undefined
 
-    Note over DS,RG: 加载当日全量数据（一次性，避免 N 次查询）
+    Note over DS,V: 加载当日全量数据（一次性，避免 N 次查询）
     DS->>IS: loadDate(today)
     IS->>IR: listByDate(today)（复合索引 [date+sectionId]，过滤 deletedAt）
     IR->>DB: where('date').equals(today)
@@ -1585,24 +1619,18 @@ sequenceDiagram
     IS->>IS: setState({items, loading:false})
     DS->>TR: listByDate(today) → Task[]
 
-    Note over IS,RG: 完成度计算（全 App 唯一口径）
-    V->>PR: calcAllSections(items)
+    Note over IS,V: 完成度计算（全 App 唯一口径）
+    V->>PR: computeAllSections(items)
     PR->>PR: 按 sectionId 分组 → 只取 parentId===null 的顶层条目
-    PR->>PR: percent = done/topLevelTotal（子项不计入分母）
+    PR->>PR: ratio = done / topLevelTotal（0–1 小数；子项不计入分母）
     PR-->>V: Record<SectionKey, SectionProgress>
-    V->>PR: calcRingData(items)
-    PR->>PR: overallPercent = Σ四板块顶层done ÷ Σ四板块顶层total
-    PR-->>V: RingData{segments[4], overallPercent, hasData}
+    V->>PR: computeRingData(items)
+    PR->>PR: overall = Σ四板块顶层done ÷ Σ四板块顶层total
+    PR-->>V: RingData{segments[4], overall, isEmpty}
 
-    alt hasData = false（当日无任何条目）
-        V->>V: 渲染 EmptyState 占位环（灰色空心环 + 引导卡片）
-    else hasData = true
-        V->>RG: <CompletionRing data={RingData} />
-        RG->>RG: 每段 stroke-dasharray = percent% × 周长，<br/>stroke-dashoffset 累加偏移
-        RG-->>V: SVG 渲染（中心显示 overallPercent）
-    end
-    V->>V: 渲染 4 张 SectionCard（3/5 + 60% + 预览 2 条）
-    V->>V: 渲染 DailySelfStatus 入口（显示当日 mood/body 星级）
+    Note over V,PR: 渲染进度的环形 SVG 组件已移除（进度环由 SelfStatusCard 取代）；<br/>RingData / computeRingData 仍保留，其 overall 供日历摘要卡复用
+    V->>V: 渲染 DiaryList 日记体分组列表（3/5 + 完成率 + 预览条目）
+    V->>V: 渲染 SelfStatusCard 入口（显示当日 mood/body 星级）
 ```
 
 ### 6.4 昨日计划一键继承（幂等）
@@ -1625,23 +1653,23 @@ sequenceDiagram
     TR->>DB: where('date').equals(yesterday)
     DB-->>TR: yesterdayTasks
     TR-->>TS: Task[]
-    TS->>SV: planInherit(todayTasks, yesterdayTasks)
+    TS->>SV: inheritUnfinishedTasks(todayTasks, yesterdayTasks, today, clock)
     SV->>SV: candidates = 昨日 done=false 且 deletedAt=null
-    SV->>SV: 去重集合 A = 今日任务的 inheritedFrom.taskId
+    SV->>SV: 去重集合 A = 今日任务的 inheritedFrom
     SV->>SV: 去重集合 B = 今日任务 content.trim() 的内容 hash
-    SV->>SV: toCreate = candidates 过滤掉 A ∪ B
-    SV-->>TS: {toCreate, skipped}
-    alt toCreate 为空（已继承过）
+    SV->>SV: created = candidates 过滤掉 A ∪ B
+    SV-->>TS: {created, skipped}
+    alt created 为空（已继承过）
         TS->>TP: showToast('昨日未完成任务已全部继承，无新增')
     else 有新任务
         TS->>TS: 生成 Task{ inheritedFrom:{date:yesterday, taskId},<br/>createdDate:yesterday, order:maxOrder+STEP }
         TS->>TS: setState（追加到末尾）—— 乐观更新
-        TS->>PS: scheduleImmediate(`task:bulk`, upsertMany)
-        PS->>TR: upsertMany(toCreate)
+        TS->>PS: scheduleImmediate()
+        PS->>TR: upsertMany(created)
         TR->>DB: bulkPut
-        TS->>TP: showToast(`已继承 ${toCreate.length} 项未完成任务`)
+        TS->>TP: showToast(`已继承 ${created.length} 项未完成任务`)
     end
-    Note over U,DB: 重复点击 → 集合 A/B 命中 → toCreate 为空 → 不产生重复数据（幂等 ✅）
+    Note over U,DB: 重复点击 → 集合 A/B 命中 → created 为空 → 不产生重复数据（幂等 ✅）
 ```
 
 ---
@@ -1654,17 +1682,23 @@ Store 中**只存扁平 `Item[]`**（与存储结构一致，避免两套结构�
 
 ```
 buildVisibleRows(items):
-  1. alive = items.filter(i => i.deletedAt === null)         // 过滤软删
-  2. childrenMap = groupBy(alive, i => i.parentId ?? ROOT)
-     每组按 order 升序（order 相同时按 createdAt 升序兜底）
-  3. rows = []
-  4. dfs(node, depth, ancestorsIsLast):
-       childCount / childDoneCount = 统计 childrenMap[node.id] 的直系子项
-       rows.push({item:node, depth, ancestorsIsLast, isLast, childCount, childDoneCount})
-       if (node.collapsed || 无子项) return                   // 折叠剪枝
-       children.forEach((c, idx) =>
-         dfs(c, depth+1, [...ancestorsIsLast, idx === children.length-1]))
-  5. childrenMap[ROOT].forEach((r, idx) => dfs(r, 0, [], idx === last))
+  1. childrenMap = groupChildren(items)
+     // groupChildren 内部已过滤软删；每组按 order 升序（order 相同时按 createdAt 升序兜底）
+  2. rows = []
+  3. dfs(parentId, depth, ancestors):
+       directChildren = childrenMap[parentId] ?? []
+       rows.push({
+         item, depth,
+         hasChildren: directChildren.length > 0,
+         descendantCount: countDescendants(items, item.id),
+         childrenProgress: directChildren.length > 0
+           ? { done: 直系子项中 done 的数量, total: directChildren.length }
+           : null,
+         ancestorIds: ancestors,
+       })
+       if (item.collapsed || directChildren.length === 0) return   // 折叠剪枝
+       for (const child of directChildren) dfs(child.id, depth+1, [...ancestors, item.id])
+  4. dfs(null, 0, [])
 ```
 
 **为何用扁平数组而非嵌套树**：
@@ -1685,35 +1719,36 @@ buildVisibleRows(items):
 
 > 该策略保证「排序变更」最多只写同层的 N 条记录，而非全表 —— 契合 IndexedDB 的写放大敏感性。
 
-### 7.3 Enter 新增：同级 or 子项？
-
-按 PRD §8.1：
+### 7.3 Enter 新增：在锚点之后插入同级条目
 
 ```
-createSibling(items, currentId):
-  children = 直系子项(currentId) 且 current.collapsed === false
-  if (children.length > 0):
-      → 插入为其【第一个子项】   (parentId=current.id, level+1, order=min(child.order)-STEP)
+createSiblingAfter(items, afterId, draft, clock):
+  if (afterId === null):
+      → 追加为【顶层末尾】                (parentId=null, level=0, order=nextOrder(items, null))
   else:
-      → 插入为【下一个同级】     (parentId=current.parentId, order=between(current, nextSibling))
+      anchor = items.find(afterId)
+      → 插入为【anchor 的下一个同级】      (parentId=anchor.parentId, level=anchor.level,
+                                          order=between(anchor, nextSibling)；
+                                          gap<=1 时先 reindexSiblings 再取中点)
+  返回 CreateResult{ items, touched:[newId], newId }
 ```
 
-- 新条目以**草稿态**存在于内存（`isDraft=true`，仅 UI 层标记），**不落库**；
-- 空条目失焦 / 再次 Enter → 直接丢弃，**不产生空数据**（R-006 验收项）。
+- 新条目**直接落内存并落盘**（`title` 初始为 `''`），`useItemStore.lastCreatedId` 记录新 id 供 UI 聚焦新行 —— 条目一经创建即入库，不存在「草稿态 / 暂不落库」的中间状态；
+- 日记体内联快速添加（`DiaryList`）在标题为空串时禁用提交，从入口上避免产生空条目（R-006 验收项）。
 
 ### 7.4 Tab 降级：父节点确定规则
 
 ```
-indent(items, id):
+indent(items, id, clock):
   siblings = 同层（parentId 相同）且按 order 升序，过滤已删除
   prev = siblings 中位于 id 之前的那一个
-  if (!prev) → return { ok:false, reason:'已是首个同级条目' }   // 无操作，UI 不抖动
+  if (!prev) → return { items, touched: [] }        // 原样返回，UI 不抖动
   newParentId = prev.id
   newLevel    = prev.level + 1
   newOrder    = maxOrder(childrenOf(prev)) ?? 0 + ORDER_STEP
   prev.collapsed = false      // 强制展开，否则用户看不到刚降级的子项
   delta = +1 → 自身及其子树 level 递归 += 1
-  changedIds = [id, ...subtreeIds, prev.id]
+  touched = [id, ...subtreeIds, prev.id]
 ```
 
 **关键约束**：Tab 只能挂到「**上一个同级兄弟**」之下，不能凭空造父节点 —— 这与思维导图一致，也避免了「父节点不存在」的脏数据。
@@ -1721,15 +1756,15 @@ indent(items, id):
 ### 7.5 Shift+Tab 升级：子树随迁
 
 ```
-outdent(items, id):
-  if (level === 0) → return { ok:false, reason:'已是顶层条目' }
+outdent(items, id, clock):
+  if (level === 0) → return { items, touched: [] }      // 已是顶层，原样返回
   parent = items.find(parentId)
   newParentId = parent.parentId      // 成为父节点的下一个同级
   newLevel    = parent.level
   newOrder    = 插入到 parent 之后：between(parent.order, nextSiblingOfParent.order)
                 （差值 ≤1 时先 reindexSiblings(parent.parentId)）
   delta = -1 → 自身及其子树 level 递归 -= 1
-  changedIds = [id, ...subtreeIds]
+  touched = [id, ...subtreeIds]
 ```
 
 **子树随迁**：升级/降级时子树的 `level` 必须同步 `±1`。实现为 `collectSubtreeIds()` 后批量调整 `level`，**子树的 `parentId` 与相对 `order` 均不变** —— 保证子树内部结构完整。
@@ -1749,28 +1784,35 @@ outdent(items, id):
 ### 7.7 完成度向上聚合口径
 
 ```
-calcSectionProgress(items, sectionId):
-  tops = items.filter(i => i.sectionId === key && i.parentId === null && !i.deletedAt)
+computeSectionProgress(items, sectionId):
+  tops = items.filter(i => i.sectionId === sectionId && i.parentId === null && !i.deletedAt)
   done = tops.filter(i => i.done).length
-  percent = tops.length === 0 ? 0 : Math.round(done / tops.length * 100)
-  preview = tops.slice(0, 2).map(i => i.title)
+  total = tops.length
+  ratio = total === 0 ? 0 : done / total            // 0–1 小数：不乘 100、不取整
+  preview = tops.slice(0, PREVIEW_ITEM_COUNT)
 
-calcChildProgress(items, parentId):      // 父条目显示 "2/5"
-  children = 直系子项（不递归），过滤软删
-  return { done: children.filter(done).length, total: children.length }
+computeAllSections(items):
+  return 四个板块各自的 computeSectionProgress(items, key)
 
-calcRingData(items):
+computeTaskProgress(tasks):                          // 每日任务完成度（★不是子项徽标）
+  total = tasks.length
+  done = tasks.filter(t => t.done).length
+  return { done, total, ratio: total === 0 ? 0 : done / total }
+
+computeRingData(items):
   overall = Σ(section.done) / Σ(section.total)      // 顶层口径，子项不重复计入
-  hasData = Σ(section.total) > 0
+  isEmpty = Σ(section.total) === 0
 ```
+
+> 父条目右侧的 `2/5` 徽标**不单独建函数**：它由 `buildVisibleRows()` 产出的 `VisibleRow.childrenProgress` 提供（直系子项、不递归，见 §5.2 / §7.1）。
 
 | 场景 | 口径 |
 | --- | --- |
-| 板块完成率 | 顶层完成数 ÷ 顶层总数（**子项不进分母**） |
-| 父条目徽标 | 直系子项完成数 / 直系子项总数（**不递归孙子**） |
-| 环形图分段 | 每个板块一段，弧长 = 该板块 percent% |
-| 环形图中心 | 四板块顶层完成数之和 ÷ 顶层总数之和 |
-| 无数据 | `percent = 0`，`hasData = false` → 渲染灰色占位环（R-004 空状态） |
+| 板块完成率 | 顶层完成数 ÷ 顶层总数（**子项不进分母**）；`SectionProgress.ratio` 为 **0–1 小数** |
+| 父条目徽标 | 直系子项完成数 / 直系子项总数（**不递归孙子**），由 `VisibleRow.childrenProgress` 提供 |
+| 总完成率 | 四板块顶层完成数之和 ÷ 顶层总数之和 = `RingData.overall`（日历摘要卡复用同口径） |
+
+> **环形图 UI 已移除**：原先「每个板块一段弧形 + 无数据时渲染灰色占位环」的进度环组件已删除，进度展示改由 `SelfStatusCard` 承担。`RingData` / `computeRingData` 作为**数据层**保留 —— 其中 `overall` 供日历摘要卡复用（口径见上表），`isEmpty` 表示四板块无任何条目。
 
 **勾选是否联动**：P0 约定**父条目勾选不自动勾选子项，子项全勾也不自动勾父**（仅展示 `2/5`）。理由：移动端隐式联动易造成误操作，且「父条目完成」与「子项全部完成」在语义上不等价（例如父项完成但只做了 3/5 子项）。→ 列为§9 待明确 Q1。
 
@@ -1831,7 +1873,7 @@ calcRingData(items):
 | 对象 | 规范 | 示例 |
 | --- | --- | --- |
 | 组件文件 | `PascalCase.tsx` | `TreeRow.tsx`、`ItemDrawer.tsx` |
-| Hook 文件 | `useXxx.ts`（小驼峰 `use` 开头） | `useTreeKeyboard.ts` |
+| Hook 文件 | `useXxx.ts`（小驼峰 `use` 开头） | `useTreeEditor.ts` |
 | Service 文件 | `xxxService.ts`（小驼峰） | `treeService.ts` |
 | Store 文件 | `useXxxStore.ts` | `useItemStore.ts` |
 | 领域类型文件 | 小写单数 | `types.ts`、`ports.ts` |
@@ -1862,7 +1904,7 @@ calcRingData(items):
 | 层 | 处理 |
 | --- | --- |
 | Repository | 捕获底层异常 → 抛 `StorageError`（带原始 `cause`），**不吞异常** |
-| Service | 入参非法抛 `ValidationError`；逻辑不合法（如首层 Shift+Tab）返回 `{ok:false, reason}`，**不抛异常** |
+| Service | 入参非法抛 `ValidationError`；逻辑不合法（如首层 Shift+Tab）返回原数组（`TreeMutation` 的 `{ items, touched: [] }`），**不抛异常** |
 | Store | `try/catch` → 写 `useUiStore.error` + `showToast('操作失败，请重试')`；**已乐观更新的状态回滚** |
 | UI | 只消费 `useUiStore` 的错误态渲染，**不自行 try/catch 业务调用** |
 | 启动失败 | Dexie open 失败 → 渲染「数据加载失败」全屏提示 + 重试按钮，**绝不静默白屏**（PRD §8.3） |
@@ -1870,23 +1912,21 @@ calcRingData(items):
 ### 9.6 Store 更新范式（**所有 action 必须遵守**）
 
 ```ts
-// 标准范式：乐观更新 → 调度落盘 → 失败回滚
-const addSibling = (afterId: EntityId) => {
+// 标准范式：乐观更新 → 标记脏实体 → 调度落盘 → 失败回滚
+const addSibling = (afterId: EntityId | null) => {
   const prev = get().items                       // ① 保存旧值用于回滚
-  const res = treeService.createSibling(prev, afterId, draft)
-  if (!res.ok) return                            // ② 非法操作直接返回，不抖动
-  set({ items: res.items })                      // ③ 乐观更新
-  persistenceService.scheduleImmediate(          // ④ 调度落盘
-    `item:${res.changedIds.join(',')}`,
-    () => itemRepo.upsertMany(res.items.filter(i => res.changedIds.includes(i.id)))
-  ).catch(() => { set({ items: prev }); useUiStore.getState().showToast('保存失败') })  // ⑤ 失败回滚
+  const res = treeService.createSiblingAfter(prev, afterId, draft, clock)  // res: CreateResult extends TreeMutation = { items, touched, newId }
+  set({ items: res.items })                      // ② 乐观更新
+  persistenceService.markItems(pickTouched(res.items, res.touched))        // ③ 标记脏实体（同 id 去重，覆盖式）
+  persistenceService.scheduleImmediate()         // ④ 离散操作：跳过防抖，立即写
+    .catch(() => { set({ items: prev }); useUiStore.getState().showToast('保存失败') })  // ⑤ 失败回滚
 }
 ```
 
-- **输入类**（标题 / 描述）→ `schedule()`（500ms 防抖）
-- **离散类**（勾选 / 删除 / 折叠 / 层级 / 排序）→ `scheduleImmediate()`（立即写）
-- **切换日期 / 页面隐藏** → `flush()`（强制）
-- 脏实体 key 统一格式：`item:${id}` / `task:${id}` / `review:${date}`
+- **输入类**（标题 / 描述）→ 仅 `markItem()` / `markItems()`（入脏表，500ms 防抖后落盘）
+- **离散类**（勾选 / 删除 / 折叠 / 层级 / 排序）→ `markItems()` + `scheduleImmediate()`（跳过防抖立即写）
+- **切换日期 / 页面隐藏** → `flush()`（强制落盘）
+- 脏实体各自按 `id` 去重（`selfStatus` 按 `date`），`PersistenceService` 内部维护 items / tasks / selfStatus / timeSlots / inspirations 五张脏表 —— 不存在 `item:${id}` 这类前缀 key
 
 ### 9.7 MUI + Tailwind 共存约定（**易踩坑，必须遵守**）
 
@@ -2050,7 +2090,7 @@ buildDaySummary(date, items, tasks, timeSlots, selfStatus):
 状态：`date: DateKey` + `slots: TimeSlot[]`。
 Actions（与 `useTaskStore` 一一对应，保证团队心智一致）：
 `add(draft)` / `update(id, patch)` / `toggleDone(id)` / `softDelete(id)` / `reorder(ids)`；外加 `load(date)`。
-落盘遵循 §9.6 范式：离散操作 `scheduleImmediate`、输入类 `schedule`、切日/切页 `flush`；脏 key 形如 `slot:${id}`。
+落盘遵循 §9.6 范式：离散操作 `markItems()` + `scheduleImmediate()`（立即写）、输入类仅 `markItems()`（防抖）、切日/切页 `flush()`。
 
 #### 9-B.4.2 `useCalendarStore` 扩展（原有月视图 store，新增年视图能力）
 在现有 `monthKey` / `selectedDate` / `summaries` / `loadMonth` / `shiftMonth` / `selectDate` / `refresh` 之上新增：
@@ -2426,7 +2466,7 @@ export function resolveCalendarSelection(
 | # | 问题 | 选项 | **架构推荐默认** | 影响面 |
 | --- | --- | --- | --- | --- |
 | Q1 | **勾选父条目是否联动子项**？子项全勾是否自动勾父？ | 联动 / 不联动 / 仅父→子单向 | **不联动**，父条目仅展示 `2/5` 直系子项进度 | `progressService` + `TreeRow` |
-| Q2 | **环形图中心「总完成率」口径**？ | ① 四板块顶层完成数之和 ÷ 顶层总数之和；② 四板块 percent 的算术平均 | **①（加权口径）**。② 会让「只有 1 条且已完成」的板块权重等于「10 条的板块」，失真 | `progressService.calcRingData` |
+| Q2 | **环形图中心「总完成率」口径**？ | ① 四板块顶层完成数之和 ÷ 顶层总数之和；② 四板块 `ratio` 的算术平均 | **①（加权口径）**。② 会让「只有 1 条且已完成」的板块权重等于「10 条的板块」，失真 | `progressService.computeRingData` |
 | Q3 | **层级上限**是否强制拦截？ | 不限制 / 软提示 / 硬拦截 | **软提示 > 8 层**（Toast 提示但仍允许），符合 PRD §7.2「超出提示但不强制拦截」 | `constants.MAX_LEVEL` |
 | Q4 | **`Item` 内联 `description/rating/review`**（架构决策 A1）是否认可？ | 内联 / 独立 `ITEM_DETAIL` 表 | **内联**。邻接表 KV 下 join 是纯浪费，P0 纯文本无独立实体必要 | `domain/types.ts` + 表结构 |
 | Q5 | **`Section` 不作为存储实体**（架构决策 A2）是否认可？ | 常量 + 偏好配置 / 独立表 | **常量 + 偏好配置**。P1 改名需求由 `LocalSettingsRepository` 满足 | 表结构 + `SectionCard` |

@@ -1,0 +1,4 @@
+{
+  "//": "这 24 个验收脚本是 CommonJS（用 require），而项目根 package.json 声明了 \"type\": \"module\"。此文件把 scripts/tools/ 划回 CommonJS 作用域，否则 require('puppeteer-core') 会报 'require is not defined in ES module scope'。无任何依赖。",
+  "type": "commonjs"
+}
