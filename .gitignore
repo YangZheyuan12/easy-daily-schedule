@@ -10,6 +10,24 @@ dist-ssr
 *.local
 Thumbs.db
 
+# ---------- Capacitor 原生壳（android/ ios/ 目录本身要入库）----------
+# 只忽略构建产物与依赖，工程模板必须提交，否则别人 clone 后无法打包。
+android/build/
+android/app/build/
+android/app/release/
+android/.gradle/
+android/local.properties
+android/capacitor-cordova-android-plugins/build/
+ios/App/build/
+ios/App/Pods/
+ios/App/public/
+ios/App/Podfile.lock
+ios/App/output/
+# capacitor.config.json 与 web 资源都由 `cap sync` 生成，不入库
+android/app/src/main/assets/capacitor.config.json
+android/app/src/main/assets/public/
+ios/App/App/capacitor.config.json
+
 # ---------- 缓存与一次性临时文件 ----------
 .vite
 coverage

@@ -90,6 +90,29 @@ Vite 5 · React 18 · TypeScript · Tailwind CSS 3 · Zustand 4 · Dexie 4 · Re
 
 > 农历算法为内置压缩表（覆盖 1900–2100），二十四节气为实时求解太阳视黄经（Meeus 低精度算法 + 牛顿迭代，按北京时间定日）；未引入 lunar-javascript / solarlunar 等第三方依赖，也不发起任何网络请求（离线可用）。
 
+## 打包成手机 App（Capacitor）
+
+本项目本体是网页，但已经套好了 Capacitor 原生壳，`android/` 与 `ios/` 两个原生工程**已入库**。
+
+```bash
+npm run mobile:sync      # vite build + cap sync（两端都同步）
+npm run mobile:android   # 同步并打开 Android Studio
+npm run mobile:ios       # 同步并打开 Xcode
+```
+
+不想碰原生工具链的话，网页版就够用：`pages.yml` 会把产物部署到 GitHub Pages
+（需要先在仓库 Settings → Pages → Source 选 **GitHub Actions**，只设一次），
+iPhone 上用 Safari 打开 →「添加到主屏幕」，就有 App 图标，离线可用。
+
+⚠️ 两条硬约束：
+
+- **iOS 打包必须 macOS + Xcode**（Capacitor 8 要求 Xcode 26+）。Windows 上只能准备工程、
+  跑 `cap sync`，**不能**构建 iOS 产物。CI 能出 iOS 未签名 `.app`，但它装不到 iPhone ——
+  需要在 Xcode 里用自己的 Apple ID 签名（免费，7 天有效期，自用够用）。
+- **Android 出的是 debug APK**，可以直接装，不需要任何账号。
+
+完整评估（四条路线对比、逐项改动清单、待办）见 `docs/MOBILE-APP-MIGRATION.md`。
+
 ## 注意事项
 
 **跑单测时若发现用例总数对不上，先怀疑执行环境，不要怀疑代码。**

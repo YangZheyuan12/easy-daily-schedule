@@ -12,9 +12,18 @@
     "test:strict": "node scripts/check-test-baseline.mjs",
     "check:layers": "node scripts/check-layers.mjs",
     "typecheck": "tsc --noEmit",
-    "verify": "npm run check:layers && npm run typecheck && npm run test && vite build"
+    "verify": "npm run check:layers && npm run typecheck && npm run test && vite build",
+    "mobile:sync": "npm run build && cap sync",
+    "mobile:android": "npm run build && cap sync android && cap open android",
+    "mobile:ios": "npm run build && cap sync ios && cap open ios"
   },
   "dependencies": {
+    "@capacitor/android": "^8.5.3",
+    "@capacitor/app": "^8.1.2",
+    "@capacitor/core": "^8.5.3",
+    "@capacitor/ios": "^8.5.3",
+    "@capacitor/keyboard": "^8.0.6",
+    "@capacitor/status-bar": "^8.0.4",
     "clsx": "^2.1.1",
     "dexie": "^4.0.10",
     "nanoid": "^5.0.9",
@@ -24,6 +33,7 @@
     "zustand": "^4.5.5"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.5.3",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",

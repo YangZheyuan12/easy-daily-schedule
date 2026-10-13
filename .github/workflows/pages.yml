@@ -1,0 +1,49 @@
+name: Pages
+
+# 把网页版部署到 GitHub Pages —— 这是「别人 clone 之外」最快能用上的一条路：
+# iPhone 上用 Safari 打开网址 → 分享 → 添加到主屏幕，就有了一个 App 图标（无需上架、无需签名）。
+#
+# ⚠️ 前提：仓库 Settings → Pages → Source 选 **GitHub Actions**（只需要设一次）。
+#
+# ⚠️ `VITE_BASE_PATH` 必须等于 `/<仓库名>/`。改了仓库名就要同步改这里，
+#    否则资源会 404（表现是打开后白屏、控制台一堆 404）。
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      VITE_BASE_PATH: /easy-daily-schedule/
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

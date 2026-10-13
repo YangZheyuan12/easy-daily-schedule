@@ -95,7 +95,12 @@ export function Sheet({ open, onClose, title, action, children, maxHeight = '85v
   const closing = phase === 'out';
 
   return (
-    <div className="fixed inset-0 z-40 flex items-end justify-center">
+    <div
+      className="fixed inset-0 z-40 flex items-end justify-center"
+      // 键盘弹起时整块面板抬到键盘上方（--keyboard-offset 由 useKeyboardAvoid 写入，
+      // 没有键盘时变量不存在 → 回落 0px，布局与加这个功能之前完全一致）
+      style={{ paddingBottom: 'var(--keyboard-offset, 0px)' }}
+    >
       <div
         className={clsx('absolute inset-0 bg-black/40', closing ? 'm-fade-out' : 'm-fade')}
         style={dragY > 0 && !closing ? { opacity: Math.max(0.25, 1 - dragY / 300) } : undefined}
@@ -109,7 +114,8 @@ export function Sheet({ open, onClose, title, action, children, maxHeight = '85v
           closing ? 'm-sheet-down' : 'm-sheet-up',
         )}
         style={{
-          maxHeight,
+          // 抬起来之后可用高度也少了键盘那一截，否则面板顶端会顶出屏幕
+          maxHeight: `calc(${maxHeight} - var(--keyboard-offset, 0px))`,
           transform: dragY > 0 && !closing ? `translateY(${dragY}px)` : undefined,
           transition: dragging ? 'none' : 'transform var(--m-dur-3) var(--m-ease-out)',
         }}

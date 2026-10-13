@@ -8,5 +8,7 @@
     "strict": true,
     "types": ["node"]
   },
-  "include": ["vite.config.ts", "tailwind.config.ts"]
+  // capacitor.config.ts 一并纳入类型检查：配置键写错（比如 `ios: { scheme }` 拼错）
+  // 只有 tsc 能发现，`cap sync` 会静默忽略未知键，运行时才以「IndexedDB 失效」的形式爆出来。
+  "include": ["vite.config.ts", "tailwind.config.ts", "capacitor.config.ts"]
 }

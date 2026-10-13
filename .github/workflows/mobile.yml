@@ -1,0 +1,94 @@
+name: Mobile
+
+# 出 Android / iOS 产物。默认只在 main 上跑，也可以手动触发（Actions → Mobile → Run workflow）。
+#
+# ⚠️ 签名说明（重要）：
+# - Android 出的是 **debug APK**：能直接装到手机上用，不需要任何账号。
+# - iOS 出的是 **未签名 .app**：因为签名需要 Apple 开发者账号的证书与描述文件。
+#   未签名产物**不能**直接装到 iPhone，只有两条落地路径：
+#     ① 在有 Xcode 的 Mac 上打开 ios/App/App.xcworkspace，用你自己的 Apple ID 免费签名
+#        （7 天有效期，到期重签，适合自用）；
+#     ② 配置 Apple Developer（99 美元/年）的证书 secrets，把下面的签名步骤打开。
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - run: npm ci
+
+      # 只把 web 产物同步进 android/，不调 cap open（CI 里没有 GUI）
+      - run: npm run build
+      - run: npx cap sync android
+
+      - name: Build debug APK
+        working-directory: android
+        run: |
+          chmod +x ./gradlew
+          ./gradlew assembleDebug
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 30
+
+  ios:
+    # Capacitor 8 要求 Xcode 26+，所以必须是 macos-26（macos-15 默认只有 Xcode 16）。
+    # 如果你的组织还没开放 macos-26 runner，把这里改回 macos-15 并在 xcodebuild 前
+    # 加一步 `sudo xcode-select -s /Applications/Xcode_26.app`。
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm run build
+      - run: npx cap sync ios
+
+      # Capacitor 8 的 iOS 工程是 **纯 SPM**：没有 .xcworkspace、没有 Podfile
+      # （`ios/App/CapApp-SPM/Package.swift` 负责插件依赖）。
+      # 所以这里用 -project 而不是 -workspace —— 写成 -workspace 会直接
+      # 「does not exist」报错。将来若引入需要 CocoaPods 的插件，会生成 Podfile，
+      # 那时才需要 pod install 并切回 -workspace。
+
+      - name: Build unsigned App.app
+        run: |
+          xcodebuild \
+            -project ios/App/App.xcodeproj \
+            -scheme App \
+            -configuration Debug \
+            -sdk iphoneos \
+            -derivedDataPath ios/build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+
+      - name: Zip the .app
+        run: ditto -c -k --sequesterRST --keepParent ios/build/Build/Products/Debug-iphoneos/App.app App-unsigned.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-unsigned-app
+          path: App-unsigned.zip
+          retention-days: 30
