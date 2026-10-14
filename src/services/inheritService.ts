@@ -63,6 +63,9 @@ export function inheritUnfinishedTasks(
       id: newTaskId(),
       date: today,
       content: source.content,
+      // 继承时**带上原分组**：昨天把「开组会」归在工作，今天继承过来还是工作，
+      // 否则它会掉进「其他」，用户还得重新分一遍
+      sectionId: source.sectionId,
       done: false,
       order: orderCursor,
       createdAt: now,

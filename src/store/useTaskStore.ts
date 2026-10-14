@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 import type { Task } from '@/domain/types';
+import type { TaskSectionKey } from '@/domain/enums';
+import { OTHER_KEY } from '@/domain/enums';
 import { clock, repos } from './bootstrap';
 import { persistTasks } from './helper';
 import { newTaskId } from '@/services/idService';
@@ -17,6 +19,8 @@ interface TaskState {
   loadDate: (date: string) => Promise<void>;
   add: (date: string, content: string) => string | null;
   setContent: (id: string, content: string) => void;
+  /** 改分组（四大板块 / 其他）。同步到今日页只认四大板块，这里不作限制 */
+  setSection: (id: string, sectionId: TaskSectionKey) => void;
   toggleDone: (id: string) => void;
   move: (id: string, direction: -1 | 1) => void;
   remove: (id: string) => void;
@@ -57,6 +61,9 @@ export const useTaskStore = create<TaskState>((set, get) => {
         id: newTaskId(),
         date,
         content,
+        // 默认落在「其他」：用户还没说它属于哪个板块，就先不当作任何板块的事。
+        // 反过来（默认「工作」）会让一次同步凭空把新任务塞进工作板块。
+        sectionId: OTHER_KEY,
         done: false,
         order: nextOrder(get().tasks),
         createdAt: now,
@@ -75,6 +82,14 @@ export const useTaskStore = create<TaskState>((set, get) => {
       commit(tasks, [id], false);
     },
 
+    setSection(id, sectionId) {
+      const now = clock.now();
+      const tasks = get().tasks.map((t) =>
+        t.id === id ? { ...t, sectionId, updatedAt: now } : t,
+      );
+      commit(tasks, [id], true);
+    },
+
     toggleDone(id) {
       const now = clock.now();
       const tasks = get().tasks.map((t) => (t.id === id ? { ...t, done: !t.done, updatedAt: now } : t));
@@ -83,35 +98,46 @@ export const useTaskStore = create<TaskState>((set, get) => {
 
     move(id, direction) {
       const all = get().tasks;
+      const now = clock.now();
       /*
         只让「存活」的任务参与换位。软删的任务还留在数组里（撤销要能原样恢复），
         但它已经不在页面上 —— 让它占掉一次「下移一格」的位置，
         用户按一次按钮就会觉得少挪了一格、或者干脆没动。
       */
       const alive = all.filter((t) => t.deletedAt === null).sort(compareByOrder);
-      const index = alive.findIndex((t) => t.id === id);
-      const swapIndex = index + direction;
-      if (index === -1 || swapIndex < 0 || swapIndex >= alive.length) return;
+      const target = alive.find((t) => t.id === id);
 
-      const reordered = [...alive];
-      const moved = reordered[index];
-      const swapped = reordered[swapIndex];
+      /*
+        🔴 分组之后，换位必须**限制在同组内**。
+        任务页是按五个分组分段渲染的，若仍按全局顺序换位，按一次「下移」可能让这一行
+        跳到另一个分组里去 —— 在用户看来它不是「下移了一格」，而是「消失了又出现在别处」，
+        比不动难解释得多。
+      */
+      if (!target) return;
+      const sameGroup = alive.filter((t) => t.sectionId === target.sectionId);
+      const index = sameGroup.findIndex((t) => t.id === id);
+      const swapIndex = index + direction;
+      if (index === -1 || swapIndex < 0 || swapIndex >= sameGroup.length) return;
+
+      const moved = sameGroup[index];
+      const swapped = sameGroup[swapIndex];
       if (!moved || !swapped) return;
-      reordered[index] = swapped;
-      reordered[swapIndex] = moved;
 
       /*
         写回的是 **order 字段**，不动数组位置 —— 与板块树同一套约定：
         展示顺序由 `order` 派生（页面读出后按 order 排序），数组位置只是存放细节。
         这样「删除 → 撤销」也天然正确：软删只改 deletedAt、order 原封不动，
         撤销回来就还在它原来的名次上。
+
+        组内换位用「交换两者的 order」而不是整组重排 —— 后者会连带改动没参与换位
+        的那些任务的 order，写库范围无谓地扩大。
       */
-      const orderById = new Map(reordered.map((t, i) => [t.id, (i + 1) * ORDER_STEP]));
       const tasks = all.map((t) => {
-        const order = orderById.get(t.id);
-        return order === undefined || order === t.order ? t : { ...t, order };
+        if (t.id === moved.id) return { ...t, order: swapped.order, updatedAt: now };
+        if (t.id === swapped.id) return { ...t, order: moved.order, updatedAt: now };
+        return t;
       });
-      commit(tasks, reordered.map((t) => t.id), true);
+      commit(tasks, [moved.id, swapped.id], true);
     },
 
     remove(id) {

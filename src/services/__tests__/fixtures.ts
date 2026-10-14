@@ -1,5 +1,6 @@
 import type { DailySelfStatus, Inspiration, Item, Task, TimeSlot } from '@/domain/types';
 import type { SectionKey } from '@/domain/enums';
+import { OTHER_KEY } from '@/domain/enums';
 import { ORDER_STEP } from '@/domain/constants';
 
 /** 测试用条目工厂 */
@@ -18,6 +19,7 @@ export function makeItem(partial: Partial<Item> & { id: string }): Item {
     review: '',
     createdAt: 1000,
     updatedAt: 1000,
+    sourceTaskId: null,
     deletedAt: null,
     ...partial,
   };
@@ -27,6 +29,8 @@ export function makeTask(partial: Partial<Task> & { id: string }): Task {
   return {
     date: '2026-10-10',
     content: partial.id,
+    // 默认「其他」—— 与仓储归一化、新建任务的默认值一致
+    sectionId: OTHER_KEY,
     done: false,
     order: ORDER_STEP,
     createdAt: 1000,

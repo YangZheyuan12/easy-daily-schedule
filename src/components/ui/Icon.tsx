@@ -30,6 +30,7 @@ export type IconName =
   | 'plus'
   | 'trash'
   | 'undo'
+  | 'sync'
   | 'dot';
 
 interface IconProps {
@@ -145,6 +146,19 @@ const STROKE: Record<Exclude<IconName, 'heart' | 'star' | 'dot'>, ReactNode> = {
     <>
       <path d="M9.4 14.6 4.2 9.4l5.2-5.2" />
       <path d="M4.2 9.4h9a6.4 6.4 0 0 1 0 12.8H8.6" />
+    </>
+  ),
+  /*
+    同步：两段对向的弧形箭头。
+    「复制一份到别处」这件事没有公认的单箭头表达，用循环箭头才不会和
+    「撤销（undo）」「刷新」混淆 —— 后者都是单向的回退动作。
+  */
+  sync: (
+    <>
+      <path d="M19.5 12a7.5 7.5 0 0 1-12.8 5.3" />
+      <path d="M19.5 7.4V12h-4.6" />
+      <path d="M4.5 12a7.5 7.5 0 0 1 12.8-5.3" />
+      <path d="M4.5 16.6V12h4.6" />
     </>
   ),
 };

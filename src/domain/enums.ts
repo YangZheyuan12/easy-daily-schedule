@@ -14,6 +14,23 @@ export function isSectionKey(value: unknown): value is SectionKey {
   return typeof value === 'string' && (SECTION_KEYS as readonly string[]).includes(value);
 }
 
+/**
+ * 「其他」分组的键。任务页有五个分组：四大板块 + 其他。
+ *
+ * 它**不是**板块 —— 今日页只有四大板块（+ 灵感），没有「其他」组，
+ * 所以归到这里的任务**不参与同步到今日页**（R-043 明确要求）。
+ */
+export const OTHER_KEY = 'other';
+
+/** 任务页的五个分组键。顺序即展示顺序：四大板块在前，其他垫底 */
+export const TASK_SECTION_KEYS = [...SECTION_KEYS, OTHER_KEY] as const;
+
+export type TaskSectionKey = (typeof TASK_SECTION_KEYS)[number];
+
+export function isTaskSectionKey(value: unknown): value is TaskSectionKey {
+  return typeof value === 'string' && (TASK_SECTION_KEYS as readonly string[]).includes(value);
+}
+
 /** 评分取值：0 表示未评分，1–5 为星级。 */
 export type Rating = 0 | 1 | 2 | 3 | 4 | 5;
 

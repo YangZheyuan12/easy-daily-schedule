@@ -1,4 +1,5 @@
-import type { SectionKey } from './enums';
+import type { SectionKey, TaskSectionKey } from './enums';
+import { OTHER_KEY } from './enums';
 
 /** 板块展示配置（图标用 emoji，避免引入图标库） */
 export interface SectionConfig {
@@ -58,6 +59,29 @@ export const SECTION_CONFIG_MAP: Record<SectionKey, SectionConfig> = SECTION_CON
   },
   {} as Record<SectionKey, SectionConfig>,
 );
+
+/**
+ * 「其他」分组的展示配置。
+ *
+ * 刻意复用 `--c-ink-faint`（弱化墨色）而不是新造一个色：它在三套主题里都已定义，
+ * 且语义正好是「不属于任何板块」—— 不给它一个彩色，用户才不会以为这也是个板块。
+ */
+export const OTHER_SECTION = {
+  key: OTHER_KEY,
+  name: '其他',
+  cssVar: '--c-ink-faint',
+} as const;
+
+/** 任务分组 → 展示配置（四大板块复用板块配置，「其他」走 OTHER_SECTION） */
+export function taskSectionConfig(key: TaskSectionKey): { key: TaskSectionKey; name: string; cssVar: string } {
+  if (key === OTHER_KEY) return OTHER_SECTION;
+  return SECTION_CONFIG_MAP[key];
+}
+
+/** 同步到今日页时真正会落进板块的分组（「其他」不在其中） */
+export function isSyncableSection(key: TaskSectionKey): key is SectionKey {
+  return key !== OTHER_KEY;
+}
 
 /** 同层排序步长。中点插入 = (prev.order + next.order) / 2 */
 export const ORDER_STEP = 1000;

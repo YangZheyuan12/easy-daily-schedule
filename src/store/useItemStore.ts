@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Item, VisibleRow } from '@/domain/types';
+import type { Item, TaskSyncDraft, VisibleRow } from '@/domain/types';
 import type { Rating, SectionKey } from '@/domain/enums';
 import { clock, repos, undoService } from './bootstrap';
 import { persistItems } from './helper';
@@ -14,6 +14,7 @@ import {
   updateItem as updateItemTree,
 } from '@/services/treeService';
 import { planDelete, planUndo } from '@/services/itemMutationService';
+import { createSyncedItems } from '@/services/taskSyncService';
 import type { UndoEntry } from '@/services/undoService';
 
 interface ItemState {
@@ -37,6 +38,13 @@ interface ItemState {
   ) => string | null;
   /** 在 parentId 下新增子条目 */
   addChild: (parentId: string | null, date: string, sectionId: SectionKey) => string | null;
+  /**
+   * 把「任务页 → 同步到今日页」的草稿落成条目（R-043）。返回新建条数。
+   *
+   * 去重不在这里做 —— `planTaskSync` 已经排掉了同步过的任务。这里只负责落地，
+   * 让「哪些该建」这个判断留在纯函数里，可被单测覆盖。
+   */
+  syncFromTasks: (drafts: readonly TaskSyncDraft[]) => number;
   indent: (id: string) => void;
   outdent: (id: string) => void;
   move: (id: string, direction: -1 | 1) => void;
@@ -95,6 +103,13 @@ export const useItemStore = create<ItemState>((set, get) => {
       commit(result.items, result.touched, true);
       set({ lastCreatedId: result.newId });
       return result.newId;
+    },
+
+    syncFromTasks(drafts) {
+      if (drafts.length === 0) return 0;
+      const result = createSyncedItems(get().items, drafts, clock);
+      commit(result.items, result.touched, true);
+      return result.newIds.length;
     },
 
     indent(id) {

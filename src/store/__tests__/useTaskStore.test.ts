@@ -157,3 +157,72 @@ describe('useTaskStore.move — 软删任务不占换位名额', () => {
     expect(fakePersistence.markTasks).not.toHaveBeenCalled();
   });
 });
+
+describe('useTaskStore.setSection — 改分组', () => {
+  beforeEach(() => reset());
+
+  it('写入分组并立即落盘（改分组是一次明确的离散操作）', () => {
+    reset([T('a', ORDER_STEP)]);
+
+    useTaskStore.getState().setSection('a', 'work');
+
+    expect(useTaskStore.getState().tasks.find((t) => t.id === 'a')?.sectionId).toBe('work');
+    expect(fakePersistence.markTasks).toHaveBeenCalledTimes(1);
+    expect(fakePersistence.scheduleImmediate).toHaveBeenCalledTimes(1);
+  });
+
+  it('可以改回「其他」', () => {
+    reset([T('a', ORDER_STEP, { sectionId: 'work' })]);
+
+    useTaskStore.getState().setSection('a', 'other');
+
+    expect(useTaskStore.getState().tasks.find((t) => t.id === 'a')?.sectionId).toBe('other');
+  });
+});
+
+/*
+  分组之后，「上移 / 下移」必须只在同一组内生效。
+  任务页按五个分组分段渲染，若还按全局顺序换位，按一次「下移」会让这一行
+  跳到另一个分组里 —— 在用户看来它不是下移了一格，而是消失又出现在别处。
+*/
+describe('useTaskStore.move — 分组之后只在组内换位', () => {
+  beforeEach(() => reset());
+
+  it('同组内相邻两条正常互换', () => {
+    reset([
+      T('a', ORDER_STEP, { sectionId: 'work' }),
+      T('b', ORDER_STEP * 2, { sectionId: 'work' }),
+    ]);
+
+    useTaskStore.getState().move('a', 1);
+
+    expect(displayIds()).toEqual(['b', 'a']);
+  });
+
+  it('负向：下移的目标在另一个分组时是空操作（不跨组跳）', () => {
+    reset([
+      T('a', ORDER_STEP, { sectionId: 'work' }),
+      T('b', ORDER_STEP * 2, { sectionId: 'life' }),
+    ]);
+    const before = useTaskStore.getState().tasks;
+
+    useTaskStore.getState().move('a', 1);
+
+    expect(useTaskStore.getState().tasks).toBe(before);
+    expect(fakePersistence.markTasks).not.toHaveBeenCalled();
+  });
+
+  it('组边界：组内最后一条下移是空操作，即使全局后面还有别的分组', () => {
+    reset([
+      T('a', ORDER_STEP, { sectionId: 'work' }),
+      T('b', ORDER_STEP * 2, { sectionId: 'work' }),
+      T('c', ORDER_STEP * 3, { sectionId: 'life' }),
+    ]);
+    const before = useTaskStore.getState().tasks;
+
+    useTaskStore.getState().move('b', 1);
+
+    expect(useTaskStore.getState().tasks).toBe(before);
+    expect(fakePersistence.markTasks).not.toHaveBeenCalled();
+  });
+});

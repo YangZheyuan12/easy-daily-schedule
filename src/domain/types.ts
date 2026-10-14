@@ -1,4 +1,4 @@
-import type { Rating, SectionKey } from './enums';
+import type { Rating, SectionKey, TaskSectionKey } from './enums';
 
 
 /**
@@ -37,15 +37,29 @@ export interface Item {
   review: string;
   createdAt: number;
   updatedAt: number;
+  /**
+   * 来源任务 id：由「任务页 → 同步到今日页」产生时记录，null 表示手建的条目。
+   * 用途只有一个 —— 幂等去重（同一个任务不会被同步成两条条目）。
+   * 老数据缺该字段，仓储读取时归一化为 null。
+   */
+  sourceTaskId: string | null;
   /** 软删时间戳；null 表示未删除 */
   deletedAt: number | null;
 }
 
-/** 每日任务（独立于四大板块） */
+/** 每日任务（默认独立于四大板块，可归入五个分组之一） */
 export interface Task {
   id: string;
   date: string;
   content: string;
+  /**
+   * 所属分组：四大板块之一，或「其他」。
+   *
+   * 🔴 只有四大板块的会参与「同步到今日页」（R-043）；「其他」是任务的默认归宿 ——
+   * 它代表「这件事不属于任何板块」，同步过去没有落点。
+   * 老数据缺该字段，仓储读取时统一归一化为 `'other'`。
+   */
+  sectionId: TaskSectionKey;
   done: boolean;
   order: number;
   createdAt: number;
@@ -53,6 +67,23 @@ export interface Task {
   deletedAt: number | null;
   /** 「继承昨日」时记录的来源任务 id，用于幂等去重 */
   inheritedFrom: string | null;
+}
+
+/**
+ * 同步任务到今日页时，一条待建条目的草稿。
+ *
+ * 同步是**一次性复制**（快照），不是持续关联：点「同步」的那一刻把任务内容
+ * 复制成今日页的条目，之后两边各自独立。`taskId` 只用于去重
+ * （避免同一个任务被同步两次，在今日页留下两条一样的条目）。
+ */
+export interface TaskSyncDraft {
+  /** 来源任务 id —— 去重的唯一依据 */
+  taskId: string;
+  date: string;
+  sectionId: SectionKey;
+  title: string;
+  /** 跟随任务的完成情况：已完成的任务同步过去也是已完成 */
+  done: boolean;
 }
 
 /** 一天（惰性创建，仅在首次访问时落库） */

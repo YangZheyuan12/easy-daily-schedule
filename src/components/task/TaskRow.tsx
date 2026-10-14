@@ -3,6 +3,7 @@ import { Tick } from '@/components/ui/Tick';
 import { useEffect, useRef } from 'react';
 import clsx from 'clsx';
 import type { Task } from '@/domain/types';
+import { taskSectionConfig } from '@/domain/constants';
 import { useTaskStore } from '@/store/useTaskStore';
 
 interface TaskRowProps {
@@ -13,9 +14,11 @@ interface TaskRowProps {
   canMoveDown: boolean;
   onFocus: () => void;
   onEnter: () => void;
+  /** 点分组色点 → 改这条任务的分组（抽屉由页面持有，避免每行各挂一个） */
+  onPickSection: () => void;
 }
 
-/** 每日任务行：勾选 + 行内编辑 + 行内操作（上移 / 下移 / 删除）。 */
+/** 每日任务行：勾选 + 分组色点 + 行内编辑 + 行内操作（上移 / 下移 / 删除）。 */
 export function TaskRow({
   task,
   focused,
@@ -23,6 +26,7 @@ export function TaskRow({
   canMoveDown,
   onFocus,
   onEnter,
+  onPickSection,
 }: TaskRowProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const setContent = useTaskStore((s) => s.setContent);
@@ -34,6 +38,8 @@ export function TaskRow({
     if (focused) inputRef.current?.focus();
   }, [focused]);
 
+  const section = taskSectionConfig(task.sectionId);
+
   return (
     <div className="flex items-center min-h-tap">
       <Tick
@@ -43,6 +49,24 @@ export function TaskRow({
         className="min-w-[38px] min-h-tap"
         onToggle={() => toggleDone(task.id)}
       />
+
+      {/*
+        分组色点：这一行属于哪个分组，以及改它的入口。
+        只用颜色不用文字 —— 分组已经分段显示，组头写明了组名，行内再写一遍是冗余。
+        10px 的点配 16px 文字：再小就像个污点，看不出是可以点的。
+      */}
+      <button
+        type="button"
+        onClick={onPickSection}
+        title={`分组：${section.name}（点击修改）`}
+        aria-label={`分组：${section.name}，点击修改`}
+        className="press shrink-0 min-w-[26px] min-h-tap flex items-center justify-center"
+      >
+        <span
+          className="w-2.5 h-2.5 rounded-pill"
+          style={{ backgroundColor: `rgb(var(${section.cssVar}))` }}
+        />
+      </button>
 
       <input
         ref={inputRef}

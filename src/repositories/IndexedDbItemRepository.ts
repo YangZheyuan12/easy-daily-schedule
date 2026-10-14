@@ -12,13 +12,22 @@ import { filterAlive, filterDeleted } from './mappers';
  * 批量操作统一走 `bulkPut` + 单事务 —— 递归软删一棵子树会一次写 20+ 条记录，
  * 逐条 put 会开 20 个事务，在移动端明显掉帧。
  */
+/**
+ * 老数据缺 `sourceTaskId`（R-043 才加的字段），读取时统一归一化为 null。
+ * 不归一化也能跑（比较时 undefined 恒不等于任何 id），但那属于「靠巧合正确」——
+ * 业务层拿到的是 `string | null` 类型，就该真是这个值。
+ */
+function normalizeItem(item: Item): Item {
+  return { ...item, sourceTaskId: item.sourceTaskId ?? null };
+}
+
 export class IndexedDbItemRepository implements ItemRepository {
   constructor(private readonly db: AppDatabase) {}
 
   async listBySection(date: string, sectionId: SectionKey): Promise<Item[]> {
     try {
       const rows = await this.db.items.where('[date+sectionId]').equals([date, sectionId]).toArray();
-      return filterAlive(rows).sort(compareByOrder);
+      return filterAlive(rows).map(normalizeItem).sort(compareByOrder);
     } catch (error) {
       throw new StorageError('读取板块条目失败', error);
     }
@@ -27,7 +36,7 @@ export class IndexedDbItemRepository implements ItemRepository {
   async listByDate(date: string): Promise<Item[]> {
     try {
       const rows = await this.db.items.where('date').equals(date).toArray();
-      return filterAlive(rows).sort(compareByOrder);
+      return filterAlive(rows).map(normalizeItem).sort(compareByOrder);
     } catch (error) {
       throw new StorageError('读取当日条目失败', error);
     }
@@ -45,7 +54,7 @@ export class IndexedDbItemRepository implements ItemRepository {
         .where('date')
         .between(startDate, endDate, true, true)
         .toArray();
-      return filterAlive(rows).sort(compareByOrder);
+      return filterAlive(rows).map(normalizeItem).sort(compareByOrder);
     } catch (error) {
       throw new StorageError('读取区间条目失败', error);
     }
@@ -54,7 +63,8 @@ export class IndexedDbItemRepository implements ItemRepository {
   /** 含软删记录，仅供清理任务使用 */
   async listAll(): Promise<Item[]> {
     try {
-      return await this.db.items.toArray();
+      const rows = await this.db.items.toArray();
+      return rows.map(normalizeItem);
     } catch (error) {
       throw new StorageError('读取全部条目失败', error);
     }

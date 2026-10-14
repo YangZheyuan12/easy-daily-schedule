@@ -237,6 +237,7 @@ export function createSiblingAfter(
     review: '',
     createdAt: now,
     updatedAt: now,
+    sourceTaskId: null,
     deletedAt: null,
   };
 
@@ -274,6 +275,7 @@ export function createChild(
     review: '',
     createdAt: now,
     updatedAt: now,
+    sourceTaskId: null,
     deletedAt: null,
   };
 
