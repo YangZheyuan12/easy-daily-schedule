@@ -105,39 +105,35 @@ export const useTaskStore = create<TaskState>((set, get) => {
         用户按一次按钮就会觉得少挪了一格、或者干脆没动。
       */
       const alive = all.filter((t) => t.deletedAt === null).sort(compareByOrder);
-      const target = alive.find((t) => t.id === id);
+      const index = alive.findIndex((t) => t.id === id);
+      const swapIndex = index + direction;
+      if (index === -1 || swapIndex < 0 || swapIndex >= alive.length) return;
 
       /*
-        🔴 分组之后，换位必须**限制在同组内**。
-        任务页是按五个分组分段渲染的，若仍按全局顺序换位，按一次「下移」可能让这一行
-        跳到另一个分组里去 —— 在用户看来它不是「下移了一格」，而是「消失了又出现在别处」，
-        比不动难解释得多。
+        🔴 换位是**全局**的，不看分组（R-043 改版）。
+        任务页是单一列表平铺渲染的，分组只是每行的一个属性（色点），不是分段容器。
+        若限制成同组内换位，用户按「下移」会毫无反应 —— 而列表上明明下面还有一行。
+        分组不影响名次，这一点必须和渲染方式保持一致。
       */
-      if (!target) return;
-      const sameGroup = alive.filter((t) => t.sectionId === target.sectionId);
-      const index = sameGroup.findIndex((t) => t.id === id);
-      const swapIndex = index + direction;
-      if (index === -1 || swapIndex < 0 || swapIndex >= sameGroup.length) return;
-
-      const moved = sameGroup[index];
-      const swapped = sameGroup[swapIndex];
+      const reordered = [...alive];
+      const moved = reordered[index];
+      const swapped = reordered[swapIndex];
       if (!moved || !swapped) return;
+      reordered[index] = swapped;
+      reordered[swapIndex] = moved;
 
       /*
         写回的是 **order 字段**，不动数组位置 —— 与板块树同一套约定：
         展示顺序由 `order` 派生（页面读出后按 order 排序），数组位置只是存放细节。
         这样「删除 → 撤销」也天然正确：软删只改 deletedAt、order 原封不动，
         撤销回来就还在它原来的名次上。
-
-        组内换位用「交换两者的 order」而不是整组重排 —— 后者会连带改动没参与换位
-        的那些任务的 order，写库范围无谓地扩大。
       */
+      const orderById = new Map(reordered.map((t, i) => [t.id, (i + 1) * ORDER_STEP]));
       const tasks = all.map((t) => {
-        if (t.id === moved.id) return { ...t, order: swapped.order, updatedAt: now };
-        if (t.id === swapped.id) return { ...t, order: moved.order, updatedAt: now };
-        return t;
+        const order = orderById.get(t.id);
+        return order === undefined || order === t.order ? t : { ...t, order, updatedAt: now };
       });
-      commit(tasks, [moved.id, swapped.id], true);
+      commit(tasks, reordered.map((t) => t.id), true);
     },
 
     remove(id) {

@@ -3,6 +3,7 @@ import { Tick } from '@/components/ui/Tick';
 import { useEffect, useRef } from 'react';
 import clsx from 'clsx';
 import type { Task } from '@/domain/types';
+import { OTHER_KEY } from '@/domain/enums';
 import { taskSectionConfig } from '@/domain/constants';
 import { useTaskStore } from '@/store/useTaskStore';
 
@@ -14,11 +15,11 @@ interface TaskRowProps {
   canMoveDown: boolean;
   onFocus: () => void;
   onEnter: () => void;
-  /** 点分组色点 → 改这条任务的分组（抽屉由页面持有，避免每行各挂一个） */
+  /** 点分组标记 → 改这条任务的分组（抽屉由页面持有，避免每行各挂一个） */
   onPickSection: () => void;
 }
 
-/** 每日任务行：勾选 + 分组色点 + 行内编辑 + 行内操作（上移 / 下移 / 删除）。 */
+/** 每日任务行：勾选 + 分组标记 + 行内编辑 + 行内操作（上移 / 下移 / 删除）。 */
 export function TaskRow({
   task,
   focused,
@@ -39,6 +40,9 @@ export function TaskRow({
   }, [focused]);
 
   const section = taskSectionConfig(task.sectionId);
+  /** 「其他」= 没分组：画成空心圈，跟四个板块的实心色点在形态上就区分开 */
+  const ungrouped = task.sectionId === OTHER_KEY;
+  const label = ungrouped ? '未分组' : section.name;
 
   return (
     <div className="flex items-center min-h-tap">
@@ -51,21 +55,32 @@ export function TaskRow({
       />
 
       {/*
-        分组色点：这一行属于哪个分组，以及改它的入口。
-        只用颜色不用文字 —— 分组已经分段显示，组头写明了组名，行内再写一遍是冗余。
+        分组标记：这一行属于哪个分组，以及改它的入口（点开抽屉选）。
+        静态排版里只留一个点（写了组名是冗余，列表是平铺的、一眼能看到十来行）；
+        **正在填写这一行时才把组名展开** —— 用户说「填写时可以选择分组」，
+        那他敲字的时候必须能看见自己选的是什么，而不是靠记住颜色。
         10px 的点配 16px 文字：再小就像个污点，看不出是可以点的。
       */}
       <button
         type="button"
         onClick={onPickSection}
-        title={`分组：${section.name}（点击修改）`}
-        aria-label={`分组：${section.name}，点击修改`}
-        className="press shrink-0 min-w-[26px] min-h-tap flex items-center justify-center"
+        title={`分组：${label}（点击修改）`}
+        aria-label={`分组：${label}，点击修改`}
+        className={clsx(
+          'press shrink-0 min-h-tap flex items-center justify-center gap-1 min-w-[26px]',
+          focused && 'px-1.5',
+        )}
       >
         <span
-          className="w-2.5 h-2.5 rounded-pill"
-          style={{ backgroundColor: `rgb(var(${section.cssVar}))` }}
+          className={clsx(
+            'w-2.5 h-2.5 rounded-pill shrink-0',
+            ungrouped && 'border border-edge-strong',
+          )}
+          style={ungrouped ? undefined : { backgroundColor: `rgb(var(${section.cssVar}))` }}
         />
+        {focused && (
+          <span className="text-caption text-ink-muted whitespace-nowrap">{label}</span>
+        )}
       </button>
 
       <input

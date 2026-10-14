@@ -181,17 +181,17 @@ describe('useTaskStore.setSection — 改分组', () => {
 });
 
 /*
-  分组之后，「上移 / 下移」必须只在同一组内生效。
-  任务页按五个分组分段渲染，若还按全局顺序换位，按一次「下移」会让这一行
-  跳到另一个分组里 —— 在用户看来它不是下移了一格，而是消失又出现在别处。
+  分组**不影响**换位：任务页是单一列表平铺渲染的，分组只是每行的一个属性（色点），
+  不是分段容器。若换位被限制在组内，用户按「下移」会毫无反应 ——
+  而列表上明明下面还有一行，那看起来就像按钮坏了。
 */
-describe('useTaskStore.move — 分组之后只在组内换位', () => {
+describe('useTaskStore.move — 分组不参与换位判断', () => {
   beforeEach(() => reset());
 
-  it('同组内相邻两条正常互换', () => {
+  it('相邻两条分组不同也能互换（列表是平铺的，名次与分组无关）', () => {
     reset([
       T('a', ORDER_STEP, { sectionId: 'work' }),
-      T('b', ORDER_STEP * 2, { sectionId: 'work' }),
+      T('b', ORDER_STEP * 2, { sectionId: 'life' }),
     ]);
 
     useTaskStore.getState().move('a', 1);
@@ -199,20 +199,31 @@ describe('useTaskStore.move — 分组之后只在组内换位', () => {
     expect(displayIds()).toEqual(['b', 'a']);
   });
 
-  it('负向：下移的目标在另一个分组时是空操作（不跨组跳）', () => {
+  it('换位后各行的分组属性原样保留', () => {
     reset([
       T('a', ORDER_STEP, { sectionId: 'work' }),
       T('b', ORDER_STEP * 2, { sectionId: 'life' }),
     ]);
-    const before = useTaskStore.getState().tasks;
 
     useTaskStore.getState().move('a', 1);
 
-    expect(useTaskStore.getState().tasks).toBe(before);
-    expect(fakePersistence.markTasks).not.toHaveBeenCalled();
+    expect(useTaskStore.getState().tasks.find((t) => t.id === 'a')?.sectionId).toBe('work');
+    expect(useTaskStore.getState().tasks.find((t) => t.id === 'b')?.sectionId).toBe('life');
   });
 
-  it('组边界：组内最后一条下移是空操作，即使全局后面还有别的分组', () => {
+  it('中间那条能跨过分组边界下移（列表是平铺的，它下面就是「下一行」）', () => {
+    reset([
+      T('a', ORDER_STEP, { sectionId: 'work' }),
+      T('b', ORDER_STEP * 2, { sectionId: 'work' }),
+      T('c', ORDER_STEP * 3, { sectionId: 'life' }),
+    ]);
+
+    useTaskStore.getState().move('b', 1);
+
+    expect(displayIds()).toEqual(['a', 'c', 'b']);
+  });
+
+  it('末行下移是空操作（边界是整条列表的末行，不是「同组最后一个」）', () => {
     reset([
       T('a', ORDER_STEP, { sectionId: 'work' }),
       T('b', ORDER_STEP * 2, { sectionId: 'work' }),
@@ -220,7 +231,7 @@ describe('useTaskStore.move — 分组之后只在组内换位', () => {
     ]);
     const before = useTaskStore.getState().tasks;
 
-    useTaskStore.getState().move('b', 1);
+    useTaskStore.getState().move('c', 1);
 
     expect(useTaskStore.getState().tasks).toBe(before);
     expect(fakePersistence.markTasks).not.toHaveBeenCalled();

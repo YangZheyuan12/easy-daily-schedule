@@ -17,7 +17,7 @@ interface SectionPickerSheetProps {
  * 「其他」存在的意义：不是每件事都属于四大板块（「取个快递」既不是工作也不是学习）。
  * 没有它，用户只有两个选择 —— 硬塞进一个不对的板块，或者干脆不记。
  *
- * 底部那句说明是必须的：**「其他」不参与同步到今日页**这件事如果不写在这里，
+ * 底部那句说明是必须的：**「其他」= 没分组、不参与同步到今日页**这件事如果不写在这里，
  * 用户会以为自己漏操作了（点了同步却发现有些任务没过去）。
  */
 export function SectionPickerSheet({ open, current, onPick, onClose }: SectionPickerSheetProps) {
@@ -57,7 +57,7 @@ export function SectionPickerSheet({ open, current, onPick, onClose }: SectionPi
         </div>
 
         <p className="mt-3 px-0.5 text-caption text-ink-faint">
-          四大板块的任务可以「同步到今日」，归到「其他」的不参与同步。
+          选四大板块的任务可以「同步到今日」；选「其他」= 不分组，不参与同步。
         </p>
       </div>
     </Sheet>

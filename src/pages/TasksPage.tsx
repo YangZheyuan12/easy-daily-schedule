@@ -1,8 +1,8 @@
 import { Icon } from '@/components/ui/Icon';
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { TASK_SECTION_KEYS, type TaskSectionKey } from '@/domain/enums';
-import { compareByOrder, taskSectionConfig } from '@/domain/constants';
+import type { TaskSectionKey } from '@/domain/enums';
+import { compareByOrder } from '@/domain/constants';
 import { useTaskStore } from '@/store/useTaskStore';
 import { useItemStore } from '@/store/useItemStore';
 import { useDayStore } from '@/store/useDayStore';
@@ -17,11 +17,14 @@ import { planTaskSync } from '@/services/taskSyncService';
 import { formatShortDate, isToday } from '@/utils/date';
 
 /**
- * 每日任务页：按五大分组（四大板块 + 其他）分段展示，支持一键继承昨日未完成，
- * 以及把四大分组的任务**同步到今日页**（R-043）。
+ * 每日任务页：**单一列表平铺**，支持一键继承昨日未完成，
+ * 以及把四大板块的任务**同步到今日页**（R-043）。
  *
- * 分组之后「上移 / 下移」只在组内生效（见 `useTaskStore.move`）—— 跨组换位会让
- * 一行任务在视觉上跳到另一个分组里，那不叫「下移了一格」。
+ * 🔴 分组**不是**分段容器，只是每条任务的一个属性（行首的色点）。
+ * 试过按五大分组分段渲染，结果是：空组要处理、跨组换位语义崩坏（按「下移」
+ * 这一行会跳到另一个分组里，看起来像消失又出现在别处），而用户真正想要的
+ * 只是「写这条任务时能顺手标一下它属于哪块」。所以列表退回平铺，
+ * 分组退化成一个随时可改的标记 —— 名次与分组互不干涉。
  */
 export function TasksPage() {
   const navigate = useNavigate();
@@ -49,20 +52,6 @@ export function TasksPage() {
   );
   const progress = useMemo(() => computeTaskProgress(alive), [alive]);
 
-  /*
-    只渲染**非空**分组。今日页的空板块必须展示（它是「今天还没记这个板块」的唯一入口），
-    但任务页的空组没有入口功能 —— 添加统一走底部「+ 添加任务」，摆一排空组头只是增加滚动长度。
-  */
-  const groups = useMemo(
-    () =>
-      TASK_SECTION_KEYS.map((key) => ({
-        key,
-        config: taskSectionConfig(key),
-        list: alive.filter((t) => t.sectionId === key),
-      })).filter((group) => group.list.length > 0),
-    [alive],
-  );
-
   const pickingTask = pickingId === null ? null : alive.find((t) => t.id === pickingId) ?? null;
 
   const handleInherit = async () => {
@@ -82,7 +71,7 @@ export function TasksPage() {
     const count = currentDrafts().length;
     // 没有可同步的就不弹框 —— 弹一个「确认同步 0 项」的框只会让人以为坏了
     if (count === 0) {
-      pushToast(alive.length === 0 ? '还没有任务可以同步' : '四大分组的任务都已经同步到今日了');
+      pushToast(alive.length === 0 ? '还没有任务可以同步' : '四大板块的任务都已经同步到今日了');
       return;
     }
     setSyncCount(count);
@@ -158,42 +147,25 @@ export function TasksPage() {
             }
           />
         ) : (
-          /* 概念稿 C4：每个分组一张纸卡，行与行之间不画线 */
-          <div className="space-y-3">
-            {groups.map((group) => (
-              <section key={group.key}>
-                <div className="h-8 flex items-center gap-2">
-                  <span
-                    className="w-2 h-2 rounded-pill shrink-0"
-                    style={{ backgroundColor: `rgb(var(${group.config.cssVar}))` }}
-                  />
-                  <span className="text-heading font-semibold text-ink">{group.config.name}</span>
-                  <span className="ml-auto text-caption text-ink-faint tabular-nums">
-                    {group.list.length} 项
-                  </span>
-                </div>
-
-                <div className="bg-surface rounded-card shadow-card p-1.5">
-                  {group.list.map((task, index) => (
-                    <TaskRow
-                      key={task.id}
-                      task={task}
-                      /* 首行不能上移、末行不能下移 —— 按钮自己把这个事实显示出来（置灰），
-                         而不是点下去什么都不发生（原来的样子，用户会以为按钮坏了）。
-                         边界是**组内**的：分组之后跨组换位没有意义 */
-                      canMoveUp={index > 0}
-                      canMoveDown={index < group.list.length - 1}
-                      focused={focusId === task.id}
-                      onFocus={() => setFocusId(task.id)}
-                      onEnter={() => {
-                        const id = add(date, '');
-                        if (id) setFocusId(id);
-                      }}
-                      onPickSection={() => setPickingId(task.id)}
-                    />
-                  ))}
-                </div>
-              </section>
+          /* 概念稿 C4：所有任务装在同一张纸卡里，行与行之间不画线 */
+          <div className="bg-surface rounded-card shadow-card p-1.5">
+            {alive.map((task, index) => (
+              <TaskRow
+                key={task.id}
+                task={task}
+                /* 首行不能上移、末行不能下移 —— 按钮自己把这个事实显示出来（置灰），
+                   而不是点下去什么都不发生（原来的样子，用户会以为按钮坏了）。
+                   边界是**整条列表**的首尾：分组不参与名次判断 */
+                canMoveUp={index > 0}
+                canMoveDown={index < alive.length - 1}
+                focused={focusId === task.id}
+                onFocus={() => setFocusId(task.id)}
+                onEnter={() => {
+                  const id = add(date, '');
+                  if (id) setFocusId(id);
+                }}
+                onPickSection={() => setPickingId(task.id)}
+              />
             ))}
           </div>
         )}
@@ -233,7 +205,7 @@ export function TasksPage() {
         message={
           <>
             将把 {syncCount} 项任务复制到今日页对应的板块（追加在该板块现有条目之后）。
-            归到「其他」分组的任务不参与同步；已经同步过的任务不会重复添加。
+            没分组（「其他」）的任务不参与同步；已经同步过的任务不会重复添加。
           </>
         }
         onConfirm={confirmSync}
