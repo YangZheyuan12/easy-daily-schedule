@@ -278,6 +278,9 @@ npm run mobile:ios       # 同步并打开 Xcode
    「添加到主屏幕」，就有一个 App 图标，离线可用（数据在 IndexedDB）。
    ⚠️ 需要先在仓库 Settings → Pages → Source 选 **GitHub Actions**（只设一次）。
 2. **Android**：`mobile.yml` 产出 **debug APK**，可直接装到手机，不需要任何账号。
+   ⚠️ 一次推送会触发 **CI / Mobile / Pages 三个独立运行**，只有 **Mobile** 那次运行的
+   底部 Artifacts 里有 `android-debug-apk`；CI 那次的产物是 `web-dist`（网页构建产物），
+   不是安装包 —— 找错运行会以为「APK 没生成」。
 3. **iOS**：**必须有 Mac + Xcode**（Capacitor 8 要求 Xcode 26+）。CI 只能出
    **未签名 `.app`**，装不到 iPhone 上 —— 落地路径只有两条：
    在有 Xcode 的 Mac 上打开 `ios/App/App.xcworkspace` 用 **自己的 Apple ID 免费签名**

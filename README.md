@@ -104,6 +104,10 @@ npm run mobile:ios       # 同步并打开 Xcode
 （需要先在仓库 Settings → Pages → Source 选 **GitHub Actions**，只设一次），
 iPhone 上用 Safari 打开 →「添加到主屏幕」，就有 App 图标，离线可用。
 
+> **下载 APK 时容易点错**：一次推送会同时触发 **CI / Mobile / Pages 三个独立运行**。
+> 只有 **Mobile** 那次运行底部的 Artifacts 里才有 `android-debug-apk`；
+> CI 那次的产物叫 `web-dist`（网页构建产物），不是安装包。
+
 ⚠️ 两条硬约束：
 
 - **iOS 打包必须 macOS + Xcode**（Capacitor 8 要求 Xcode 26+）。Windows 上只能准备工程、

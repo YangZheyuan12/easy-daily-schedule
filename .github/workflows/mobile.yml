@@ -84,8 +84,26 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             build
 
+      # 先打印产物树再打包：不同 Xcode 版本（以及将来若切回 CocoaPods）下
+      # .app 的实际落点会变，硬编码路径一旦对不上就只剩一句 "No such file"，
+      # 没有现场信息就没法远程排错。
+      - name: List build products
+        if: always()
+        run: |
+          echo "--- ios/build/Build/Products ---"
+          find ios/build/Build/Products -maxdepth 3 2>/dev/null || echo "(Products 目录不存在)"
+          echo "--- 全盘找 .app ---"
+          find ios/build -maxdepth 6 -name "*.app" -type d 2>/dev/null || true
+
       - name: Zip the .app
-        run: ditto -c -k --sequesterRST --keepParent ios/build/Build/Products/Debug-iphoneos/App.app App-unsigned.zip
+        run: |
+          APP=$(find ios/build -maxdepth 6 -name "*.app" -type d | head -n 1)
+          if [ -z "$APP" ]; then
+            echo "::error::没找到任何 .app，xcodebuild 的产物落点与预期不符（见上一步的目录树）"
+            exit 1
+          fi
+          echo "打包: $APP"
+          ditto -c -k --sequesterRST --keepParent "$APP" App-unsigned.zip
 
       - uses: actions/upload-artifact@v4
         with:

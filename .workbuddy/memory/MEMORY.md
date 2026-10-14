@@ -171,6 +171,10 @@ npm run test:strict   # 逐文件跑并校验无文件漏跑
 - CI：`.github/workflows/{ci,mobile,pages}.yml` —— 网页闸门 / Android debug APK /
   **iOS 未签名 .app**（装不上 iPhone，需 Xcode + 免费 Apple ID 签名，7 天有效期）/ Pages 部署。
   iOS job 用 `macos-26` runner（Capacitor 8 要 Xcode 26+）。
+- 🔴 **Capacitor 8 的 iOS 工程是纯 SPM**：`ios/App/` 下**没有 `.xcworkspace`、没有 `Podfile`**，
+  插件依赖走 `ios/App/CapApp-SPM/Package.swift`。所以 xcodebuild 必须用
+  **`-project ios/App/App.xcodeproj`**，写 `-workspace` 会直接报「does not exist」。
+  （我最初就是照老经验写了 -workspace，靠 `ls ios/App` 才发现的。）
 
 ## ⚠️ 已知未修问题（发现即记账，别重复发现）
 - **数据导出 / 导入缺失**：配合 Capacitor 后这是最高优先级风险（见上节 iOS 回收数据）。
