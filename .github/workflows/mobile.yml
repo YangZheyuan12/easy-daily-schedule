@@ -2,13 +2,18 @@ name: Mobile
 
 # 出 Android / iOS 产物。默认只在 main 上跑，也可以手动触发（Actions → Mobile → Run workflow）。
 #
-# ⚠️ 签名说明（重要）：
-# - Android 出的是 **debug APK**：能直接装到手机上用，不需要任何账号。
-# - iOS 出的是 **未签名 .app**：因为签名需要 Apple 开发者账号的证书与描述文件。
-#   未签名产物**不能**直接装到 iPhone，只有两条落地路径：
-#     ① 在有 Xcode 的 Mac 上打开 ios/App/App.xcworkspace，用你自己的 Apple ID 免费签名
-#        （7 天有效期，到期重签，适合自用）；
-#     ② 配置 Apple Developer（99 美元/年）的证书 secrets，把下面的签名步骤打开。
+# ⚠️ 签名说明（重要，决定了两个 job 的定位差别很大）：
+# - **Android**：出 **debug APK**，能直接装到手机上用，不需要任何账号。这是真正可用的产物。
+# - **iOS**：这个 job 的定位是**「验证 Xcode 工程能编译」**，不是出安装包。
+#   原因：Apple 不允许未签名 App 装进 iPhone，签名必须要有
+#     ① 一台装了 Xcode 的 Mac（用免费 Apple ID 自签，7 天有效期），或
+#     ② Apple Developer（99 美元/年）的证书 + 描述文件（配成 secrets 后 CI 才能自动签名）。
+#   两条路 CI 都替代不了：① 需要你的 Apple ID 交互，② 需要你先买账号。
+#   所以这里改成**编模拟器版本**（模拟器不需要签名，能稳定产出），
+#   产物 `ios-simulator-app` 同样**装不到真机**，它的价值是「Xcode 工程没坏」这件事有机器在盯。
+#
+#   想在 iPhone 上真的用起来，且手上没有 Mac → 走 `pages.yml` 的网页版，
+#   Safari 打开后「添加到主屏幕」，离线可用、有 App 图标。见 docs/MOBILE-APP-MIGRATION.md。
 on:
   push:
     branches: [main]
@@ -71,17 +76,18 @@ jobs:
       # 「does not exist」报错。将来若引入需要 CocoaPods 的插件，会生成 Podfile，
       # 那时才需要 pod install 并切回 -workspace。
 
-      - name: Build unsigned App.app
+      # 编模拟器而不是真机：模拟器构建**完全不需要签名**，所以不会再因为签名被禁用而
+      # 拿不到 .app（之前 `-sdk iphoneos` + CODE_SIGNING_ALLOWED=NO 那套，xcodebuild
+      # 报 BUILD SUCCEEDED 却产不出 .app，且 CI 日志要管理员权限才看得到，远程排不了错）。
+      - name: Build App.app (iOS Simulator)
         run: |
           xcodebuild \
             -project ios/App/App.xcodeproj \
             -scheme App \
             -configuration Debug \
-            -sdk iphoneos \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
             -derivedDataPath ios/build \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY="" \
             build
 
       # 先打印产物树再打包：不同 Xcode 版本（以及将来若切回 CocoaPods）下
@@ -103,10 +109,11 @@ jobs:
             exit 1
           fi
           echo "打包: $APP"
-          ditto -c -k --sequesterRST --keepParent "$APP" App-unsigned.zip
+          ditto -c -k --sequesterRST --keepParent "$APP" App-simulator.zip
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ios-unsigned-app
-          path: App-unsigned.zip
+          # 名字里带 simulator 是故意的：提醒下载的人它装不到 iPhone
+          name: ios-simulator-app
+          path: App-simulator.zip
           retention-days: 30

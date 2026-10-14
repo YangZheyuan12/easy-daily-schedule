@@ -110,9 +110,13 @@ iPhone 上用 Safari 打开 →「添加到主屏幕」，就有 App 图标，�
 
 ⚠️ 两条硬约束：
 
-- **iOS 打包必须 macOS + Xcode**（Capacitor 8 要求 Xcode 26+）。Windows 上只能准备工程、
-  跑 `cap sync`，**不能**构建 iOS 产物。CI 能出 iOS 未签名 `.app`，但它装不到 iPhone ——
-  需要在 Xcode 里用自己的 Apple ID 签名（免费，7 天有效期，自用够用）。
+- **iOS 必须有 Mac，没有第三条路。** Apple 不允许未签名 App 装进 iPhone，签名要么靠
+  **装了 Xcode 的 Mac**（免费 Apple ID 自签，7 天有效期，到期重签），要么靠
+  **Apple Developer 账号**（99 美元/年，配好证书后 CI 才能自动签名）。
+  Windows 上只能准备工程、跑 `cap sync`，**产不出能装的东西**。
+  CI 里那个 iOS job 的定位因此改成**编译校验**（编模拟器版，模拟器不需要签名），
+  它的产物 `ios-simulator-app` 同样**装不到真机**。
+  → 手上没 Mac 又想在 iPhone 上用：**用 Pages 网页版，Safari「添加到主屏幕」**。
 - **Android 出的是 debug APK**，可以直接装，不需要任何账号。
 
 完整评估（四条路线对比、逐项改动清单、待办）见 `docs/MOBILE-APP-MIGRATION.md`。

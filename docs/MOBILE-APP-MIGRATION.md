@@ -281,10 +281,14 @@ npm run mobile:ios       # 同步并打开 Xcode
    ⚠️ 一次推送会触发 **CI / Mobile / Pages 三个独立运行**，只有 **Mobile** 那次运行的
    底部 Artifacts 里有 `android-debug-apk`；CI 那次的产物是 `web-dist`（网页构建产物），
    不是安装包 —— 找错运行会以为「APK 没生成」。
-3. **iOS**：**必须有 Mac + Xcode**（Capacitor 8 要求 Xcode 26+）。CI 只能出
-   **未签名 `.app`**，装不到 iPhone 上 —— 落地路径只有两条：
-   在有 Xcode 的 Mac 上打开 `ios/App/App.xcworkspace` 用 **自己的 Apple ID 免费签名**
-   （7 天有效期，到期重签，自用够用）；或买 Apple Developer（99 美元/年）配证书走完整签名。
+3. **iOS**：**必须有 Mac + Xcode**（Capacitor 8 要求 Xcode 26+），没有第三条路。
+   Apple 不允许未签名 App 装进 iPhone —— 签名要么靠装了 Xcode 的 Mac
+   （打开 `ios/App/App.xcodeproj`，用自己的 Apple ID 免费自签，7 天有效期、到期重签，
+   自用够用），要么靠 Apple Developer（99 美元/年）配证书后让 CI 自动签名。
+   CI 里的 iOS job 因此**不出安装包**，只做**编译校验**（编模拟器版，模拟器不需要签名）；
+   产物 `ios-simulator-app` 装不到真机。
+   → 手上没 Mac 又想在 iPhone 上用：**用上面的 Pages 网页版 +「添加到主屏幕」**，
+   这是无 Mac 情况下唯一能在 iOS 上真正跑起来的形态。
 
 ### 还没做 / 建议下一步
 
