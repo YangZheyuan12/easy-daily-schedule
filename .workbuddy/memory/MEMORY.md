@@ -170,9 +170,13 @@ npm run test:strict   # 逐文件跑并校验无文件漏跑
    `trees?recursive=1` 只数 `"type":"blob"`；报数前先找第二条路径核对。
 3. **npm optional deps bug** 会让 `@rollup/rollup-win32-x64-msvc`、`@esbuild/win32-x64` 缺失。
    解法：`npm install @rollup/rollup-win32-x64-msvc @esbuild/win32-x64 --no-save`
-4. **沙箱代理放行名单会变**，别信「刚才还能推」。逐主机探测
-   `curl -x $http_proxy -o /dev/null -w "%{http_code}" https://<host>`。`dangerouslyDisableSandbox`
-   不解除网络限制。
+4. **🔴 `curl` 探测不通 ≠ git 不通，别据此断言「推不了」。** 曾因
+   `curl -x $http_proxy https://github.com` 返回 000（只有 `api.github.com` 通）
+   就判定「沙箱推不了、只能让用户手动 push」，而实际
+   `/d/apps/Git/cmd/git.exe fetch/push origin main` **完全正常**（走 git 自己的通道）。
+   2026-10-14 实测：`git push origin main` 一次成功。
+   → 以后凡涉及 push，**先真跑一次**，别用 curl 的探测结果代替。
+   排错顺序：`git fetch` → 看 `origin/main..main` → 直接 push。
 
 ## 移动端打包（路线 B：Capacitor，2026-10-14 已落地）
 决策：自用 + 别人 clone 可用 / iOS 要能用 / **不做系统通知** / 走 Capacitor 套壳。
