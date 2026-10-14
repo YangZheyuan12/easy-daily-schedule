@@ -9,6 +9,8 @@ import { Tick } from '@/components/ui/Tick';
 import { buildDiaryList } from '@/services/diaryService';
 import { useInspirationStore } from '@/store/useInspirationStore';
 import { useItemStore } from '@/store/useItemStore';
+import { useTimeSlotStore } from '@/store/useTimeSlotStore';
+import { minToHHMM } from '@/utils/date';
 import { staggerDelay } from '@/utils/motion';
 
 interface DiaryListProps {
@@ -24,13 +26,20 @@ interface DiaryListProps {
  *
  * 取代原先的四张 SectionCard 网格 —— 把「今天做了什么 / 想到什么」按日记顺序
  * 串成一条，编号只是展示用的派生值，不写库。
+ *
+ * 四板块的每一行有两类来源：**本板块的条目**（可勾选、可增删）与
+ * **时间轴里归到本板块的时间段**（只读投影，勾选直接写回时间轴那条记录）。
  */
 export function DiaryList({ date }: DiaryListProps) {
   const navigate = useNavigate();
   const items = useItemStore((s) => s.items);
   const inspirations = useInspirationStore((s) => s.inspirations);
+  const slots = useTimeSlotStore((s) => s.slots);
 
-  const groups = useMemo(() => buildDiaryList(items, inspirations), [items, inspirations]);
+  const groups = useMemo(
+    () => buildDiaryList(items, inspirations, slots),
+    [items, inspirations, slots],
+  );
 
   return (
     <div className="space-y-4">
@@ -43,6 +52,7 @@ export function DiaryList({ date }: DiaryListProps) {
             group={group}
             date={date}
             onNavigate={(sectionId) => navigate(`/section/${sectionId}?date=${date}`)}
+            onOpenTimeline={() => navigate('/timeline')}
           />
         ),
       )}
@@ -54,13 +64,15 @@ interface SectionGroupProps {
   group: DiaryGroup;
   date: string;
   onNavigate: (sectionId: string) => void;
+  /** 点「来自时间轴」的那一行 → 去时间轴页编辑（板块页只有条目树，改不到时间段） */
+  onOpenTimeline: () => void;
 }
 
 /**
  * 四板块组：色点 + 组名 + 条目数，组头点击跳板块详情（树形编辑入口保留）；
  * 内部是编号条目与子项，底部恒定一行内联快速添加（与灵感组同构）。
  */
-function SectionGroup({ group, date, onNavigate }: SectionGroupProps) {
+function SectionGroup({ group, date, onNavigate, onOpenTimeline }: SectionGroupProps) {
   const config = SECTION_CONFIG_MAP[group.key as keyof typeof SECTION_CONFIG_MAP];
   const addSibling = useItemStore((s) => s.addSibling);
   const [draft, setDraft] = useState('');
@@ -77,9 +89,14 @@ function SectionGroup({ group, date, onNavigate }: SectionGroupProps) {
 
   const empty = draft.trim().length === 0;
 
-  const topItems = group.entries.filter((e) => e.kind === 'item');
-  const doneCount = topItems.filter((e) => e.item?.done).length;
-  const totalCount = topItems.length;
+  /*
+    组头计数 = 本板块顶层条目 + 归到本板块的时间段（两者都编号、都算一件「要做的事」）。
+    口径与日历摘要卡 `DaySummary.sections` 一致 —— 后者早就把归类时间段并进板块完成度了，
+    而这里原先只数条目，于是同一天在两处会显示不同的「1/3」和「1/2」。现在对齐。
+  */
+  const topEntries = group.entries.filter((e) => e.kind === 'item' || e.kind === 'timeSlot');
+  const doneCount = topEntries.filter((e) => e.item?.done ?? e.timeSlot?.done ?? false).length;
+  const totalCount = topEntries.length;
   const placeholder = config?.placeholder ?? `记录一项${group.name}…`;
 
   return (
@@ -109,10 +126,11 @@ function SectionGroup({ group, date, onNavigate }: SectionGroupProps) {
         <ul>
           {group.entries.map((entry, index) => (
             <DiaryRow
-              key={entry.item?.id ?? entry.inspiration?.id}
+              key={entry.item?.id ?? entry.inspiration?.id ?? entry.timeSlot?.id}
               entry={entry}
               index={index}
               onNavigate={onNavigate}
+              onOpenTimeline={onOpenTimeline}
             />
           ))}
         </ul>
@@ -241,6 +259,8 @@ interface DiaryRowProps {
   /** 在本组中的序号，只用来算落定延迟 */
   index: number;
   onNavigate: (sectionId: string) => void;
+  /** 时间段行专用：去时间轴页编辑 */
+  onOpenTimeline: () => void;
 }
 
 /**
@@ -252,9 +272,55 @@ interface DiaryRowProps {
  * 和「我刚划掉它」这个动作对不上；而且它必须挂在行内 span 上，
  * 挂在撑满整行的按钮上会有一条横贯空白区的长线。
  */
-function DiaryRow({ entry, index, onNavigate }: DiaryRowProps) {
+function DiaryRow({ entry, index, onNavigate, onOpenTimeline }: DiaryRowProps) {
   const toggleDone = useItemStore((s) => s.toggleDone);
+  const toggleSlotDone = useTimeSlotStore((s) => s.toggleDone);
   const item = entry.item;
+  const slot = entry.timeSlot;
+
+  /*
+    `kind === 'timeSlot'`：时间轴里归到本板块的时间段，投影出来的一行。
+    与条目行同构（编号 + 圆形勾选框 + 16px 标题），只多一个开始时间 —— 它是
+    「这条为什么会出现在这里」的唯一标记，去掉的话用户只会以为是自己记过又忘了。
+
+    勾选直接写回 `TimeSlot.done`（不复制成条目），所以今日页与时间轴天然一致，
+    点行则去时间轴改内容 —— 板块页只有条目树，编辑不到时间段。
+  */
+  if (entry.kind === 'timeSlot' && slot) {
+    return (
+      <li
+        className="m-rise flex items-center gap-2.5 py-1.5"
+        style={{ animationDelay: staggerDelay(index) }}
+      >
+        <span className="shrink-0 w-5 text-right text-caption text-ink-faint tabular-nums">
+          {entry.displayNo}
+        </span>
+        <Tick
+          done={slot.done}
+          size={16}
+          shape="circle"
+          className="w-4 h-4 tap-expand"
+          onToggle={() => toggleSlotDone(slot.id)}
+        />
+        <span className="shrink-0 text-meta tabular-nums text-ink-faint">
+          {minToHHMM(slot.startMin)}
+        </span>
+        <button
+          type="button"
+          onClick={onOpenTimeline}
+          className={clsx(
+            'flex-1 min-w-0 text-left text-lead leading-6 truncate',
+            slot.done ? 'text-ink-faint' : 'text-ink',
+          )}
+        >
+          <span className="m-strike" data-done={slot.done}>
+            {slot.content || '未命名时间段'}
+          </span>
+        </button>
+      </li>
+    );
+  }
+
   if (!item) return null;
 
   const done = item.done;

@@ -201,14 +201,29 @@ export interface DiaryGroup {
   entries: DiaryEntry[];
 }
 
-/** 主页日记体列表里的一行（顶层条目 / 子项 / 灵感） */
+/** 主页日记体列表里的一行（顶层条目 / 子项 / 灵感 / 时间轴时间段） */
 export interface DiaryEntry {
-  /** 展示编号：仅四板块顶层条目跨组连续 1~N；子项与灵感恒为 null */
+  /**
+   * 展示编号：四板块的**顶层条目**与**归类到该板块的时间段**跨组连续 1~N；
+   * 子项与灵感恒为 null。
+   *
+   * 时间段也编号，是因为它既然计入该板块的完成率（`DaySummary.sections` 已如此），
+   * 就等价于该板块的一件「顶层要做的事」；若不给编号，会出现组头写着 3 项、
+   * 列表里却只有 2 个编号的错位。
+   */
   displayNo: number | null;
-  kind: 'item' | 'child' | 'inspiration';
+  kind: 'item' | 'child' | 'inspiration' | 'timeSlot';
   item?: Item;
   inspiration?: Inspiration;
-  /** 缩进深度（item/child），0 = 顶层 */
+  /**
+   * `kind === 'timeSlot'` 时的源时间段。
+   *
+   * 🔴 这是**只读投影**，不是复制出来的 Item：今日页展示的是时间轴那条数据的
+   * 一个视图，勾选直接写回 `TimeSlot.done`。不落第二条记录，就不存在
+   * 「改了标题这边、那边没跟着变」的双向同步问题，撤销语义也保持单一。
+   */
+  timeSlot?: TimeSlot;
+  /** 缩进深度（item/child/timeSlot），0 = 顶层 */
   depth: number;
 }
 

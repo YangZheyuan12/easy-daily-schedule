@@ -71,6 +71,15 @@ components 2754 / pages 1125 / theme 158 / router 33 / repositories 618。
 - 主页编号 = 展示序号，仅四板块**顶层条目**跨组连续 1~N；子项/灵感不编号
 - 时间段带 `sectionId` 时按 `done` 折叠进该板块完成度；不带只贡献「当天有记录」。
   灵感只贡献「有记录」，不进 sections/overall/日历色点
+- **R-042（2026-10-14 已实现）时间段同步到今日页**：`sectionId !== null` 且未软删的时间段，
+  **只读投影**进今日页对应板块（`DiaryEntry.kind === 'timeSlot'`），排在该板块条目**之后**，
+  与顶层条目一起参与跨组连续编号；勾选直接写回 `TimeSlot.done`。
+  🔴 **只读投影，绝不复制成 Item** —— 一份数据就没有双向同步问题，撤销语义也单一
+  （`entries[i].item` 恒 undefined，有单测卡着）。
+  今日页组头计数 = 顶层条目 + 归类时间段，与 `DaySummary.sections` 口径对齐
+  （此前组头只数条目、日历摘要卡数两者，同一天两处数字不一致）。
+  **刻意不改 `SectionPage`**：板块详情页只数 items —— 它管的是条目树，
+  加入只读时间段行会让编辑交互变复杂（不能缩进/加子项）。这是「今日=汇总视图，板块页=条目编辑视图」的区分。
 - `order` 步长 1000，中点插入。**末位公式** `children.length===0 ? ORDER_STEP : maxOrder+ORDER_STEP`
 - **🔴 展示顺序一律从 `order` 派生，不是数组位置**：渲染端 `.filter(alive).sort(compareByOrder)`；
   `useTaskStore.move` 只在存活任务间换位（软删的仍占数组，会白占一次位移），`order` 原样保留 → 撤销自动回位。
