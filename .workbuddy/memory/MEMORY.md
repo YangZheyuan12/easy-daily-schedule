@@ -197,6 +197,12 @@ npm run test:strict   # 逐文件跑并校验无文件漏跑
 - CI：`.github/workflows/{ci,mobile,pages}.yml` —— 网页闸门 / Android debug APK /
   **iOS 未签名 .app**（装不上 iPhone，需 Xcode + 免费 Apple ID 签名，7 天有效期）/ Pages 部署。
   iOS job 用 `macos-26` runner（Capacitor 8 要 Xcode 26+）。
+- 🔴 **iOS job 只做编译校验，不出产物**（第 3 次实践后的定论）：
+  xcodebuild 报 BUILD SUCCEEDED 但 `find ios/build` 找不到任何 `.app`
+  （真机 `CODE_SIGNING_ALLOWED=NO` 与模拟器两版都一样），
+  而 GitHub step **日志正文要管理员权限（匿名 API 403）**，只能拿到 step 的 conclusion。
+  → 模拟器 `.app` 反正装不到 iPhone，打包上传无价值；退出码就是唯一有用信号。
+  别再往「让 iOS job 出产物」上花时间。
 - 🔴 **Capacitor 8 的 iOS 工程是纯 SPM**：`ios/App/` 下**没有 `.xcworkspace`、没有 `Podfile`**，
   插件依赖走 `ios/App/CapApp-SPM/Package.swift`。所以 xcodebuild 必须用
   **`-project ios/App/App.xcodeproj`**，写 `-workspace` 会直接报「does not exist」。
