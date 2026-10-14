@@ -9,8 +9,9 @@ name: Mobile
 #     ① 一台装了 Xcode 的 Mac（用免费 Apple ID 自签，7 天有效期），或
 #     ② Apple Developer（99 美元/年）的证书 + 描述文件（配成 secrets 后 CI 才能自动签名）。
 #   两条路 CI 都替代不了：① 需要你的 Apple ID 交互，② 需要你先买账号。
-#   所以这里改成**编模拟器版本**（模拟器不需要签名，能稳定产出），
-#   产物 `ios-simulator-app` 同样**装不到真机**，它的价值是「Xcode 工程没坏」这件事有机器在盯。
+#   所以这里改成**编模拟器版本**（模拟器不需要签名）并**不再上传产物**：
+#   模拟器 .app 装不到 iPhone，唯一有用的信号是 xcodebuild 的退出码 ——
+#   「Xcode 工程没坏」这件事有机器在盯就够了，多打包一个没人能用的 zip 只会制造红叉。
 #
 #   想在 iPhone 上真的用起来，且手上没有 Mac → 走 `pages.yml` 的网页版，
 #   Safari 打开后「添加到主屏幕」，离线可用、有 App 图标。见 docs/MOBILE-APP-MIGRATION.md。
@@ -101,19 +102,13 @@ jobs:
           echo "--- 全盘找 .app ---"
           find ios/build -maxdepth 6 -name "*.app" -type d 2>/dev/null || true
 
-      - name: Zip the .app
-        run: |
-          APP=$(find ios/build -maxdepth 6 -name "*.app" -type d | head -n 1)
-          if [ -z "$APP" ]; then
-            echo "::error::没找到任何 .app，xcodebuild 的产物落点与预期不符（见上一步的目录树）"
-            exit 1
-          fi
-          echo "打包: $APP"
-          ditto -c -k --sequesterRST --keepParent "$APP" App-simulator.zip
-
-      - uses: actions/upload-artifact@v4
-        with:
-          # 名字里带 simulator 是故意的：提醒下载的人它装不到 iPhone
-          name: ios-simulator-app
-          path: App-simulator.zip
-          retention-days: 30
+      # 🔴 刻意**不再打包上传**。
+      # 两轮实践：不管编真机（CODE_SIGNING_ALLOWED=NO 时 BUILD SUCCEEDED 却没 .app）
+      # 还是编模拟器（这次 find 在 ios/build 下依然什么都没找到），产物落点都对不上预期；
+      # 而 GitHub 的 job 日志要仓库管理员权限（匿名 API 403），远程根本排不了错。
+      # 更重要的是：**模拟器 .app 装不到 iPhone，上传它没有价值** ——
+      # 真正有用的信号是 `xcodebuild` 退出码（Xcode 工程有没有坏），
+      # 这一步退出码非 0 就会让整个 job 变红，已经足够了。
+      #
+      # 将来若要在 CI 出能装的 IPA：需要 Apple Developer 账号（99 美元/年）的
+      # 证书 + 描述文件配成 secrets，再打开签名与导出步骤。
