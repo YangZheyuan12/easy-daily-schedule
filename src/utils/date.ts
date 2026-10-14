@@ -72,6 +72,15 @@ export function weekKeys(key: string): string[] {
   return Array.from({ length: 7 }, (_, i) => shiftDateKey(monday, i));
 }
 
+/** 一周的范围文案：'10月13日 – 10月19日'（周视图的中间大字用） */
+export function weekRangeLabel(key: string): string {
+  const keys = weekKeys(key);
+  const first = keys[0];
+  const last = keys[keys.length - 1];
+  if (!first || !last) return formatShortDate(key);
+  return `${formatShortDate(first)} – ${formatShortDate(last)}`;
+}
+
 /* ------------------------------------------------------------------ */
 /* 月历（日历页用）                                                     */
 /* ------------------------------------------------------------------ */

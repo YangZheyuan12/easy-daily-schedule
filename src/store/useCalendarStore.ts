@@ -1,10 +1,12 @@
 import { create } from 'zustand';
 import type { DaySummary } from '@/domain/types';
+import type { SectionKey } from '@/domain/enums';
 import {
   type MonthMiniSummary,
   buildMonthSummaries,
   buildYearSummaries,
 } from '@/services/calendarService';
+import { sumMonthMinutesBySection, totalMonthMinutes } from '@/services/durationService';
 import {
   clampDayToMonth,
   monthGrid,
@@ -41,6 +43,10 @@ interface CalendarState {
   summaries: Record<string, DaySummary>;
   /** 年历每个月的迷你汇总，key 为月键 */
   yearSummaries: Record<string, MonthMiniSummary>;
+  /** 本月各板块时长（分钟，来自时间轴） */
+  monthDurations: Record<SectionKey, number>;
+  /** 本月已归类时间段的合计时长（分钟） */
+  monthTotalMinutes: number;
   loading: boolean;
 
   setView: (view: CalendarView) => void;
@@ -59,7 +65,11 @@ export const useCalendarStore = create<CalendarState>((set, get) => {
   /** 整月一次取数：起止日期取自月历网格的首尾格（含前后补位日） */
   const fetchMonth = async (
     monthKey: string,
-  ): Promise<Record<string, DaySummary>> => {
+  ): Promise<{
+    summaries: Record<string, DaySummary>;
+    durations: Record<SectionKey, number>;
+    totalMinutes: number;
+  }> => {
     const cells = monthGrid(monthKey);
     const start = cells[0]?.dateKey ?? `${monthKey}-01`;
     const end = cells[cells.length - 1]?.dateKey ?? `${monthKey}-01`;
@@ -70,7 +80,20 @@ export const useCalendarStore = create<CalendarState>((set, get) => {
       repos.inspirations.listByDateRange(start, end),
       repos.selfStatus.listBetween(start, end),
     ]);
-    return buildMonthSummaries(items, tasks, timeSlots, inspirations, selfStatuses, monthKey);
+    /*
+      时长条与月历摘要**共用这一次取数** —— 不额外再查一次 IndexedDB。
+      单独算而不是塞进 buildMonthSummaries：那函数管的是「每天完成度」，
+      把「整月时长」也塞进去会让它的返回值承担两种职责，
+      将来只想算其中一个时没法只跑一半。
+    */
+    const durations = sumMonthMinutesBySection(timeSlots, monthKey);
+    const totalMinutesInMonth = totalMonthMinutes(timeSlots, monthKey);
+
+    return {
+      summaries: buildMonthSummaries(items, tasks, timeSlots, inspirations, selfStatuses, monthKey),
+      durations,
+      totalMinutes: totalMinutesInMonth,
+    };
   };
 
   /** 整年一次取数：区间 = 1/1 → 12/31，聚合出 12 个月迷你汇总 */
@@ -95,6 +118,8 @@ export const useCalendarStore = create<CalendarState>((set, get) => {
     selectedDate: todayKey(),
     summaries: {},
     yearSummaries: {},
+    monthDurations: { work: 0, study: 0, fitness: 0, life: 0 },
+    monthTotalMinutes: 0,
     loading: false,
 
     /**
@@ -121,13 +146,23 @@ export const useCalendarStore = create<CalendarState>((set, get) => {
       const token = (requestSeq += 1);
       set({ loading: true, monthKey, view: 'month' });
       try {
-        const summaries = await fetchMonth(monthKey);
+        const { summaries, durations, totalMinutes } = await fetchMonth(monthKey);
         if (token !== requestSeq) return; // 期间又切了月份，丢弃本次结果
-        set({ summaries, loading: false });
+        set({
+          summaries,
+          monthDurations: durations,
+          monthTotalMinutes: totalMinutes,
+          loading: false,
+        });
       } catch {
         // 读不出来就渲染一张空日历，不要让页面卡在 loading
         if (token !== requestSeq) return;
-        set({ summaries: {}, loading: false });
+        set({
+          summaries: {},
+          monthDurations: { work: 0, study: 0, fitness: 0, life: 0 },
+          monthTotalMinutes: 0,
+          loading: false,
+        });
       }
     },
 

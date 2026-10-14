@@ -3,6 +3,7 @@ import { useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import clsx from 'clsx';
 import { DaySummaryCard } from '@/components/calendar/DaySummaryCard';
+import { MonthDurationBar } from '@/components/calendar/MonthDurationBar';
 import { MonthGrid } from '@/components/calendar/MonthGrid';
 import { YearGrid } from '@/components/calendar/YearGrid';
 import { PageHeader } from '@/components/layout/PageHeader';
@@ -39,6 +40,8 @@ export function CalendarPage() {
   const selectedDate = useCalendarStore((s) => s.selectedDate);
   const summaries = useCalendarStore((s) => s.summaries);
   const yearSummaries = useCalendarStore((s) => s.yearSummaries);
+  const monthDurations = useCalendarStore((s) => s.monthDurations);
+  const monthTotalMinutes = useCalendarStore((s) => s.monthTotalMinutes);
   const loading = useCalendarStore((s) => s.loading);
   const setView = useCalendarStore((s) => s.setView);
   const loadMonth = useCalendarStore((s) => s.loadMonth);
@@ -190,6 +193,9 @@ export function CalendarPage() {
                 onSelect={handleSelectDay}
                 onShiftMonth={(delta) => void shiftMonth(delta)}
               />
+
+              {/* 本月时长条：数据来自时间轴，只在月视图显示（年视图下「本月」没有意义） */}
+              <MonthDurationBar durations={monthDurations} total={monthTotalMinutes} />
 
               <DaySummaryCard dateKey={selectedDate} summary={summary} onGo={handleGo} />
             </>

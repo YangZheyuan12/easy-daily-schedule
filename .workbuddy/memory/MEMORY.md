@@ -71,6 +71,25 @@ components 2754 / pages 1125 / theme 158 / router 33 / repositories 618。
 - 主页编号 = 展示序号，仅四板块**顶层条目**跨组连续 1~N；子项/灵感不编号
 - 时间段带 `sectionId` 时按 `done` 折叠进该板块完成度；不带只贡献「当天有记录」。
   灵感只贡献「有记录」，不进 sections/overall/日历色点
+- **R-044（2026-10-14 已实现）周视图 + 本月时长条**：
+  - 时间轴页右上角切「当日 / 本周」，本周=**课程表**（周一~周日 × 纵向时间）；
+    今日页右上角切「本周」= 四板块**田字格**；日历页月视图加**本月四板块时长条**
+  - 时长口径（用户拍板）：**实际时间优先，未记录则回退计划时间**；只算目标月
+    （月历网格会拉到邻月补位日，必须按 `date.startsWith(monthKey)` 过滤）
+  - 课程表时间窗**按当周数据自动收窄**（最早/最晚各外扩 60min 取整点，无数据回落 8:00–22:00）
+  - 🔴 课程表**重叠并排**（各占 1/N 列宽），绝不叠放 —— 叠放会让用户以为「我的组会不见了」
+  - 🔴 周视图编辑**不新建写路径**：点块/空格先 `setDate(那天)` 再开同一个抽屉，
+    仍走日维度 `useTimeSlotStore`，避免「这条记录属于哪个作用域」的歧义
+  - 田字格口径与今日页一致：**只取顶层条目 + 归类时间段**，子项不单列
+  - 取数：`useRangeStore`（区间一次查 items+slots，带竞态守卫）；
+    时长条复用月历那次取数，不额外查库。三处视图都是**只读派生**，不写库
+  - 落点：`services/{weekViewService,durationService}.ts`、`store/useRangeStore.ts`、
+    `components/timeline/{WeekTimetable,SlotEditorSheet}.tsx`、`components/diary/WeekSectionBoards.tsx`、
+    `components/calendar/MonthDurationBar.tsx`；`DateNavigator` 加 `viewMode/onViewModeChange/centerLabel`
+- **🔴 `check-layers.mjs` 是正则匹配，`services/` 里变量/参数不能叫 `window`**（会误判成浏览器 API）。
+  踩过：把时间窗参数命名成 `window` → 23 处违规。一律用 `timeWindow`。
+  同理 `document`/`location`/`history` 等词也别拿来当变量名。
+- `SectionKey` 从 `@/domain/enums` 导入，**不在** `domain/types` 导出（写过一次导致 TS2459）
 - **R-043（2026-10-14 已实现，同日改版）任务分组 + 同步到今日**：
   🔴 **分组不是分段容器** —— 任务页保持**单一列表平铺**，分组只是每行的一个属性
   （行首标记）。曾按五分组分段渲染，用户明确要求退回平铺：
