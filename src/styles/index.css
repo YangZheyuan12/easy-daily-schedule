@@ -407,6 +407,52 @@
 }
 
 /* 撤销条剩余时间：5s → 0（时长由行内 style 给，避免和 UNDO_WINDOW_MS 两处魔数） */
+/* 右上角浮层：0.82 倍且偏左上 → 原尺寸（视觉上从右上角向右下铺开） */
+@keyframes m-pop-tr {
+  0% {
+    opacity: 0;
+    transform: scale(0.82) translate(-8px, -8px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translate(0, 0);
+  }
+}
+
+@keyframes m-pop-tr-out {
+  0% {
+    opacity: 1;
+    transform: scale(1) translate(0, 0);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.82) translate(-8px, -8px);
+  }
+}
+
+/* 左上角浮层（行内左侧控件用）：0.82 倍且偏右上 → 原尺寸（从左上角向右下铺开） */
+@keyframes m-pop-tl {
+  0% {
+    opacity: 0;
+    transform: scale(0.82) translate(8px, -8px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translate(0, 0);
+  }
+}
+
+@keyframes m-pop-tl-out {
+  0% {
+    opacity: 1;
+    transform: scale(1) translate(0, 0);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.82) translate(8px, -8px);
+  }
+}
+
 @keyframes m-countdown {
   from {
     transform: scaleX(1);
@@ -486,6 +532,61 @@
   /* 日历选中圆 / 心星：比勾选更轻的过冲 */
   .m-pop-soft {
     animation: m-soft-pop var(--m-dur-2) var(--m-ease-spring);
+  }
+
+  /*
+    右上角浮层：从**右上角**向右下扩大展开（收起时原路缩回）。
+    transform-origin 钉在右上角（100% 0）+ 起始位移偏左上 ——
+    两个一起才是「从角上长出来」：只缩放会像从中心鼓起来，只位移会像从旁边滑进来。
+    起始 scale 取 0.82 而不是 0：缩到 0 时中途会有一两帧几乎是空的，看着像闪一下。
+  */
+  .m-pop-tr {
+    animation: m-pop-tr var(--m-dur-2) var(--m-ease-out) both;
+    transform-origin: 100% 0;
+  }
+
+  .m-pop-tr-out {
+    animation: m-pop-tr-out var(--m-dur-1) var(--m-ease-in-out) forwards;
+    transform-origin: 100% 0;
+  }
+
+  /*
+    左上角浮层：与 `.m-pop-tr` 左右镜像（transform-origin 钉左上角 0 0，
+    起始位移偏右上）。给**行内左侧**的控件用 —— 例如任务行的「分组」胶囊，
+    气泡从它下面向左对齐展开，而不是横跨半屏。
+  */
+  .m-pop-tl {
+    animation: m-pop-tl var(--m-dur-2) var(--m-ease-out) both;
+    transform-origin: 0 0;
+  }
+
+  .m-pop-tl-out {
+    animation: m-pop-tl-out var(--m-dur-1) var(--m-ease-in-out) forwards;
+    transform-origin: 0 0;
+  }
+
+  /*
+    列表行退场：高度收拢 + 淡出（删除一条任务时播，播完才真软删）。
+    用 `grid-template-rows: 1fr → 0fr` 过渡而不是 max-height —— 行高是动态的
+    （标题 / 描述都是自动增高的 textarea），max-height 得先量一次真实高度，
+    而 grid 的 fr 过渡让浏览器自己算，动态多高都动画得对。
+  */
+  .m-row-exit {
+    display: grid;
+    grid-template-rows: 1fr;
+    transition:
+      grid-template-rows var(--m-dur-3) var(--m-ease-in-out),
+      opacity var(--m-dur-2) var(--m-ease-in-out);
+  }
+
+  .m-row-exit > * {
+    overflow: hidden;
+    min-height: 0;
+  }
+
+  .m-row-exit.is-leaving {
+    grid-template-rows: 0fr;
+    opacity: 0;
   }
 
   /*

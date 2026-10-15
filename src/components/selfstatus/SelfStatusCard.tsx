@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import clsx from 'clsx';
 import type { Rating } from '@/domain/enums';
 import { useDayStore } from '@/store/useDayStore';
 import { Icon } from '@/components/ui/Icon';
 import { isToday } from '@/utils/date';
+import { useExpanded } from '@/hooks/useExpanded';
 import { useRecentlyChanged } from '@/hooks/useRecentlyChanged';
 
 interface SelfStatusCardProps {
@@ -32,10 +33,13 @@ function truncatePreview(text: string): string {
  * 默认是一行：心情（♥）+ 身体（★）+ 一行文字预览；点整行就地展开成完整编辑器
  * （大图标 + 备注输入），再点收起。任意改动都即时走 `useDayStore.saveSelfStatus`，
  * 数据模型与保存流程不变，只改了展示形态。
+ *
+ * 展开态跨页保持（`useExpanded`，2026-10-16 用户要求）：展开着切去时间轴再回来，
+ * 编辑器还是展开的。
  */
 export function SelfStatusCard({ date }: SelfStatusCardProps) {
   const selfStatus = useDayStore((s) => s.selfStatus);
-  const [expanded, setExpanded] = useState(false);
+  const { open: expanded, toggle: toggleExpanded } = useExpanded('today:self-status');
   const editorRef = useRef<HTMLDivElement>(null);
 
   // 本卡片只渲染当前日期的状态；日期切走后由 AppShell 重新 loadSelfStatus
@@ -76,7 +80,7 @@ export function SelfStatusCard({ date }: SelfStatusCardProps) {
         {/* 紧凑单行：点击展开 / 收起完整编辑器（概念稿：心 + 星 + 右侧状态摘要） */}
         <button
           type="button"
-          onClick={() => setExpanded((value) => !value)}
+          onClick={toggleExpanded}
           className="w-full px-3.5 py-2.5 text-left active:bg-surface-sunken/60"
           aria-expanded={expanded}
         >

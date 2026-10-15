@@ -238,6 +238,7 @@ export function createSiblingAfter(
     createdAt: now,
     updatedAt: now,
     sourceTaskId: null,
+    sourceSlotId: null,
     deletedAt: null,
   };
 
@@ -276,6 +277,7 @@ export function createChild(
     createdAt: now,
     updatedAt: now,
     sourceTaskId: null,
+    sourceSlotId: null,
     deletedAt: null,
   };
 

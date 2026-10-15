@@ -6,6 +6,7 @@ import { SectionWeekPage } from '@/pages/SectionWeekPage';
 import { TasksPage } from '@/pages/TasksPage';
 import { TaskKindPage } from '@/pages/TaskKindPage';
 import { TimelinePage } from '@/pages/TimelinePage';
+import { TimetableImportPage } from '@/pages/TimetableImportPage';
 import { CalendarPage } from '@/pages/CalendarPage';
 import { MePage } from '@/pages/MePage';
 
@@ -28,6 +29,7 @@ export function AppRouter() {
           <Route path="/tasks/deadline" element={<TaskKindPage kind="deadline" />} />
           <Route path="/tasks/goal" element={<TaskKindPage kind="goal" />} />
           <Route path="/timeline" element={<TimelinePage />} />
+          <Route path="/timetable/import" element={<TimetableImportPage />} />
           <Route path="/calendar" element={<CalendarPage />} />
           <Route path="/me" element={<MePage />} />
           <Route path="*" element={<Navigate to="/today" replace />} />

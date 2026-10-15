@@ -1,6 +1,7 @@
 import clsx from 'clsx';
 import type { TimeSlot } from '@/domain/types';
-import { SECTION_CONFIG_MAP, sectionColor, sectionTint } from '@/domain/constants';
+import { sectionColor, sectionTint } from '@/domain/constants';
+import { useSectionConfigs } from '@/hooks/useSectionConfigs';
 import {
   WEEK_WINDOW,
   TICK_STEP_HOURS,
@@ -60,6 +61,8 @@ export function WeekTimetable({
   onSelectSlot,
   onSelectEmpty,
 }: WeekTimetableProps) {
+  // 板块配色取用户自定义后的配置（改了色，课程表里的块跟着变）
+  const sectionConfigs = useSectionConfigs();
   const ticks = gridTicks(timeWindow, tickStepHours);
   /** 空格点击区仍按一小时细分：预填更准，且不影响自定义间隔的分割线 */
   const clickTicks = gridTicks(timeWindow, 1);
@@ -149,7 +152,7 @@ export function WeekTimetable({
           {/* 时间块 */}
           {cells.map((cell) => {
             const config = cell.slot.sectionId
-              ? SECTION_CONFIG_MAP[cell.slot.sectionId]
+              ? (sectionConfigs.find((cfg) => cfg.key === cell.slot.sectionId) ?? null)
               : null;
             const pixelHeight = cell.height * height;
             return (

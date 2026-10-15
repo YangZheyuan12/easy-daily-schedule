@@ -13,12 +13,17 @@ import { filterAlive, filterDeleted } from './mappers';
  * 逐条 put 会开 20 个事务，在移动端明显掉帧。
  */
 /**
- * 老数据缺 `sourceTaskId`（R-043 才加的字段），读取时统一归一化为 null。
+ * 老数据缺 `sourceTaskId` / `sourceSlotId`（分别是 R-043 / 时间段同步才加的字段），
+ * 读取时统一归一化为 null。
  * 不归一化也能跑（比较时 undefined 恒不等于任何 id），但那属于「靠巧合正确」——
  * 业务层拿到的是 `string | null` 类型，就该真是这个值。
  */
 function normalizeItem(item: Item): Item {
-  return { ...item, sourceTaskId: item.sourceTaskId ?? null };
+  return {
+    ...item,
+    sourceTaskId: item.sourceTaskId ?? null,
+    sourceSlotId: item.sourceSlotId ?? null,
+  };
 }
 
 export class IndexedDbItemRepository implements ItemRepository {

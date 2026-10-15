@@ -2,14 +2,19 @@ import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useDayStore } from '@/store/useDayStore';
 import { useRangeStore } from '@/store/useRangeStore';
+import { useItemStore } from '@/store/useItemStore';
+import { useUiStore } from '@/store/useUiStore';
+import { sectionColor } from '@/domain/constants';
+import { useSectionConfig } from '@/hooks/useSectionConfigs';
+import type { SectionKey } from '@/domain/enums';
 import { DateNavigator, type DateViewMode } from '@/components/date/DateNavigator';
 import { SelfStatusCard } from '@/components/selfstatus/SelfStatusCard';
 import { DiaryList } from '@/components/diary/DiaryList';
 import { WeekSectionBoards } from '@/components/diary/WeekSectionBoards';
 import { ReminderBanner } from '@/components/reminder/ReminderBanner';
+import { ItemSheet } from '@/components/item/ItemSheet';
 import { useDayFestivals } from '@/hooks/useDayFestivals';
 import { buildWeekSectionBoards } from '@/services/weekViewService';
-import type { SectionKey } from '@/domain/enums';
 import { weekKeys, weekRangeShortLabel } from '@/utils/date';
 
 /**
@@ -31,6 +36,16 @@ export function TodayPage() {
   const rangeItems = useRangeStore((s) => s.items);
   const rangeSlots = useRangeStore((s) => s.slots);
   const loadRange = useRangeStore((s) => s.loadRange);
+
+  /*
+    条目详情抽屉（图片 / 描述 / 子分支 / 删除）—— 与板块页共用同一个 `ItemSheet`
+    与同一条全局 drawer 状态：今日页行尾「⋯」点开的，就是板块页里那一张。
+    板块页仍在（组头可进，看整棵树的视图），但编辑不再非去它不可。
+  */
+  const items = useItemStore((s) => s.items);
+  const drawerItemId = useUiStore((s) => s.drawerItemId);
+  const drawerItem = items.find((item) => item.id === drawerItemId) ?? null;
+  const drawerConfig = useSectionConfig((drawerItem?.sectionId ?? 'work') as SectionKey);
 
   /**
    * 视图模式。正常情况下从底部 Tab 进来是「当日」；
@@ -102,6 +117,13 @@ export function TodayPage() {
             {/* 日记体统一列表（四板块 + 灵感） */}
             <DiaryList date={date} />
           </div>
+
+          {/* 条目详情抽屉：今日页行尾「⋯」打开（与板块页同一张） */}
+          <ItemSheet
+            item={drawerItem}
+            accent={sectionColor(drawerConfig)}
+            sectionName={drawerConfig.name}
+          />
         </>
       ) : (
         <>

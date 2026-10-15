@@ -3,7 +3,9 @@ import { Icon } from '@/components/ui/Icon';
 import clsx from 'clsx';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { Sheet } from '@/components/ui/Sheet';
-import { THEMES } from '@/theme/themes';
+import { CollapsibleCard } from '@/components/ui/CollapsibleCard';
+import { SectionSettings } from '@/components/me/SectionSettings';
+import { THEMES, getThemeMeta } from '@/theme/themes';
 import { useThemeStore } from '@/theme/useThemeStore';
 import { useTimelineWindowStore } from '@/store/useTimelineWindowStore';
 import { useUiStore } from '@/store/useUiStore';
@@ -18,63 +20,83 @@ export function MePage() {
   const setEndHour = useTimelineWindowStore((s) => s.setEndHour);
   const setTickHours = useTimelineWindowStore((s) => s.setTickHours);
   const resetWindow = useTimelineWindowStore((s) => s.reset);
+  const theme = useThemeStore((s) => s.theme);
 
+  /*
+    每一卡都能折叠，且**默认全部收起**（用户要求）：设置页一屏只剩六行标题，
+    找什么一眼就看到；要改哪张点哪张。当前主题名写在标题行的 hint 上，
+    收不着也知道现在用的是哪套。
+    展开态跨页保持（`useExpanded`，2026-10-16 用户要求）：展开着切去今日 /
+    日历再回来，那张卡还是展开的 —— 每张卡一个稳定 key。
+  */
   return (
     <div className="flex flex-col min-h-full">
-      <PageHeader title="我的" subtitle="设置 · 主题 · 模板 · 数据" />
+      <PageHeader title="我的" subtitle="设置 · 主题 · 板块 · 数据" />
 
       <div className="m-rise px-5 pt-4 space-y-3.5">
-        <div className="text-meta font-medium text-ink-muted">外观主题</div>
-        <ThemeSwitcher />
+        <CollapsibleCard title="外观主题" expandKey="me:appearance" hint={getThemeMeta(theme).label}>
+          <ThemeSwitcher />
+        </CollapsibleCard>
 
-        <div className="bg-surface rounded-card border border-surface-line shadow-card p-3.5 space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="text-lead font-medium text-ink">时间轴视图</div>
-            <button
-              type="button"
-              onClick={resetWindow}
-              className="press text-caption text-ink-faint px-2 min-h-[30px] rounded-pill"
-            >
-              恢复默认
-            </button>
+        <CollapsibleCard title="板块设置" expandKey="me:sections" hint="4 个板块">
+          <SectionSettings />
+        </CollapsibleCard>
+
+        <CollapsibleCard title="时间轴视图" expandKey="me:timeline">
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="text-lead font-medium text-ink">周课程表时间范围</div>
+              <button
+                type="button"
+                onClick={resetWindow}
+                className="press text-caption text-ink-faint px-2 min-h-[30px] rounded-pill"
+              >
+                恢复默认
+              </button>
+            </div>
+            <p className="text-caption text-ink-faint">
+              自定义周课程表的纵向起止时间与分割线间隔（日视图不受影响）。
+            </p>
+            <SettingRow label="起始时间">
+              <HourSelect value={w.startMin / 60} min={0} max={23} onChange={setStartHour} />
+            </SettingRow>
+            <SettingRow label="结束时间">
+              <HourSelect value={w.endMin / 60} min={1} max={24} onChange={setEndHour} />
+            </SettingRow>
+            <SettingRow label="分割线间隔">
+              <select
+                value={w.tickHours}
+                onChange={(e) => setTickHours(Number(e.target.value))}
+                className="bg-surface-sunken rounded-sm border border-surface-line px-3 py-2 text-body text-ink outline-none tabular-nums"
+              >
+                {[1, 2, 3, 4, 6].map((h) => (
+                  <option key={h} value={h}>
+                    {h} 小时
+                  </option>
+                ))}
+              </select>
+            </SettingRow>
           </div>
-          <p className="text-caption text-ink-faint">
-            自定义周课程表的纵向起止时间与分割线间隔（日视图不受影响）。
-          </p>
-          <SettingRow label="起始时间">
-            <HourSelect value={w.startMin / 60} min={0} max={23} onChange={setStartHour} />
-          </SettingRow>
-          <SettingRow label="结束时间">
-            <HourSelect value={w.endMin / 60} min={1} max={24} onChange={setEndHour} />
-          </SettingRow>
-          <SettingRow label="分割线间隔">
-            <select
-              value={w.tickHours}
-              onChange={(e) => setTickHours(Number(e.target.value))}
-              className="bg-surface-sunken rounded-sm border border-surface-line px-3 py-2 text-body text-ink outline-none tabular-nums"
-            >
-              {[1, 2, 3, 4, 6].map((h) => (
-                <option key={h} value={h}>
-                  {h} 小时
-                </option>
-              ))}
-            </select>
-          </SettingRow>
-        </div>
+        </CollapsibleCard>
 
-        <Row label="数据存放" value="本机浏览器（IndexedDB）" />
-        <Row label="账号同步" value="P2 规划中" />
+        <CollapsibleCard title="存储与同步" expandKey="me:storage">
+          <div className="space-y-1">
+            <Row label="数据存放" value="本机浏览器（IndexedDB）" />
+            <Row label="账号同步" value="P2 规划中" />
+          </div>
+        </CollapsibleCard>
 
-        <BackupCard />
+        <CollapsibleCard title="数据备份" expandKey="me:backup">
+          <BackupCard />
+        </CollapsibleCard>
 
-        <div className="bg-surface rounded-card border border-surface-line shadow-card p-3.5">
-          <div className="text-lead font-medium text-ink">关于</div>
+        <CollapsibleCard title="关于" expandKey="me:about">
           {/* 只留一句：这页是设置页，用户来这里是找开关，不是来读产品介绍的 */}
-          <p className="mt-1 text-body leading-6 text-ink-muted">
+          <p className="text-body leading-6 text-ink-muted">
             一款移动端优先的日程与完成情况记录工具。
           </p>
           <p className="mt-2 text-caption text-ink-faint">v0.1.0 · MVP</p>
-        </div>
+        </CollapsibleCard>
       </div>
     </div>
   );
@@ -130,10 +152,9 @@ function BackupCard() {
   };
 
   return (
-    <div className="bg-surface rounded-card border border-surface-line shadow-card p-3.5 space-y-3">
+    <div className="space-y-3">
       <div>
-        <div className="text-lead font-medium text-ink">数据备份</div>
-        <p className="mt-1 text-caption leading-5 text-ink-faint">
+        <p className="text-caption leading-5 text-ink-faint">
           记录只存在这台设备上。卸载 App、换手机或系统回收浏览器数据都会丢失，
           建议定期导出一份备份文件。
         </p>
@@ -218,8 +239,9 @@ function ThemeSwitcher() {
   const theme = useThemeStore((s) => s.theme);
   const setTheme = useThemeStore((s) => s.setTheme);
 
+  // 卡壳由 CollapsibleCard 提供，这里只管列表本身
   return (
-    <div className="bg-surface rounded-card border border-surface-line shadow-card p-2.5 space-y-2">
+    <div className="space-y-2">
       {THEMES.map((item) => {
         const active = item.id === theme;
         return (
@@ -263,9 +285,9 @@ function ThemeSwitcher() {
 
 function Row({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-center justify-between bg-surface rounded-card border border-surface-line shadow-card px-3.5 min-h-[52px]">
-      <span className="text-lead text-ink">{label}</span>
-      <span className="text-body text-ink-faint">{value}</span>
+    <div className="flex items-center justify-between min-h-[44px]">
+      <span className="text-body text-ink">{label}</span>
+      <span className="text-caption text-ink-faint">{value}</span>
     </div>
   );
 }

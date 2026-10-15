@@ -11,6 +11,7 @@ import {
 } from '@/domain/enums';
 import type { Task } from '@/domain/types';
 import type { TaskKind } from '@/domain/enums';
+import { useAutoResizeTextarea } from '@/hooks/useAutoResizeTextarea';
 
 type DueMode = 'date' | RelativeDeadline;
 
@@ -42,6 +43,7 @@ export function TaskKindComposer({ kind, task, open, onClose }: TaskKindComposer
   const isDeadline = kind === 'deadline';
   const [title, setTitle] = useState('');
   const [desc, setDesc] = useState('');
+  const descRef = useAutoResizeTextarea(desc);
   const [mode, setMode] = useState<DueMode>('date');
   const [dateVal, setDateVal] = useState('');
 
@@ -183,15 +185,16 @@ export function TaskKindComposer({ kind, task, open, onClose }: TaskKindComposer
           </div>
         )}
 
-        {/* 描述（可选） */}
+        {/* 描述（可选）：textarea 而非 input —— 长描述要能换行、随内容增高 */}
         <div>
           <div className="text-caption text-ink-muted mb-1.5">描述（可选）</div>
-          <input
+          <textarea
+            ref={descRef}
             value={desc}
             onChange={(event) => setDesc(event.target.value)}
             placeholder="补充细节、备注…"
-            className="w-full min-h-tap px-1 text-lead outline-none bg-transparent text-ink-faint"
-            enterKeyHint="done"
+            rows={1}
+            className="w-full min-h-tap py-2 px-1 text-body leading-6 outline-none bg-transparent text-ink-faint resize-none"
           />
         </div>
 

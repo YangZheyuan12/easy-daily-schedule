@@ -134,6 +134,28 @@ function pressEnter(el: Element) {
   });
 }
 
+/** 给 textarea 设值（行内编辑器用受控 value，要走原生 setter + input 事件） */
+function setTextareaValue(textarea: HTMLTextAreaElement, value: string) {
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')
+    ?.set;
+  setter?.call(textarea, value);
+  act(() => {
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+}
+
+function pressEnterOn(el: Element) {
+  act(() => {
+    el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  });
+}
+
+function pressEscapeOn(el: Element) {
+  act(() => {
+    el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  });
+}
+
 function buttonByText(container: HTMLElement, text: string): HTMLButtonElement | undefined {
   return Array.from(container.querySelectorAll('button')).find(
     (b) => (b.textContent ?? '').trim() === text,
@@ -313,7 +335,26 @@ describe('DiaryList 内联快速添加 — 导航 URL 仍带 ?date=', () => {
     expect(container.querySelector('#probe')?.textContent).toBe(`work|?date=${DATE}`);
   });
 
-  it('⑥ 点条目 → /section/{key}?date={date}', () => {
+  it('⑥ 点组头 → /section/{key}?date={date}（组头仍是进板块详情树的入口）', () => {
+    const container = renderDiary();
+    const header = buttonByText(container, '工作:') ?? buttonByText(container, '工作');
+    // 组头文本是「工作:」+ 条数 + ›，用包含匹配更稳
+    const groupHeader =
+      header ??
+      Array.from(container.querySelectorAll('button')).find((b) =>
+        (b.textContent ?? '').includes('工作'),
+      )!;
+    click(groupHeader);
+
+    expect(container.querySelector('#probe')?.textContent).toBe(`work|?date=${DATE}`);
+  });
+
+  /*
+    ⑦ 点条目文字 → **行内编辑**（用户要求：主页直接改，不再跳板块页）。
+    老契约是「点条目 → /section/{key}?date=」，已按新交互替换：
+    点下去出现的是自动增高的 textarea（预填原标题、光标在末尾），且不导航。
+  */
+  it('⑦ 点条目文字 → 行内编辑（textarea 预填原标题，且不发生导航）', () => {
     useItemStore.setState({
       items: [makeItem({ id: 'w1', title: '写周报', sectionId: 'work', date: DATE })],
     });
@@ -323,6 +364,44 @@ describe('DiaryList 内联快速添加 — 导航 URL 仍带 ?date=', () => {
     expect(entryButton).toBeTruthy();
     click(entryButton!);
 
-    expect(container.querySelector('#probe')?.textContent).toBe(`work|?date=${DATE}`);
+    const editor = container.querySelector<HTMLTextAreaElement>('textarea');
+    expect(editor, '点标题后没有出现行内编辑器').toBeTruthy();
+    expect(editor!.value).toBe('写周报');
+    // 不导航：探针只挂在 /section/:sectionId 路由上，此刻页面上不该有它
+    expect(container.querySelector('#probe')).toBeNull();
+  });
+
+  it('⑦ 行内编辑：Enter 提交改写标题，Esc 取消丢弃修改', () => {
+    useItemStore.setState({
+      items: [makeItem({ id: 'w1', title: '写周报', sectionId: 'work', date: DATE })],
+    });
+    const container = renderDiary();
+
+    // Enter 提交
+    click(buttonByText(container, '写周报')!);
+    const editor = container.querySelector<HTMLTextAreaElement>('textarea')!;
+    setTextareaValue(editor, '写周报和月报');
+    pressEnterOn(editor);
+    expect(useItemStore.getState().items[0]?.title).toBe('写周报和月报');
+
+    // Esc 取消：改了但不提交
+    click(buttonByText(container, '写周报和月报')!);
+    const editor2 = container.querySelector<HTMLTextAreaElement>('textarea')!;
+    setTextareaValue(editor2, '不该保存的标题');
+    pressEscapeOn(editor2);
+    expect(useItemStore.getState().items[0]?.title).toBe('写周报和月报');
+  });
+
+  it('⑦ 行内编辑：清空再提交 → 保留原标题（误触全选+删除不丢内容）', () => {
+    useItemStore.setState({
+      items: [makeItem({ id: 'w1', title: '写周报', sectionId: 'work', date: DATE })],
+    });
+    const container = renderDiary();
+
+    click(buttonByText(container, '写周报')!);
+    const editor = container.querySelector<HTMLTextAreaElement>('textarea')!;
+    setTextareaValue(editor, '   ');
+    pressEnterOn(editor);
+    expect(useItemStore.getState().items[0]?.title).toBe('写周报');
   });
 });

@@ -1,7 +1,7 @@
 import { Icon } from '@/components/ui/Icon';
-import { useState } from 'react';
 import { useDayStore } from '@/store/useDayStore';
 import { useTimeSlotStore } from '@/store/useTimeSlotStore';
+import { useUiStore } from '@/store/useUiStore';
 import { listDueSlots } from '@/services/reminderService';
 import { useNowMin } from '@/hooks/useNowMin';
 import { formatTimeRange, todayKey } from '@/utils/date';
@@ -12,12 +12,16 @@ import { formatTimeRange, todayKey } from '@/utils/date';
  * 只在「看今天」时出现（看历史 / 未来日期不打扰）；✕ 只是临时收起，
  * 一旦有新的时间段到期会自动重新出现（dismiss 键 = 日期 + 到期 id 集合，
  * 集合变了键就变了）。
+ *
+ * dismiss 键存在 UI store 里（2026-10-16 用户要求跨页保持）：在今日页收起后
+ * 切去时间轴再回来，不会又弹一遍 —— 否则「临时收起」在 Tab 之间毫无意义。
  */
 export function ReminderBanner() {
   const date = useDayStore((s) => s.date);
   const slots = useTimeSlotStore((s) => s.slots);
   const nowMin = useNowMin();
-  const [dismissedKey, setDismissedKey] = useState<string | null>(null);
+  const dismissedKey = useUiStore((s) => s.dismissedReminder);
+  const dismissReminder = useUiStore((s) => s.dismissReminder);
 
   // 只有正在看「今天」才提醒
   if (date !== todayKey()) return null;
@@ -49,7 +53,7 @@ export function ReminderBanner() {
         </div>
         <button
           type="button"
-          onClick={() => setDismissedKey(bannerKey)}
+          onClick={() => dismissReminder(bannerKey)}
           className="shrink-0 w-6 h-6 flex items-center justify-center text-ink-faint active:text-ink"
           aria-label="收起提醒"
         >

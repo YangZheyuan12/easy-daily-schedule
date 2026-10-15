@@ -1,5 +1,6 @@
 import clsx from 'clsx';
-import { SECTION_CONFIGS, sectionColor } from '@/domain/constants';
+import { sectionColor } from '@/domain/constants';
+import { useSectionConfigs } from '@/hooks/useSectionConfigs';
 import type { DaySummary } from '@/domain/types';
 import { shouldShowDayDots } from '@/services/calendarService';
 import { useRecentlyChanged } from '@/hooks/useRecentlyChanged';
@@ -31,6 +32,8 @@ interface DayCellProps {
  */
 export function DayCell({ cell, summary, isToday, isSelected, onSelect }: DayCellProps) {
   const popped = useRecentlyChanged(isSelected);
+  // 四个色点用用户自定义后的板块色（改了色，月历上的点跟着变）
+  const sectionConfigs = useSectionConfigs();
 
   return (
     <button
@@ -65,7 +68,7 @@ export function DayCell({ cell, summary, isToday, isSelected, onSelect }: DayCel
       */}
       {shouldShowDayDots(cell, isToday) && (
         <span className="mt-[3px] flex items-center gap-[2px]">
-          {SECTION_CONFIGS.map((config) => (
+          {sectionConfigs.map((config) => (
             <span
               key={config.key}
               className="w-[5px] h-[5px] rounded-full"

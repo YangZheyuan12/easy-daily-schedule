@@ -1,5 +1,4 @@
 import { Icon } from '@/components/ui/Icon';
-import { Tick } from '@/components/ui/Tick';
 import { useEffect, useRef } from 'react';
 import clsx from 'clsx';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
@@ -10,7 +9,6 @@ import { IndentGuides } from './IndentGuides';
 
 interface TreeRowProps {
   row: VisibleRow;
-  accent: string;
   focused: boolean;
   onFocus: () => void;
   onKeyDown: (event: ReactKeyboardEvent<HTMLInputElement>, row: VisibleRow) => void;
@@ -24,12 +22,11 @@ interface TreeRowProps {
  * - 「更多」按钮打开底部抽屉填写描述与评价，而不是行内展开 ——
  *   小屏塞不下那么多控件，塞进去反而每行都变得难以点击。
  */
-export function TreeRow({ row, accent, focused, onFocus, onKeyDown }: TreeRowProps) {
+export function TreeRow({ row, focused, onFocus, onKeyDown }: TreeRowProps) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const { item, hasChildren, descendantCount, childrenProgress } = row;
+  const { item, hasChildren, descendantCount } = row;
 
   const setTitle = useItemStore((s) => s.setTitle);
-  const toggleDone = useItemStore((s) => s.toggleDone);
   const toggleCollapsed = useItemStore((s) => s.toggleCollapsed);
   const openDrawer = useUiStore((s) => s.openDrawer);
 
@@ -61,15 +58,11 @@ export function TreeRow({ row, accent, focused, onFocus, onKeyDown }: TreeRowPro
           )}
         </button>
 
-        {/* 完成态（板块色由外面传：树的勾选是板块身份，不是主题重音） */}
-        <Tick
-          done={item.done}
-          size={row.depth === 0 ? 20 : 17}
-          shape="square"
-          color={accent}
-          className="min-w-[34px] min-h-tap"
-          onToggle={() => toggleDone(item.id)}
-        />
+        {/*
+          这里**没有**勾选方格（用户要求去掉）：完成态靠标题的删除线 + 淡化表达，
+          要切换完成 / 未完成就点行尾「⋯」进详情。
+          与今日列表同一套约定 —— 列表是「看有什么」的地方，一排勾选框会把视线切碎。
+        */}
 
         {/* 标题输入 */}
         <input
@@ -89,16 +82,11 @@ export function TreeRow({ row, accent, focused, onFocus, onKeyDown }: TreeRowPro
           enterKeyHint="enter"
         />
 
-        {/* 右侧信息区：子项进度或折叠徽标 + 更多 */}
+        {/* 右侧信息区：折叠徽标（收起时提示藏着几条）+ 更多 */}
         <div className="flex items-center shrink-0 pr-1">
           {item.collapsed && descendantCount > 0 && (
             <span className="text-micro text-ink-faint bg-surface-sunken rounded-full px-1.5 py-0.5 mr-1">
               {descendantCount}
-            </span>
-          )}
-          {!item.collapsed && childrenProgress && (
-            <span className="text-micro text-ink-faint tabular-nums mr-1">
-              {childrenProgress.done}/{childrenProgress.total}
             </span>
           )}
           <button

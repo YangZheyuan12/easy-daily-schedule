@@ -49,6 +49,12 @@ export interface Item {
    * 老数据缺该字段，仓储读取时归一化为 null。
    */
   sourceTaskId: string | null;
+  /**
+   * 来源时间段 id：由「时间轴 → 同步到今日页」产生时记录，null 表示非时间段同步。
+   * 与 `sourceTaskId` 同构 —— 只做幂等去重（同一个时间段不会被同步成两条条目）。
+   * 老数据缺该字段，仓储读取时归一化为 null。
+   */
+  sourceSlotId: string | null;
   /** 软删时间戳；null 表示未删除 */
   deletedAt: number | null;
 }
@@ -106,6 +112,23 @@ export interface TaskSyncDraft {
   done: boolean;
 }
 
+/**
+ * 同步时间段到今日页时，一条待建条目的草稿。
+ *
+ * 与 `TaskSyncDraft` 同构（一次性复制 + `slotId` 去重），区别只在来源：
+ * 时间段本身**已经**按板块归好类（`sectionId` 非空才可同步），
+ * 所以不需要「其他分组」那种排除规则。
+ */
+export interface SlotSyncDraft {
+  /** 来源时间段 id —— 去重的唯一依据 */
+  slotId: string;
+  date: string;
+  sectionId: SectionKey;
+  title: string;
+  /** 跟随时间段的完成情况：已完成的时间段同步过去也是已完成 */
+  done: boolean;
+}
+
 /** 一天（惰性创建，仅在首次访问时落库） */
 export interface Day {
   date: string;
@@ -158,6 +181,14 @@ export interface TimeSlot {
   updatedAt: number;
   /** 软删时间戳；null 表示未删除 */
   deletedAt: number | null;
+  /**
+   * 课表导入批次号。**非索引字段**，因此不需要改 Dexie schema 版本。
+   *
+   * 课表本质上是「每周重复」，但本表按具体日期存（导入时展开），一次会铺出几百条。
+   * 有了批次号才能整批删除 / 覆盖 —— 否则改一次课表就得手工删几百条记录。
+   * 手工添加的时间段一律为 null，不受课表管理影响。
+   */
+  seriesId?: string | null;
 }
 
 /** 新建时间段时的必填输入 */
@@ -216,7 +247,11 @@ export interface VisibleRow {
   hasChildren: boolean;
   /** 子条目数量（含所有后代） */
   descendantCount: number;
-  /** 直系子项的完成情况，形如 { done: 2, total: 5 }；无子项时为 null */
+  /**
+   * 直系子项的完成情况，形如 { done: 2, total: 5 }；无子项时为 null。
+   * 🔴 2026-10-16 起 UI 不再展示它（用户要求去掉「x/y」这类进度显示）——
+   * 字段保留：口径由 treeService 的测试锁住，树行模型不随展示决策反复变形。
+   */
   childrenProgress: { done: number; total: number } | null;
   /** 祖先链上的 id 列表，由浅到深，用于折叠判断 */
   ancestorIds: string[];

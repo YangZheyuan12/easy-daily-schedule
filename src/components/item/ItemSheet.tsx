@@ -1,12 +1,10 @@
 import { Icon } from '@/components/ui/Icon';
 import { useRef, useState, type ReactNode } from 'react';
-import clsx from 'clsx';
 import type { Item } from '@/domain/types';
-import type { Rating, SectionKey } from '@/domain/enums';
+import type { SectionKey } from '@/domain/enums';
 import { useItemStore } from '@/store/useItemStore';
 import { useUiStore } from '@/store/useUiStore';
 import { Sheet, SheetActionButton, ConfirmDialog } from '@/components/ui/Sheet';
-import { RatingStars } from '@/components/ui/RatingStars';
 import { useAutoResizeTextarea } from '@/hooks/useAutoResizeTextarea';
 import { ItemImageSection } from '@/components/item/ItemImageSection';
 
@@ -17,7 +15,11 @@ interface ItemSheetProps {
 }
 
 /**
- * 条目详情抽屉：任务描述 + 个人评价 + 子分支管理 + 图片附件 + 删除。
+ * 条目详情抽屉：图片附件 + 任务描述 + 子分支管理 + 删除。
+ *
+ * 「个人评价」（星级 + 评价文字）已移除 —— 它和「任务描述」是同一个抽屉里
+ * 两个都叫「写点什么」的框，用户填完描述就走了，评价长期空着反而显得页面没做完。
+ * 数据字段（`Item.rating` / `Item.review`）保留，将来要放回来自有位置。
  *
  * 高度不超过 85vh 且内部滚动；键盘弹起时由 `useKeyboardAvoid`
  * 把输入区顶上来，避免输入框被软键盘挡住。
@@ -29,12 +31,9 @@ export function ItemSheet({ item, accent, sectionName }: ItemSheetProps) {
   const closeDrawer = useUiStore((s) => s.closeDrawer);
   const pushToast = useUiStore((s) => s.pushToast);
   const setDescription = useItemStore((s) => s.setDescription);
-  const setRating = useItemStore((s) => s.setRating);
-  const setReview = useItemStore((s) => s.setReview);
   const addChild = useItemStore((s) => s.addChild);
   const move = useItemStore((s) => s.move);
   const remove = useItemStore((s) => s.remove);
-  const toggleDone = useItemStore((s) => s.toggleDone);
 
   const [confirmOpen, setConfirmOpen] = useState(false);
 
@@ -67,29 +66,31 @@ export function ItemSheet({ item, accent, sectionName }: ItemSheetProps) {
             <span className="truncate">{shown.title || '未命名条目'}</span>
           </span>
         }
-        action={<SheetActionButton onClick={closeDrawer}>完成</SheetActionButton>}
+        /*
+          右上角原本是「完成」，现在换成**删除**（用户要求）。
+          理由：这个抽屉没有需要「提交」的东西 —— 描述、图片都是改完即存，
+          「完成」只是一个多余的关闭键；而删除是这里唯一不可逆的动作，
+          放在视线终点（右上角主操作位）比埋在底部更容易被**看清**（不是更容易被点到：
+          它仍然要先过一道确认弹窗）。
+        */
+        action={
+          <SheetActionButton onClick={() => setConfirmOpen(true)} danger>
+            删除
+          </SheetActionButton>
+        }
       >
-        {/* 所属板块与完成态 */}
+        {/* 所属板块（完成态的切换入口已移除，完成态只在列表里以删除线表达） */}
         <div className="flex items-center justify-between py-3">
           <span className="text-meta text-ink-faint">{sectionName}</span>
-          <button
-            type="button"
-            onClick={() => toggleDone(shown.id)}
-            className={clsx(
-              'text-body px-3.5 py-1.5 rounded-full border min-h-[38px]',
-              shown.done ? 'border-transparent text-accent-fg' : 'border-surface-line text-ink-muted',
-            )}
-            style={shown.done ? { backgroundColor: accent } : undefined}
-          >
-            {shown.done ? (
-              <span className="inline-flex items-center gap-1">
-                <Icon name="check" size={14} strokeWidth={2.4} />
-                已完成
-              </span>
-            ) : (
-              '标记完成'
-            )}
-          </button>
+          {shown.done && (
+            <span
+              className="inline-flex items-center gap-1 text-meta px-2.5 py-1 rounded-pill text-app"
+              style={{ backgroundColor: accent }}
+            >
+              <Icon name="check" size={13} strokeWidth={2.4} />
+              已完成
+            </span>
+          )}
         </div>
 
         {/* 图片附件：放在第一位 —— 上传 / 看大图 / 删除都在这里（今日列表只做只读预览） */}
@@ -104,24 +105,6 @@ export function ItemSheet({ item, accent, sectionName }: ItemSheetProps) {
             placeholder="补充细节、过程、遇到的问题…"
             rows={2}
             className="w-full min-h-[64px] text-body leading-6 text-ink placeholder:text-ink-faint outline-none bg-transparent"
-          />
-        </Section>
-
-        {/* 个人评价 */}
-        <Section title="个人评价">
-          <div className="py-1">
-            <RatingStars
-              value={shown.rating}
-              onChange={(value: Rating) => setRating(shown.id, value)}
-              size="lg"
-            />
-          </div>
-          <textarea
-            value={shown.review}
-            onChange={(event) => setReview(shown.id, event.target.value)}
-            placeholder="给自己写一句评价…"
-            rows={2}
-            className="mt-2 w-full min-h-[56px] text-body leading-6 text-ink placeholder:text-ink-faint outline-none bg-transparent"
           />
         </Section>
 
@@ -157,16 +140,6 @@ export function ItemSheet({ item, accent, sectionName }: ItemSheetProps) {
           </p>
         </Section>
 
-        {/* 危险操作 */}
-        <div className="pt-2">
-          <button
-            type="button"
-            onClick={() => setConfirmOpen(true)}
-            className="w-full min-h-tap rounded-card border border-heart/30 text-lead text-heart"
-          >
-            删除这个条目
-          </button>
-        </div>
       </Sheet>
 
       <ConfirmDialog

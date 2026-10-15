@@ -1,12 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import clsx from 'clsx';
-import { SECTION_CONFIG_MAP, sectionColor, sectionTint } from '@/domain/constants';
+import { sectionColor, sectionTint } from '@/domain/constants';
+import { useSectionConfigs } from '@/hooks/useSectionConfigs';
 import type { TimeSlot } from '@/domain/types';
 import { useDayStore } from '@/store/useDayStore';
 import { useTimeSlotStore } from '@/store/useTimeSlotStore';
 import { useRangeStore } from '@/store/useRangeStore';
+import { useItemStore } from '@/store/useItemStore';
 import { useUiStore } from '@/store/useUiStore';
+import { Icon } from '@/components/ui/Icon';
 import { DateNavigator, type DateViewMode } from '@/components/date/DateNavigator';
 import { ReminderBanner } from '@/components/reminder/ReminderBanner';
 import { WeekTimetable } from '@/components/timeline/WeekTimetable';
@@ -17,6 +20,7 @@ import {
 } from '@/components/timeline/SlotEditorSheet';
 import { listDueSlots } from '@/services/reminderService';
 import { buildWeekTimetable } from '@/services/weekViewService';
+import { planSlotSync } from '@/services/slotSyncService';
 import { useTimelineWindowStore } from '@/store/useTimelineWindowStore';
 import { useNowMin } from '@/hooks/useNowMin';
 import { useRecentlyChanged } from '@/hooks/useRecentlyChanged';
@@ -54,6 +58,29 @@ export function TimelinePage() {
 
   const rangeSlots = useRangeStore((s) => s.slots);
   const loadRange = useRangeStore((s) => s.loadRange);
+
+  /*
+    「同步到今日」的勾选模式。
+    已同步过的时间段（今日页存在**存活**的 `sourceSlotId` 指向它的条目）保持勾选且不可取消 ——
+    再同步一次只会在今日页堆出第二条一模一样的条目，而去重要靠同一套标记。
+    （同步出的条目被删掉后，这里自动解锁，可以再同步一次。）
+  */
+  const [selecting, setSelecting] = useState(false);
+  const [checked, setChecked] = useState<ReadonlySet<string>>(new Set());
+  const items = useItemStore((s) => s.items);
+  const syncFromSlots = useItemStore((s) => s.syncFromSlots);
+  const syncedSlotIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const item of items) {
+      if (item.deletedAt === null && item.sourceSlotId !== null && item.sourceSlotId !== undefined) {
+        ids.add(item.sourceSlotId);
+      }
+    }
+    return ids;
+  }, [items]);
+
+  // 时间块上的板块标签取用户自定义后的配置（改名 / 改色都跟着变）
+  const sectionConfigs = useSectionConfigs();
 
   /*
     视图模式。正常从底部 Tab 进来是「当日」；
@@ -119,6 +146,32 @@ export function TimelinePage() {
     openAdd(startMin);
   };
 
+  /** 进入勾选模式（周视图里格子太小不好勾，先回到当日视图） */
+  const startSelecting = () => {
+    if (mode === 'week') setMode('day');
+    setChecked(new Set());
+    setSelecting(true);
+  };
+
+  const toggleChecked = (slotId: string) => {
+    setChecked((prev) => {
+      const next = new Set(prev);
+      if (next.has(slotId)) next.delete(slotId);
+      else next.add(slotId);
+      return next;
+    });
+  };
+
+  const confirmSync = () => {
+    const selected = visibleSlots.filter((slot) => checked.has(slot.id));
+    // 去重 / 过滤仍以纯函数为准（组件只负责「用户勾了谁」）
+    const drafts = planSlotSync(selected, items, date);
+    const created = syncFromSlots(drafts);
+    pushToast(created > 0 ? `已同步 ${created} 项到今日` : '没有需要同步的事件');
+    setSelecting(false);
+    setChecked(new Set());
+  };
+
   const handleSave = () => {
     // 保存按钮在内容为空时是禁用的，这里是第二道闸（快捷键 / 程序化调用也拦得住）
     if (form.content.trim().length === 0) return;
@@ -167,6 +220,41 @@ export function TimelinePage() {
 
       {mode === 'day' && <ReminderBanner />}
 
+      {/*
+        顶部右侧两个入口：「同步到今日」（把勾选的时间段复制成今日页条目）
+        与「导入课表」（课程是「每周重复」的，从周视图进最自然，但日视图也留一个）。
+        勾选模式下这一行让位给一行说明 —— 两个入口此刻都不该被点到。
+      */}
+      <div className="px-5 mt-2">
+        {selecting ? (
+          <p className="text-caption leading-5 text-ink-faint">
+            勾选要同步到今日的事件。
+            <span className="text-ink-muted">未分组的时间段不能同步</span>
+            （今日页的条目必须落在某个板块下）；已经同步过的会保持勾选。
+          </p>
+        ) : (
+          <div className="flex items-center justify-end gap-4">
+            <button
+              type="button"
+              onClick={startSelecting}
+              data-testid="timeline-sync-button"
+              className="press inline-flex items-center gap-1.5 text-caption text-accent active:opacity-60"
+            >
+              <Icon name="task" size={13} />
+              同步到今日
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate('/timetable/import')}
+              className="press inline-flex items-center gap-1.5 text-caption text-accent active:opacity-60"
+            >
+              <Icon name="sync" size={13} />
+              导入课表
+            </button>
+          </div>
+        )}
+      </div>
+
       <div className={clsx('px-5', mode === 'day' ? 'mt-3' : 'mt-2')}>
         {mode === 'week' ? (
           <>
@@ -193,13 +281,35 @@ export function TimelinePage() {
           /* 概念稿 C2：轴式布局 —— 左侧计划时间列 + 中轴节点/连线 + 右侧时间块卡片 */
           <ul>
             {visibleSlots.map((slot, index) => {
-              const config = slot.sectionId ? SECTION_CONFIG_MAP[slot.sectionId] : null;
+              const config = slot.sectionId
+                ? (sectionConfigs.find((cfg) => cfg.key === slot.sectionId) ?? null)
+                : null;
+              // 勾选模式：没归板块的不能同步（没有落点）；同步过的锁定在勾选态
+              const locked = syncedSlotIds.has(slot.id);
+              const selectable = slot.sectionId !== null;
+              const isChecked = locked || checked.has(slot.id);
               return (
                 <li
                   key={slot.id}
                   className="m-rise flex gap-2.5"
                   style={{ animationDelay: staggerDelay(index) }}
                 >
+                  {/* 勾选模式的勾选框：行首多出的一列（退出勾选后整列消失，不错位） */}
+                  {selecting && (
+                    <SyncCheck
+                      checked={isChecked}
+                      disabled={!selectable || locked}
+                      title={
+                        !selectable
+                          ? '未分组的时间段不能同步'
+                          : locked
+                            ? '这个时间段已经同步到今日了'
+                            : undefined
+                      }
+                      onToggle={() => toggleChecked(slot.id)}
+                    />
+                  )}
+
                   {/* 计划时间列。宽度 100px 是为了 14px 下的「09:00–10:00」不会折行 */}
                   <span
                     className={clsx(
@@ -213,17 +323,25 @@ export function TimelinePage() {
                   {/* 中轴：节点（完成=实心）+ 贯穿连线 */}
                   <AxisNode done={slot.done} onToggle={() => toggleDone(slot.id)} />
 
-                  {/* 时间块卡片 */}
+                  {/* 时间块卡片。勾选模式下点卡片 = 勾选 / 取消勾选（编辑先退出勾选） */}
                   <button
                     type="button"
-                    onClick={() => openEdit(slot)}
+                    onClick={() => {
+                      if (!selecting) {
+                        openEdit(slot);
+                        return;
+                      }
+                      if (selectable && !locked) toggleChecked(slot.id);
+                    }}
                     className={clsx(
                       'press flex-1 min-w-0 text-left my-2 rounded-sm px-3.5 py-3',
-                      dueIds.has(slot.id)
-                        ? 'bg-orange-50'
-                        : slot.done
-                          ? 'bg-surface-sunken'
-                          : 'bg-surface border border-surface-line shadow-card',
+                      selecting && isChecked
+                        ? 'bg-accent-soft border border-accent'
+                        : dueIds.has(slot.id)
+                          ? 'bg-orange-50'
+                          : slot.done
+                            ? 'bg-surface-sunken'
+                            : 'bg-surface border border-surface-line shadow-card',
                     )}
                   >
                     <div
@@ -268,16 +386,43 @@ export function TimelinePage() {
         )}
       </div>
 
-      {/* 主操作固定在 Tab Bar 之上，滚动时始终可达 */}
+      {/*
+        主操作固定在 Tab Bar 之上，滚动时始终可达。
+        勾选模式下这一格换成「取消 + 同步 N 项」—— 添加时间段此刻不该被误点。
+      */}
       <div className="fixed inset-x-0 bottom-[100px] flex justify-center px-5 pointer-events-none">
-        <div className="w-full max-w-[430px] pointer-events-auto">
-          <button
-            type="button"
-            onClick={() => openAdd()}
-            className="press w-full min-h-[46px] rounded-pill bg-accent text-accent-fg text-lead"
-          >
-            + 添加时间段
-          </button>
+        <div className="w-full max-w-[430px] pointer-events-auto flex gap-2">
+          {selecting ? (
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  setSelecting(false);
+                  setChecked(new Set());
+                }}
+                className="press flex-1 min-h-[46px] rounded-pill border border-surface-line bg-surface text-body text-ink-muted"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={confirmSync}
+                disabled={checked.size === 0}
+                data-testid="timeline-sync-confirm"
+                className="press flex-[2] min-h-[46px] rounded-pill bg-accent text-lead text-accent-fg disabled:opacity-50"
+              >
+                同步 {checked.size} 项到今日
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={() => openAdd()}
+              className="press w-full min-h-[46px] rounded-pill bg-accent text-accent-fg text-lead"
+            >
+              + 添加时间段
+            </button>
+          )}
         </div>
       </div>
 
@@ -292,6 +437,50 @@ export function TimelinePage() {
         dateLabel={mode === 'week' ? formatShortDate(date) : undefined}
       />
     </div>
+  );
+}
+
+/**
+ * 「同步到今日」的勾选框。
+ *
+ * 不复用 `Tick`：那个组件的语义是「标记完成」，aria-label 与动效都围绕它；
+ * 这里的语义是「选中以同步」，禁用态（未分组 / 已同步过）也需要不同的说明。
+ * 禁用态用**虚线框**而不是灰掉 —— 灰勾选框像「坏了」，虚线框读作「这里不能选」。
+ */
+function SyncCheck({
+  checked,
+  disabled,
+  title,
+  onToggle,
+}: {
+  checked: boolean;
+  disabled: boolean;
+  title?: string;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={disabled ? undefined : onToggle}
+      disabled={disabled}
+      title={title}
+      aria-label={checked ? '取消同步这个时间段' : '同步这个时间段'}
+      aria-pressed={checked}
+      className="press w-6 shrink-0 self-center flex items-center justify-center"
+    >
+      <span
+        className={clsx(
+          'flex items-center justify-center w-[18px] h-[18px] rounded-xs border-[1.5px] transition-colors',
+          checked
+            ? 'border-transparent bg-accent text-accent-fg'
+            : disabled
+              ? 'border-dashed border-edge-strong'
+              : 'border-edge-strong',
+        )}
+      >
+        {checked && <Icon name="check" size={11} strokeWidth={2.8} />}
+      </span>
+    </button>
   );
 }
 

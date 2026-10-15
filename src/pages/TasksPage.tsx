@@ -1,7 +1,6 @@
 import { Icon } from '@/components/ui/Icon';
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import type { TaskSectionKey } from '@/domain/enums';
 import { isDailyTask } from '@/domain/enums';
 import { compareByOrder } from '@/domain/constants';
 import { useTaskStore } from '@/store/useTaskStore';
@@ -12,7 +11,6 @@ import { PageHeader } from '@/components/layout/PageHeader';
 import { TaskRow } from '@/components/task/TaskRow';
 import { DeadlineCard } from '@/components/task/DeadlineCard';
 import { GoalCard } from '@/components/task/GoalCard';
-import { SectionPickerSheet } from '@/components/task/SectionPickerSheet';
 import { ConfirmSheet } from '@/components/ui/ConfirmSheet';
 import { EmptyState } from '@/components/feedback/EmptyState';
 import { computeTaskProgress, toPercent } from '@/services/progressService';
@@ -32,6 +30,7 @@ import { formatShortDate, isToday } from '@/utils/date';
 export function TasksPage() {
   const navigate = useNavigate();
   const date = useDayStore((s) => s.date);
+  const goToday = useDayStore((s) => s.goToday);
   const tasks = useTaskStore((s) => s.tasks);
   const add = useTaskStore((s) => s.add);
   const setSection = useTaskStore((s) => s.setSection);
@@ -39,7 +38,7 @@ export function TasksPage() {
   const pushToast = useUiStore((s) => s.pushToast);
 
   const [focusId, setFocusId] = useState<string | null>(null);
-  /** 正在改分组的任务 id（抽屉由页面持有一个，而不是每行各挂一个） */
+  /** 正在改分组的任务 id（气泡由那一行自己挂，页面只记「哪一行开着」） */
   const [pickingId, setPickingId] = useState<string | null>(null);
   const [syncOpen, setSyncOpen] = useState(false);
   const [syncCount, setSyncCount] = useState(0);
@@ -57,8 +56,6 @@ export function TasksPage() {
     [tasks],
   );
   const progress = useMemo(() => computeTaskProgress(dailyAlive), [dailyAlive]);
-
-  const pickingTask = pickingId === null ? null : dailyAlive.find((t) => t.id === pickingId) ?? null;
 
   const handleInherit = async () => {
     const { created, skipped } = await inherit(date);
@@ -93,6 +90,25 @@ export function TasksPage() {
     <div className="flex flex-col min-h-full">
       <PageHeader
         title="每日任务"
+        /*
+          右上角「回到今日」：只在看的不是今天时出现。
+          在日历里挑了别的日子之后，任务页会一直停在那一天 —— 而任务页的日期入口
+          在**副标题里**（很小），没有任何一步到位的返回。今天时不需要它，显示即噪音。
+        */
+        right={
+          isToday(date) ? undefined : (
+            <button
+              type="button"
+              onClick={goToday}
+              data-testid="back-to-today"
+              className="press min-h-[34px] px-3 rounded-pill bg-accent text-meta text-accent-fg shadow-glow inline-flex items-center gap-1"
+              aria-label="回到今日"
+            >
+              <Icon name="undo" size={13} />
+              回到今日
+            </button>
+          )
+        }
         subtitle={
           <>
             {/* 日期可点 → 去日历选日子（选完自动回到本页）；「完成度」保持纯文本 */}
@@ -155,22 +171,23 @@ export function TasksPage() {
         ) : (
           /* 概念稿 C4：所有任务装在同一张纸卡里，行与行之间不画线 */
           <div className="bg-surface rounded-card shadow-card p-1.5">
-            {dailyAlive.map((task, index) => (
+            {dailyAlive.map((task) => (
               <TaskRow
                 key={task.id}
                 task={task}
-                /* 首行不能上移、末行不能下移 —— 按钮自己把这个事实显示出来（置灰），
-                   而不是点下去什么都不发生（原来的样子，用户会以为按钮坏了）。
-                   边界是**整条列表**的首尾：分组不参与名次判断 */
-                canMoveUp={index > 0}
-                canMoveDown={index < dailyAlive.length - 1}
                 focused={focusId === task.id}
+                picking={pickingId === task.id}
                 onFocus={() => setFocusId(task.id)}
                 onEnter={() => {
                   const id = add(date, '');
                   if (id) setFocusId(id);
                 }}
-                onPickSection={() => setPickingId(task.id)}
+                onOpenPicker={() => setPickingId(task.id)}
+                onPickSection={(key) => {
+                  setSection(task.id, key);
+                  setPickingId(null);
+                }}
+                onClosePicker={() => setPickingId(null)}
               />
             ))}
           </div>
@@ -197,17 +214,6 @@ export function TasksPage() {
           </button>
         </div>
       </div>
-
-      {/* 改某条任务的分组 */}
-      <SectionPickerSheet
-        open={pickingTask !== null}
-        current={pickingTask?.sectionId ?? null}
-        onPick={(key: TaskSectionKey) => {
-          if (pickingTask) setSection(pickingTask.id, key);
-          setPickingId(null);
-        }}
-        onClose={() => setPickingId(null)}
-      />
 
       {/* 同步确认：把「会影响什么、不会影响什么」写在弹框里，而不是等用户发现 */}
       <ConfirmSheet

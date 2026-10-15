@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Item, TaskSyncDraft, VisibleRow } from '@/domain/types';
+import type { Item, SlotSyncDraft, TaskSyncDraft, VisibleRow } from '@/domain/types';
 import type { Rating, SectionKey } from '@/domain/enums';
 import { clock, repos, undoService } from './bootstrap';
 import { persistItems } from './helper';
@@ -15,6 +15,7 @@ import {
 } from '@/services/treeService';
 import { planDelete, planUndo } from '@/services/itemMutationService';
 import { createSyncedItems } from '@/services/taskSyncService';
+import { createSyncedSlotItems } from '@/services/slotSyncService';
 import type { UndoEntry } from '@/services/undoService';
 
 interface ItemState {
@@ -45,6 +46,11 @@ interface ItemState {
    * 让「哪些该建」这个判断留在纯函数里，可被单测覆盖。
    */
   syncFromTasks: (drafts: readonly TaskSyncDraft[]) => number;
+  /**
+   * 把「时间轴 → 同步到今日页」的草稿落成条目。返回新建条数。
+   * 与 `syncFromTasks` 同构：去重留给 `planSlotSync`，这里只负责落地。
+   */
+  syncFromSlots: (drafts: readonly SlotSyncDraft[]) => number;
   indent: (id: string) => void;
   outdent: (id: string) => void;
   move: (id: string, direction: -1 | 1) => void;
@@ -108,6 +114,13 @@ export const useItemStore = create<ItemState>((set, get) => {
     syncFromTasks(drafts) {
       if (drafts.length === 0) return 0;
       const result = createSyncedItems(get().items, drafts, clock);
+      commit(result.items, result.touched, true);
+      return result.newIds.length;
+    },
+
+    syncFromSlots(drafts) {
+      if (drafts.length === 0) return 0;
+      const result = createSyncedSlotItems(get().items, drafts, clock);
       commit(result.items, result.touched, true);
       return result.newIds.length;
     },

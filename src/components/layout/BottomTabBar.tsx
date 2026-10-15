@@ -2,6 +2,7 @@ import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import clsx from 'clsx';
 import { Icon, type IconName } from '@/components/ui/Icon';
+import { useKeyboardVisible } from '@/hooks/useKeyboardVisible';
 
 const TABS = [
   { to: '/today', label: '今日', icon: 'sun' },
@@ -31,12 +32,19 @@ const TABS = [
  * 页面本身只在内容层做落定（外层不能用 transform，理由见 AppShell 注释）。
  *
  * 微信小程序 tabBar 支持 2–5 项，5 项在规范之内，二期可直接使用原生 tabBar。
+ *
+ * ⚠️ 键盘弹起时**整条收下去**（`useKeyboardVisible`）。
+ * `fixed bottom-0` 在原生壳里并不等于「钉在屏幕底」：Android 走
+ * `adjustResize` 时布局视口被压缩，底栏会跟着浮到键盘上方挡住正在输入的内容。
+ * 与其让它换个位置继续碍事，不如收起来 —— 输入时本来也不需要切 Tab，
+ * 而且收起比「被键盘压住半截」看着更像是刻意的设计。
  */
 export function BottomTabBar() {
   const location = useLocation();
   const listRef = useRef<HTMLDivElement>(null);
   const [indicator, setIndicator] = useState<{ x: number; w: number } | null>(null);
   const [visible, setVisible] = useState(false);
+  const keyboardVisible = useKeyboardVisible();
 
   /** 当前激活项。-1 = 不在任何 Tab 上（如板块详情页），指示器淡出但留在原地 */
   const activeIndex = TABS.findIndex((tab) => location.pathname.startsWith(tab.to));
@@ -65,7 +73,15 @@ export function BottomTabBar() {
 
   return (
     // bottom 留白 = 呼吸空间 16 + 安全区（叠加而非覆盖，见 index.css 里的说明）
-    <nav className="fixed bottom-0 left-0 right-0 z-30 flex justify-center px-5 pb-[calc(16px+env(safe-area-inset-bottom))]">
+    <nav
+      className={clsx(
+        'fixed bottom-0 left-0 right-0 z-30 flex justify-center px-5 pb-[calc(16px+env(safe-area-inset-bottom))]',
+        'transition-[transform,opacity] duration-[var(--m-dur-2)] ease-[var(--m-ease-out)]',
+        // 收下去的位移要大于「胶囊 70 + 呼吸 16 + 安全区」，否则会露出一截
+        keyboardVisible && 'translate-y-[150px] opacity-0 pointer-events-none',
+      )}
+      aria-hidden={keyboardVisible}
+    >
       <div
         ref={listRef}
         className="relative w-full max-w-[430px] h-[70px] rounded-pill bg-surface border border-surface-line shadow-card flex items-center gap-1 p-1"

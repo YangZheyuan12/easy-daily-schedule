@@ -1,5 +1,6 @@
 import type { SectionKey } from '@/domain/enums';
-import { SECTION_CONFIGS, sectionColor } from '@/domain/constants';
+import { sectionColor } from '@/domain/constants';
+import { useSectionConfigs } from '@/hooks/useSectionConfigs';
 import { formatDuration } from '@/services/durationService';
 
 interface DurationBarProps {
@@ -29,7 +30,9 @@ interface DurationBarProps {
  * 通用化为时长条后，月视图与周视图共用本组件（标题与空态文案随视图切换）。
  */
 export function DurationBar({ durations, total, title = '本月时长', emptyHint }: DurationBarProps) {
-  const max = Math.max(...SECTION_CONFIGS.map((config) => durations[config.key] ?? 0));
+  // 板块名 / 条形色取用户自定义后的配置（日历时长统计跟着改名改色）
+  const sectionConfigs = useSectionConfigs();
+  const max = Math.max(...sectionConfigs.map((config) => durations[config.key] ?? 0));
 
   return (
     <section className="mx-5 mt-3 rounded-card bg-surface border border-surface-line p-3">
@@ -46,7 +49,7 @@ export function DurationBar({ durations, total, title = '本月时长', emptyHin
         </p>
       ) : (
         <ul className="mt-2 space-y-1.5">
-          {SECTION_CONFIGS.map((config) => {
+          {sectionConfigs.map((config) => {
             const minutes = durations[config.key] ?? 0;
             // 至少留 6% 的一小截：有记录但极短时也要能看见「有」，而不是一条空气
             const ratio = max > 0 ? Math.max(0.06, minutes / max) : 0;

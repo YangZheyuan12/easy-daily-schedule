@@ -22,11 +22,16 @@ import { todayKey, toMonthKey, weekKeys, yearLabel } from '@/utils/date';
  * 想加一个日历弹层时，复用 `MonthGrid` / `YearGrid` 与 store 即可，不需要搬页面逻辑。
  *
  * 两种进入方式，两种语义（由 `location.state.pickDateFrom` 区分）：
- * - **回看模式**（从底部 Tab 进来）：点一格只更新下方摘要卡，不跳页 —— 回看场景
+ * - **回看模式**（从底部 Tab 进来）：点一格更新下方摘要卡、**不跳页** —— 回看场景
  *   用户会连着点好几天比对，跳进详情页再退出就得重新找月份。
  * - **选日子模式**（从首页 / 任务页 / 时间轴的日期进来）：点一格即切换全局日期
  *   并自动回到来路。用户点这里的意图就是「换成那一天」，让他再按一次
  *   「当日」是多余的一步。
+ *
+ * 🔴 但**两种模式都写全局日期**（`useDayStore.setDate`）。
+ * 曾经只有「选日子」才写，结果用户在日历里翻到 12 号看完摘要、切回今日页，
+ * 今日页还停在今天 —— 「我在日历看的是 12 号」这件事完全没传到别的页面。
+ * 现在点一格 = 全应用切到那一天，日历成了真正的全局日期入口。
  */
 export function CalendarPage() {
   const navigate = useNavigate();
@@ -80,11 +85,14 @@ export function CalendarPage() {
   /** 周视图的 7 天（周一 → 周日） */
   const weekDays = useMemo(() => weekKeys(weekStartKey), [weekStartKey]);
 
-  /** 点一格：总是更新选中态；若本次是「选日子」，再落到全局日期并返回来路 */
+  /**
+   * 点一格：选中态与**全局日期**一起切（所有页面跟着走到这一天）；
+   * 若本次是「选日子」，再自动回到来路。
+   */
   const handleSelectDay = (dateKey: string) => {
     selectDate(dateKey);
-    if (!pickFrom) return;
     useDayStore.getState().setDate(dateKey);
+    if (!pickFrom) return;
     navigate(pickFrom, { replace: true });
   };
 
@@ -125,8 +133,8 @@ export function CalendarPage() {
               : view === 'year'
                 ? '点月份看当月，可跨年回看'
                 : view === 'week'
-                  ? '点一格看当天完成情况，可跨周补记'
-                  : '点一格看当天完成情况，可跨月补记'
+                  ? '点一格即切换到那一天，可跨周补记'
+                  : '点一格即切换到那一天，可跨月补记'
         }
       />
 

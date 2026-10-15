@@ -157,3 +157,110 @@ describe('DateNavigator — 传 onDateClick（TimelinePage 的用法）', () => 
     expect(onToday).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('DateNavigator — 视图切换模式（TodayPage / TimelinePage）', () => {
+  const base = { onPrev: vi.fn(), onNext: vi.fn() };
+
+  it('天视图且看的不是今天 → 右上角直接是「回到今天」，点它即回今天', () => {
+    const onToday = vi.fn();
+    const container = mount(
+      createElement(DateNavigator, {
+        ...base,
+        date: NOT_TODAY,
+        onToday,
+        onDateClick: vi.fn(),
+        viewMode: 'day',
+        onViewModeChange: vi.fn(),
+      }),
+    );
+
+    const pill = container.querySelector<HTMLButtonElement>('[data-testid="back-to-today"]');
+    expect(pill).toBeTruthy();
+    expect(pill!.textContent).toBe('回到今天');
+    click(pill!);
+    expect(onToday).toHaveBeenCalledTimes(1);
+  });
+
+  it('天视图且就是今天 → 右上角回到「当日」切换胶囊，不显示「回到今天」', () => {
+    const container = mount(
+      createElement(DateNavigator, {
+        ...base,
+        date: todayKey(),
+        onToday: vi.fn(),
+        onDateClick: vi.fn(),
+        viewMode: 'day',
+        onViewModeChange: vi.fn(),
+      }),
+    );
+
+    expect(container.querySelector('[data-testid="back-to-today"]')).toBeNull();
+    expect(buttonByLabel(container, '切换当日 / 本周视图')).toBeDefined();
+  });
+
+  it('切视图的菜单是右上角浮层（role=menu），不是底部抽屉（role=dialog）', () => {
+    const onViewModeChange = vi.fn();
+    const container = mount(
+      createElement(DateNavigator, {
+        ...base,
+        date: todayKey(),
+        onToday: vi.fn(),
+        onDateClick: vi.fn(),
+        viewMode: 'day',
+        onViewModeChange,
+      }),
+    );
+
+    expect(container.querySelector('[role="menu"]')).toBeNull();
+
+    click(buttonByLabel(container, '切换当日 / 本周视图')!);
+
+    const menu = container.querySelector('[role="menu"]');
+    expect(menu).toBeTruthy();
+    // Sheet 挂的是 role="dialog" —— 在就说明又退回底部抽屉了
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+
+    const week = Array.from(menu!.querySelectorAll('button')).find(
+      (button) => button.textContent === '本周',
+    );
+    click(week as HTMLButtonElement);
+    expect(onViewModeChange).toHaveBeenCalledWith('week');
+  });
+
+  it('就是今天 → 菜单里没有「回到今天」（点了不会有变化，还会把菜单撑宽）', () => {
+    const container = mount(
+      createElement(DateNavigator, {
+        ...base,
+        date: todayKey(),
+        onToday: vi.fn(),
+        onDateClick: vi.fn(),
+        viewMode: 'day',
+        onViewModeChange: vi.fn(),
+      }),
+    );
+
+    click(buttonByLabel(container, '切换当日 / 本周视图')!);
+    const menu = container.querySelector('[role="menu"]')!;
+    const labels = Array.from(menu.querySelectorAll('button')).map((b) => b.textContent ?? '');
+    expect(labels).toContain('当日');
+    expect(labels).toContain('本周');
+    expect(labels.some((text) => text.includes('回到今天'))).toBe(false);
+  });
+
+  it('看的不是今天（周视图，胶囊不被顶掉）→ 菜单里有「回到今天」', () => {
+    const container = mount(
+      createElement(DateNavigator, {
+        ...base,
+        date: NOT_TODAY,
+        onToday: vi.fn(),
+        onDateClick: vi.fn(),
+        viewMode: 'week',
+        onViewModeChange: vi.fn(),
+      }),
+    );
+
+    click(buttonByLabel(container, '切换当日 / 本周视图')!);
+    const menu = container.querySelector('[role="menu"]')!;
+    const labels = Array.from(menu.querySelectorAll('button')).map((b) => b.textContent ?? '');
+    expect(labels.some((text) => text.includes('回到今天'))).toBe(true);
+  });
+});

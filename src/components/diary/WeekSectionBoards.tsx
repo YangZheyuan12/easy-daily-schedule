@@ -1,6 +1,7 @@
 import clsx from 'clsx';
 import { Icon } from '@/components/ui/Icon';
-import { SECTION_CONFIG_MAP, sectionColor, sectionTint } from '@/domain/constants';
+import { sectionColor, sectionTint } from '@/domain/constants';
+import { useSectionConfigs } from '@/hooks/useSectionConfigs';
 import type { SectionKey } from '@/domain/enums';
 import type { WeekSectionBoard } from '@/services/weekViewService';
 
@@ -16,7 +17,7 @@ interface WeekSectionBoardsProps {
  * 本周四板块田字格（今日页「本周」视图）。
  *
  * 布局：**2×2 铺满「今日页剩余高度」**，所以每个板块**固定占页面的 1/4**（不是随内容伸缩的卡片）。
- * 一格就是「一个板块一整周」的只读汇总：色点组头 + 完成数，格内按天列出本周该板块的事项；
+ * 一格就是「一个板块一整周」的只读汇总：色点组头，格内按天列出本周该板块的事项；
  * 列太长时**格内独立滚动**（`flex-1 min-h-0 overflow-y-auto`），不会把四格推成一屏装不下。
  *
  * 交互分两层，避免互相打架：
@@ -33,16 +34,19 @@ interface WeekSectionBoardsProps {
  * - 格内字号收到 `caption`（13px 地板），塞得下「周三 + 两条事项」这类的迷你清单即可，详情进详情页看。
  */
 export function WeekSectionBoards({ boards, onSelectDay, onOpenSection }: WeekSectionBoardsProps) {
+  // 板块名 / 配色取用户自定义后的配置：服务层给的 `board.name` 是**内置默认名**，
+  // 用户改过名后它就是过期数据，所以显示一律以配置为准。
+  const configs = useSectionConfigs();
   return (
     <div className="grid grid-cols-2 grid-rows-2 gap-2.5 h-full">
       {boards.map((board) => {
-        const config = SECTION_CONFIG_MAP[board.key];
+        const config = configs.find((cfg) => cfg.key === board.key) ?? configs[0];
         return (
           <section
             key={board.key}
             role="button"
             tabIndex={0}
-            aria-label={`查看${board.name}本周详情`}
+            aria-label={`查看${config.name}本周详情`}
             onClick={() => onOpenSection(board.key)}
             onKeyDown={(event) => {
               if (event.key === 'Enter' || event.key === ' ') {
@@ -57,14 +61,8 @@ export function WeekSectionBoards({ boards, onSelectDay, onOpenSection }: WeekSe
                 className="w-2 h-2 rounded-pill shrink-0"
                 style={{ backgroundColor: sectionColor(config) }}
               />
-              <span className="text-body font-medium text-ink truncate">{board.name}</span>
-              <span
-                className="ml-auto text-caption tabular-nums shrink-0"
-                style={{ color: sectionColor(config) }}
-              >
-                {board.done}/{board.total}
-              </span>
-              <Icon name="chevron-right" size={14} className="text-ink-faint shrink-0" />
+              <span className="text-body font-medium text-ink truncate">{config.name}</span>
+              <Icon name="chevron-right" size={14} className="text-ink-faint shrink-0 ml-auto" />
             </header>
 
             {board.days.length === 0 ? (

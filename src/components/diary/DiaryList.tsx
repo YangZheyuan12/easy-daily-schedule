@@ -1,16 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import clsx from 'clsx';
-import type { DiaryEntry, DiaryGroup } from '@/domain/types';
+import type { DiaryEntry, DiaryGroup, Item } from '@/domain/types';
 import type { SectionKey } from '@/domain/enums';
-import { SECTION_CONFIG_MAP, sectionColor, sectionTint } from '@/domain/constants';
+import { sectionColor, sectionTint } from '@/domain/constants';
+import { useSectionConfig } from '@/hooks/useSectionConfigs';
+import { useAutoResizeTextarea } from '@/hooks/useAutoResizeTextarea';
+import { useExpanded } from '@/hooks/useExpanded';
 import { Icon } from '@/components/ui/Icon';
-import { Tick } from '@/components/ui/Tick';
 import { buildDiaryList } from '@/services/diaryService';
 import { useInspirationStore } from '@/store/useInspirationStore';
 import { useItemStore } from '@/store/useItemStore';
 import { useTimeSlotStore } from '@/store/useTimeSlotStore';
 import { useTodayHiddenStore } from '@/store/useTodayHiddenStore';
+import { useUiStore } from '@/store/useUiStore';
 import { useItemImageStore, EMPTY_IMAGES } from '@/store/useItemImageStore';
 import { ImageThumb } from '@/components/item/ImageThumb';
 import { ImageLightbox } from '@/components/item/ImageLightbox';
@@ -25,15 +28,23 @@ interface DiaryListProps {
  * 主页日记体统一列表：四板块（树形 + 跨组连续编号）+ 灵感（纯文字）一组。
  *
  * 形态对齐概念稿 C1：**平铺在页面底色上，不再套卡片** —— 组头是一行
- * 「色点 + 组名 + 计数」小标签，条目直接排下来，每组底部一行下沉底的
+ * 「色点 + 组名 + N项」小标签，条目直接排下来，每组底部一行下沉底的
  * 内联快速添加胶囊。分组之间靠留白呼吸，不靠边框。
  *
  * 取代原先的四张 SectionCard 网格 —— 把「今天做了什么 / 想到什么」按日记顺序
  * 串成一条，编号只是展示用的派生值，不写库。
  *
- * 四板块的每一行有两类来源：**本板块的条目**（可勾选、可增删）与
- * **时间轴里归到本板块的时间段**（投影进来，勾选直接写回时间轴那条记录）。
+ * 四板块的每一行有两类来源：**本板块的条目**（可增删）与
+ * **时间轴里归到本板块的时间段**（投影进来，只是读同一条记录）。
  * 投影进来的时间段，在今日视图内可「隐藏」（仅本日视图，不回写时间轴记录）。
+ *
+ * 🔴 本列表**没有行内勾选框**（用户要求去掉）：完成态靠删除线 + 淡化字重表达，
+ * 切换完成 / 未完成请点行尾「⋯」进条目详情（与板块页同一张抽屉）。
+ * 两类行都不放框是刻意的：它们上下相邻，一边有一边没有就会错开一整列。
+ *
+ * 🔴 **条目行（顶层 / 子项）在主页就能改**（用户要求）：点标题文字行内编辑，
+ * 点行尾「⋯」打开条目详情抽屉（图片 / 描述 / 子分支 / 删除）——
+ * 不必再跳板块页。投影的时间段行是例外：**只读**，去时间轴页编辑。
  */
 export function DiaryList({ date }: DiaryListProps) {
   const navigate = useNavigate();
@@ -45,6 +56,23 @@ export function DiaryList({ date }: DiaryListProps) {
     () => buildDiaryList(items, inspirations, slots),
     [items, inspirations, slots],
   );
+
+  /*
+    已经「同步到今日」的时间段：它的投影行让位给同步成的**条目**（可勾选、可编辑）。
+    否则今日页会出现两条一样的内容 —— 一条只读投影、一条可编辑副本，用户会以为同步坏了。
+    删掉那条同步成的条目，投影自然回来（时间段本身没动）。
+    🔴 只算**存活**条目：软删的条目在列表里已经不可见，若还按它隐藏投影，
+    这个时间段就会在今日页彻底消失（撤得回，但看着像数据丢了）。
+  */
+  const syncedSlotIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const item of items) {
+      if (item.deletedAt === null && item.sourceSlotId !== null && item.sourceSlotId !== undefined) {
+        ids.add(item.sourceSlotId);
+      }
+    }
+    return ids;
+  }, [items]);
 
   // 加载当天所有条目的图片附件；key 用「条目 id 串」去重，
   // 切到别的日期 / 增删条目会触发重新拉取，单纯勾选不会（id 串不变）。
@@ -67,6 +95,7 @@ export function DiaryList({ date }: DiaryListProps) {
             key={group.key}
             group={group}
             date={date}
+            syncedSlotIds={syncedSlotIds}
             onNavigate={(sectionId) => navigate(`/section/${sectionId}?date=${date}`)}
             onOpenTimeline={() => navigate('/timeline')}
           />
@@ -79,17 +108,20 @@ export function DiaryList({ date }: DiaryListProps) {
 interface SectionGroupProps {
   group: DiaryGroup;
   date: string;
+  /** 已同步成条目的时间段 id（它们的投影行让位给条目，见 DiaryList 头部注释） */
+  syncedSlotIds: ReadonlySet<string>;
   onNavigate: (sectionId: string) => void;
   /** 点「来自时间轴」的那一行 → 去时间轴页编辑（板块页只有条目树，改不到时间段） */
   onOpenTimeline: () => void;
 }
 
 /**
- * 四板块组：色点 + 组名 + 条目数，组头点击跳板块详情（树形编辑入口保留）；
+ * 四板块组：色点 + 组名，组头点击跳板块详情（树形编辑入口保留）；
  * 内部是编号条目与子项，底部恒定一行内联快速添加（与灵感组同构）。
  */
-function SectionGroup({ group, date, onNavigate, onOpenTimeline }: SectionGroupProps) {
-  const config = SECTION_CONFIG_MAP[group.key as keyof typeof SECTION_CONFIG_MAP];
+function SectionGroup({ group, date, syncedSlotIds, onNavigate, onOpenTimeline }: SectionGroupProps) {
+  // 组名与配色取**用户自定义后的**板块配置（改了名这里跟着变）
+  const config = useSectionConfig(group.key as SectionKey);
   const addSibling = useItemStore((s) => s.addSibling);
   const setHidden = useTodayHiddenStore((s) => s.setHidden);
   // 订阅 hidden 数组，隐藏状态变化时本组重渲染
@@ -115,11 +147,13 @@ function SectionGroup({ group, date, onNavigate, onOpenTimeline }: SectionGroupP
 
   /*
     投影进来的时间段如果在本日视图被「隐藏」，就从可见列表里过滤掉。
-    visibleEntries 同时用于渲染与计数，因此计数与展示严格一致。
+    已经同步成条目的时间段同样过滤 —— 今日页只看得到那条同步成的条目（见头部注释）。
   */
-  const visibleEntries = group.entries.filter(
-    (e) => !(e.kind === 'timeSlot' && e.timeSlot && isHidden(e.timeSlot.id)),
-  );
+  const visibleEntries = group.entries.filter((e) => {
+    if (e.kind !== 'timeSlot' || !e.timeSlot) return true;
+    if (isHidden(e.timeSlot.id)) return false;
+    return !syncedSlotIds.has(e.timeSlot.id);
+  });
   /** 本组本日被隐藏的时间段 id（用于「恢复隐藏」入口） */
   const hiddenIds = group.entries
     .filter((e) => e.kind === 'timeSlot' && e.timeSlot && isHidden(e.timeSlot.id))
@@ -127,20 +161,22 @@ function SectionGroup({ group, date, onNavigate, onOpenTimeline }: SectionGroupP
 
   /*
     组头计数 = 本板块顶层条目 + 归到本板块的时间段（两者都编号、都算一件「要做的事」）。
-    口径与日历摘要卡 `DaySummary.sections` 一致。这里只数**可见**的（隐藏的不计入，也不显示）。
+    口径与日历摘要卡 `DaySummary.sections` 一致，且只数**可见**的（隐藏 / 已同步的不计入）。
+    形态是纯计数「N项」（2026-10-16 用户要求：去掉 0/3 进度显示后嫌光秃，要一行数量小字）。
+    🔴 只放**数量**、不放完成率：完成率口径仍在 `progressService` 与日历摘要卡。
   */
-  const topEntries = visibleEntries.filter((e) => e.kind === 'item' || e.kind === 'timeSlot');
-  const doneCount = topEntries.filter((e) => e.item?.done ?? e.timeSlot?.done ?? false).length;
-  const totalCount = topEntries.length;
-  const placeholder = config?.placeholder ?? `记录一项${group.name}…`;
+  const topCount = visibleEntries.filter((e) => e.kind === 'item' || e.kind === 'timeSlot').length;
+
+  const placeholder = config.placeholder;
 
   return (
     <section>
       {/*
-        组头：色点 + 组名 + 「完成数/总数」。
+        组头：色点 + 组名 + 「N项」数量小字。
         层级关系是刻意的 —— 组头 18px Semibold（重墨）必须**明显重于**它下面的
         条目（16px）与内联添加（15px 弱化色），这样扫一眼就知道「这一段属于谁」。
         色点也跟着放大到 8px，否则 18px 的标题旁边一颗 6px 的点会显得没长齐。
+        计数用 caption 弱化色 + tabular-nums，跟在组名右侧，只回答「这一组有几件事」。
       */}
       <button
         type="button"
@@ -149,12 +185,10 @@ function SectionGroup({ group, date, onNavigate, onOpenTimeline }: SectionGroupP
       >
         <span
           className="w-2 h-2 rounded-pill shrink-0"
-          style={{ backgroundColor: config ? sectionColor(config) : 'rgb(var(--c-ink-faint))' }}
+          style={{ backgroundColor: sectionColor(config) }}
         />
-        <span className="text-heading font-semibold text-ink">{group.name}</span>
-        <span className="ml-auto text-caption text-ink-faint tabular-nums">
-          {totalCount === 0 ? '—' : `${doneCount}/${totalCount}`}
-        </span>
+        <span className="text-heading font-semibold text-ink">{config.name}</span>
+        <span className="ml-auto text-caption text-ink-faint tabular-nums">{topCount}项</span>
       </button>
 
       {visibleEntries.length > 0 && (
@@ -164,7 +198,6 @@ function SectionGroup({ group, date, onNavigate, onOpenTimeline }: SectionGroupP
               key={entry.item?.id ?? entry.inspiration?.id ?? entry.timeSlot?.id}
               entry={entry}
               index={index}
-              onNavigate={onNavigate}
               onOpenTimeline={onOpenTimeline}
               onViewImage={(blob) => setLightboxBlob(blob)}
               onHide={
@@ -210,7 +243,7 @@ function SectionGroup({ group, date, onNavigate, onOpenTimeline }: SectionGroupP
           onClick={submit}
           disabled={empty}
           style={
-            empty || !config
+            empty
               ? undefined
               : {
                   borderColor: sectionColor(config),
@@ -255,7 +288,7 @@ function InspirationGroup({ group, date }: { group: DiaryGroup; date: string }) 
         <Icon name="bulb" size={16} className="text-star shrink-0" />
         <span className="text-heading font-semibold text-ink">{group.name}</span>
         <span className="ml-auto text-caption text-ink-faint tabular-nums">
-          {group.entries.length > 0 ? `${group.entries.length} 条` : '—'}
+          {group.entries.length}项
         </span>
       </div>
 
@@ -313,7 +346,6 @@ interface DiaryRowProps {
   entry: DiaryEntry;
   /** 在本组中的序号，只用来算落定延迟 */
   index: number;
-  onNavigate: (sectionId: string) => void;
   /** 时间段行专用：去时间轴页编辑 */
   onOpenTimeline: () => void;
   /** 条目行专用：行内缩略图条点开全屏大图 */
@@ -324,29 +356,32 @@ interface DiaryRowProps {
 
 /**
  * 单条日记行（对齐概念稿 C1 的行形态）：
- * 顶层条目 = 编号 + 圆形勾选框 + 15px 标题；子项 = 缩进 + 小圆圈 + 14px 标题。
+ * 顶层条目 = 编号 + 16px 标题；子项 = 缩进 + 14px 标题；
+ * 投影的时间段 = 编号 + 开始时间 + 16px 标题。
  *
- * 勾选反馈：盒子弹一下 + 那一勾画出来（`Tick`），同时标题上一条线**从左画到右**。
+ * 🔴 **条目行（顶层 / 子项）在主页就能改**（用户要求，不必再去板块页）：
+ * 点标题文字 → 行内编辑（自动增高的 textarea，Enter 或失焦提交，Esc 取消）；
+ * 点行尾「⋯」→ 打开与板块页同一张条目详情抽屉（图片 / 描述 / 子分支 / 删除）。
+ * 投影的时间段行**不做这些**（时间轴导入过来的不改）—— 它只读，去时间轴页编辑。
+ *
  * 划掉线用 background-size 而不是 `line-through`：line-through 是瞬间整条出现的，
  * 和「我刚划掉它」这个动作对不上；而且它必须挂在行内 span 上，
  * 挂在撑满整行的按钮上会有一条横贯空白区的长线。
+ * 现在是唯一的完成态标记 —— 行内勾选框已移除，见文件头注释。
  */
 function DiaryRow({
   entry,
   index,
-  onNavigate,
   onOpenTimeline,
   onViewImage,
   onHide,
 }: DiaryRowProps) {
-  const toggleDone = useItemStore((s) => s.toggleDone);
-  const toggleSlotDone = useTimeSlotStore((s) => s.toggleDone);
   const item = entry.item;
   const slot = entry.timeSlot;
 
   /*
     `kind === 'timeSlot'`：时间轴里归到本板块的时间段，投影出来的一行。
-    与条目行同构（编号 + 圆形勾选框 + 16px 标题），只多一个开始时间 —— 它是
+    与条目行同构（编号 + 16px 标题），只多一个开始时间 —— 它是
     「这条为什么会出现在这里」的唯一标记，去掉的话用户只会以为是自己记过又忘了。
 
     勾选直接写回 `TimeSlot.done`（不复制成条目），所以今日页与时间轴天然一致，
@@ -363,13 +398,11 @@ function DiaryRow({
         <span className="shrink-0 w-5 text-right text-caption text-ink-faint tabular-nums">
           {entry.displayNo}
         </span>
-        <Tick
-          done={slot.done}
-          size={16}
-          shape="circle"
-          className="w-4 h-4 tap-expand"
-          onToggle={() => toggleSlotDone(slot.id)}
-        />
+        {/*
+          这里同样**没有**圆形勾选框：投影行与条目行在同一张列表里上下相邻，
+          一边有圈一边没圈，两列标题就会错开 26px，整页立刻散掉。
+          完成态一律靠删除线 + 淡化表达；要改完成/未完成就点进去（去时间轴）。
+        */}
         <span className="shrink-0 text-meta tabular-nums text-ink-faint">
           {minToHHMM(slot.startMin)}
         </span>
@@ -410,26 +443,16 @@ function DiaryRow({
         style={{ paddingLeft: 24 + entry.depth * 16, animationDelay: staggerDelay(index) }}
       >
         <div className="flex items-center gap-2.5">
-          <span className="w-[14px] h-[14px] rounded-pill border border-edge-strong shrink-0" />
-          <button
-            type="button"
-            onClick={() => onNavigate(item.sectionId)}
-            className={clsx(
-              'flex-1 min-w-0 text-left text-body leading-5 truncate',
-              done ? 'text-ink-faint' : 'text-ink-muted',
-            )}
-          >
-            <span className="m-strike" data-done={done}>
-              {item.title || '未命名条目'}
-            </span>
-          </button>
+          {/* 子项前面**没有**圆圈（用户要求）：缩进本身就是层级，再画一圈等于每层多一个控件 */}
+          <EditableTitle item={item} sizeClass="text-body leading-5" tone={done ? 'text-ink-faint' : 'text-ink-muted'} />
+          <MoreButton item={item} />
         </div>
         <ImageStrip itemId={item.id} indent={0} onViewImage={onViewImage} />
       </li>
     );
   }
 
-  // kind === 'item'：顶层条目，跨组连续编号（编号在前，勾选框随后）
+  // kind === 'item'：顶层条目，跨组连续编号（编号在前，其后直接是标题）
   return (
     <li
       className="m-rise flex flex-col gap-1 py-1.5"
@@ -439,38 +462,130 @@ function DiaryRow({
         <span className="shrink-0 w-5 text-right text-caption text-ink-faint tabular-nums">
           {entry.displayNo}
         </span>
-        <Tick
-          done={done}
-          size={16}
-          shape="circle"
-          className="w-4 h-4 tap-expand"
-          onToggle={() => toggleDone(item.id)}
-        />
-        <button
-          type="button"
-          onClick={() => onNavigate(item.sectionId)}
-          className={clsx(
-            'flex-1 min-w-0 text-left text-lead leading-6 truncate',
-            done ? 'text-ink-faint' : 'text-ink',
-          )}
-        >
-          <span className="m-strike" data-done={done}>
-            {item.title || '未命名条目'}
-          </span>
-        </button>
+        {/*
+          这里**没有**圆形勾选按钮（用户要求去掉）：列表是「看今天有什么」的地方，
+          一圈圈勾选框会把视线切碎。完成态改用删除线 + 淡化字重表达，
+          要切换完成/未成就点行尾「⋯」进详情。
+        */}
+        <EditableTitle item={item} sizeClass="text-lead leading-6" tone={done ? 'text-ink-faint' : 'text-ink'} />
+        <MoreButton item={item} />
       </div>
       {/*
         行内缩略图条：图片与任务条「同时出现」，可折叠。
-        缩进对齐到勾选框那一列（编号 20 + 间距 10 = 30px）。
+        缩进对齐到标题那一列（编号 20 + 间距 10 = 30px）。
       */}
       <ImageStrip itemId={item.id} indent={30} onViewImage={onViewImage} />
     </li>
   );
 }
 
+/**
+ * 行尾「⋯」：打开与板块页**同一张**条目详情抽屉（图片 / 描述 / 子分支 / 删除）。
+ *
+ * 走全局 `useUiStore` 的 drawer 机制而不是本地 state —— 抽屉由 TodayPage 渲染，
+ * 与板块页共用 `ItemSheet`，两个入口看到的是同一份内容、同一套删除确认。
+ */
+function MoreButton({ item }: { item: Item }) {
+  const openDrawer = useUiStore((s) => s.openDrawer);
+  return (
+    <button
+      type="button"
+      onClick={() => openDrawer(item.id)}
+      aria-label={`编辑「${item.title || '未命名条目'}」`}
+      className="press shrink-0 w-7 h-7 flex items-center justify-center rounded-pill text-ink-faint active:opacity-60"
+    >
+      <Icon name="more" size={16} />
+    </button>
+  );
+}
+
+/**
+ * 可点编辑的标题：默认是「一段文字」，点一下变成自动增高的输入框。
+ *
+ * 为什么不是常驻 input（板块页 TreeRow 那样）：今日页是**阅读**优先的列表，
+ * 一排常驻输入框会让「看今天有什么」变成「满屏光标待命」；而编辑是低频动作，
+ * 点一下多一步、换来的是一屏干净的日记体。
+ *
+ * 提交规则：Enter 或失焦 → 保存（trim 后为空则保留原标题，误触全选+删除不丢内容）；
+ * Esc → 取消，丢弃本次修改。真删条目请走「⋯」里的删除（有过确认）。
+ */
+function EditableTitle({
+  item,
+  sizeClass,
+  tone,
+}: {
+  item: Item;
+  sizeClass: string;
+  tone: string;
+}) {
+  const setTitle = useItemStore((s) => s.setTitle);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(item.title);
+  const ref = useAutoResizeTextarea(draft);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.focus();
+    // 光标落到末尾：点文字进来是「接着改」，不是全选重打
+    const len = el.value.length;
+    el.setSelectionRange(len, len);
+  }, [ref]);
+
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        onClick={() => {
+          setDraft(item.title);
+          setEditing(true);
+        }}
+        className={clsx('flex-1 min-w-0 text-left truncate', sizeClass, tone)}
+      >
+        <span className="m-strike" data-done={item.done}>
+          {item.title || '未命名条目'}
+        </span>
+      </button>
+    );
+  }
+
+  const commit = () => {
+    const next = draft.trim();
+    if (next.length > 0 && next !== item.title) setTitle(item.id, next);
+    setEditing(false);
+  };
+
+  return (
+    <textarea
+      ref={ref}
+      value={draft}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={commit}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          commit();
+        }
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          setEditing(false);
+        }
+      }}
+      rows={1}
+      placeholder="未命名条目"
+      className={clsx(
+        'm-strike-ink flex-1 min-w-0 bg-transparent outline-none resize-none',
+        sizeClass,
+        tone,
+      )}
+      enterKeyHint="done"
+    />
+  );
+}
+
 interface ImageStripProps {
   itemId: string;
-  /** 左侧缩进 px（对齐勾选框列） */
+  /** 左侧缩进 px（对齐标题列） */
   indent: number;
   onViewImage: (blob: Blob) => void;
 }
@@ -481,10 +596,14 @@ interface ImageStripProps {
  *
  * 这里是**只读预览**：上传 / 删除统一收在条目详情抽屉（板块页点行尾「⋯」），
  * 今日列表不再放图片入口，避免同一份图片有两个可写入口。
+ *
+ * 折叠态按条目 id 跨页保持（2026-10-16 用户要求）：嫌某条的图挡路收起来，
+ * 切走再回来不用再收一遍。
  */
 function ImageStrip({ itemId, indent, onViewImage }: ImageStripProps) {
   const images = useItemImageStore((s) => s.byItem[itemId] ?? EMPTY_IMAGES);
-  const [collapsed, setCollapsed] = useState(false);
+  const { open: expanded, toggle } = useExpanded(`images:${itemId}`, true);
+  const collapsed = !expanded;
 
   if (images.length === 0) return null;
 
@@ -492,7 +611,7 @@ function ImageStrip({ itemId, indent, onViewImage }: ImageStripProps) {
     return (
       <button
         type="button"
-        onClick={() => setCollapsed(false)}
+        onClick={toggle}
         className="press inline-flex items-center gap-1 text-caption text-ink-faint"
         style={{ paddingLeft: indent }}
       >
@@ -517,7 +636,7 @@ function ImageStrip({ itemId, indent, onViewImage }: ImageStripProps) {
       ))}
       <button
         type="button"
-        onClick={() => setCollapsed(true)}
+        onClick={toggle}
         aria-label="收起图片"
         className="w-7 h-7 flex items-center justify-center rounded-pill text-ink-faint"
       >

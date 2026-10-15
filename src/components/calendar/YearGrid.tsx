@@ -1,7 +1,8 @@
 import { useMemo } from 'react';
 import clsx from 'clsx';
 import type { MonthMiniSummary } from '@/services/calendarService';
-import { SECTION_CONFIGS, sectionColor } from '@/domain/constants';
+import { sectionColor } from '@/domain/constants';
+import { useSectionConfigs } from '@/hooks/useSectionConfigs';
 
 /** 与 DayCell 一致：无记录时的空点 */
 const EMPTY_DOT = 'rgb(var(--c-edge-strong))';
@@ -25,6 +26,8 @@ interface YearGridProps {
  */
 export function YearGrid({ yearKey, yearSummaries, onSelectMonth, activeMonthKey }: YearGridProps) {
   const months = useMemo(() => monthsInYear(yearKey), [yearKey]);
+  // 四个色点用用户自定义后的板块色
+  const sectionConfigs = useSectionConfigs();
 
   return (
     <section className="px-3 pt-3">
@@ -59,7 +62,7 @@ export function YearGrid({ yearKey, yearSummaries, onSelectMonth, activeMonthKey
                   {hasAny ? `${summary?.daysWithData ?? 0}天有记录` : '未记录'}
                 </span>
                 <span className="mt-1.5 flex items-center gap-[3px]">
-                  {SECTION_CONFIGS.map((config) => {
+                  {sectionConfigs.map((config) => {
                     const sec = summary?.sections[config.key];
                     const active = (sec?.total ?? 0) > 0;
                     return (

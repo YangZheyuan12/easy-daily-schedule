@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import clsx from 'clsx';
 import type { SectionKey } from '@/domain/enums';
-import { SECTION_CONFIGS, sectionColor } from '@/domain/constants';
+import { sectionColor } from '@/domain/constants';
+import { useSectionConfigs } from '@/hooks/useSectionConfigs';
 import { Sheet, SheetActionButton } from '@/components/ui/Sheet';
 import { TimeRuler } from '@/components/ui/TimeRuler';
 import { minToHHMM } from '@/utils/date';
@@ -101,6 +102,8 @@ export function SlotEditorSheet({
   onClose,
   dateLabel,
 }: SlotEditorSheetProps) {
+  // 板块名 / 配色取用户自定义后的配置（时间轴分组选择跟着改名改色）
+  const sectionConfigs = useSectionConfigs();
   const [activeField, setActiveField] = useState<TimeFieldKey>('start');
 
   /*
@@ -259,7 +262,7 @@ export function SlotEditorSheet({
             >
               无
             </button>
-            {SECTION_CONFIGS.map((config) => (
+            {sectionConfigs.map((config) => (
               <button
                 key={config.key}
                 type="button"

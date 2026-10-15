@@ -20,6 +20,7 @@ export function makeItem(partial: Partial<Item> & { id: string }): Item {
     createdAt: 1000,
     updatedAt: 1000,
     sourceTaskId: null,
+    sourceSlotId: null,
     deletedAt: null,
     ...partial,
   };

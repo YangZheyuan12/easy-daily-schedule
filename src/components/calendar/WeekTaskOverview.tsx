@@ -1,5 +1,6 @@
 import { Icon } from '@/components/ui/Icon';
-import { SECTION_CONFIGS, sectionColor, sectionTint } from '@/domain/constants';
+import { sectionColor, sectionTint } from '@/domain/constants';
+import { useSectionConfigs } from '@/hooks/useSectionConfigs';
 import { buildWeekSectionBoards } from '@/services/weekViewService';
 import { toPercent } from '@/services/progressService';
 import type { Item, TimeSlot } from '@/domain/types';
@@ -26,6 +27,7 @@ interface WeekTaskOverviewProps {
  * 两块跳转都由调用方（CalendarPage）负责先对齐全局日期再导航，本卡片只发意图。
  */
 export function WeekTaskOverview({ items, slots, weekDays, onOpen }: WeekTaskOverviewProps) {
+  const sectionConfigs = useSectionConfigs();
   const boards = buildWeekSectionBoards(items, slots, weekDays);
   const totalCount = boards.reduce((sum, board) => sum + board.total, 0);
   const doneCount = boards.reduce((sum, board) => sum + board.done, 0);
@@ -42,7 +44,7 @@ export function WeekTaskOverview({ items, slots, weekDays, onOpen }: WeekTaskOve
 
       <ul className="mt-2.5 grid grid-cols-2 gap-1.5">
         {boards.map((board) => {
-          const config = SECTION_CONFIGS.find((c) => c.key === board.key) ?? SECTION_CONFIGS[0];
+          const config = sectionConfigs.find((c) => c.key === board.key) ?? sectionConfigs[0];
           return (
             <li
               key={board.key}

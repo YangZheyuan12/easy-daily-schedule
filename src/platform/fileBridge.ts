@@ -28,6 +28,52 @@ export function saveTextFile(filename: string, text: string, mime = 'application
 }
 
 /**
+ * 弹系统文件选择器读一个文件，返回**原始字节**。
+ *
+ * 课表 CSV 要走这一条而不是 `pickTextFile`：中文教务系统导出的 CSV 多半是 GBK，
+ * 必须自己 `decodeTextBytes`（见 `textCodec.ts`），直接读成字符串会乱码。
+ */
+export function pickBinaryFile(accept = '.csv,.txt,text/csv,text/plain'): Promise<ArrayBuffer | null> {
+  return new Promise((resolve) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = accept;
+    input.style.display = 'none';
+    document.body.appendChild(input);
+
+    const cleanup = () => {
+      document.body.removeChild(input);
+    };
+
+    input.addEventListener('change', () => {
+      const file = input.files?.[0];
+      if (!file) {
+        cleanup();
+        resolve(null);
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = () => {
+        cleanup();
+        resolve(reader.result instanceof ArrayBuffer ? reader.result : null);
+      };
+      reader.onerror = () => {
+        cleanup();
+        resolve(null);
+      };
+      reader.readAsArrayBuffer(file);
+    });
+
+    input.addEventListener('cancel', () => {
+      cleanup();
+      resolve(null);
+    });
+
+    input.click();
+  });
+}
+
+/**
  * 弹系统文件选择器读一个文本文件。
  * 用户取消或没选到内容时 resolve `null`（而不是 reject —— 取消是正常操作，不是错误）。
  */

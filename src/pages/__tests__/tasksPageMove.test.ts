@@ -5,7 +5,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 
 /**
- * TasksPage 任务行的**顺序与行内操作**独立验证（渲染层）。
+ * TasksPage 任务行的**顺序与行结构**验证（渲染层）。
  *
  * 背景（真 bug，用户报「点了没有任何反应」）：
  * `useTaskStore.move` 把 `order` 换好了，但 TasksPage 直接按数组位置渲染，
@@ -14,10 +14,10 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
  *
  * 覆盖：
  * ① 数组顺序与 order 不一致时，渲染必须以 order 为准；
- * ② 点「下移」后 DOM 顺序真的换位；
- * ③ 首行上移 / 末行下移置灰（`disabled`）—— 按钮要自己说「到头了」，
- *    而不是点下去什么都不发生；
- * ④ 软删任务既不渲染、也不占换位名额。
+ * ② `move` 之后 DOM 顺序真的换位（回归上，现在不再经由行内按钮触发）；
+ * ③ 软删任务既不渲染、也不占换位名额；
+ * ④ 行内**没有**上移 / 下移按钮（用户要求移除）；
+ * ⑤ 分组标记与描述框**同一行**，且分组在前。
  *
  * 本项目的 vite.config.ts 只收 `*.test.ts`，故用 createElement 代替 JSX；
  * jsdom 经文件顶部指令单文件启用，不影响其余测试的 node 环境。
@@ -71,19 +71,41 @@ function render(): HTMLDivElement {
   return container;
 }
 
-/** DOM 里输入框的先后顺序 = 用户看到的顺序 */
+/**
+ * DOM 里输入框的先后顺序 = 用户看到的顺序。
+ *
+ * 标题现在是 **textarea**（长标题要能折行，单行 input 会把超出部分横向吞掉），
+ * 所以这里按 placeholder 找 textarea 而不是 input —— 顺带把「标题不是单行 input」
+ * 这件事锁住：哪天有人改回 input，这三个顺序用例会集体取到空数组而失败。
+ */
 function renderedContents(container: HTMLElement): string[] {
-  return Array.from(container.querySelectorAll<HTMLInputElement>('input[placeholder="今天要做什么…"]')).map(
-    (input) => input.value,
-  );
+  return Array.from(
+    container.querySelectorAll<HTMLTextAreaElement>('textarea[placeholder="今天要做什么…"]'),
+  ).map((input) => input.value);
 }
 
-function buttons(container: HTMLElement, label: '上移' | '下移'): HTMLButtonElement[] {
+/** 按 placeholder 精确取描述框（页里有标题与描述两个 textarea） */
+function descriptionBox(container: HTMLElement): HTMLTextAreaElement {
+  return container.querySelector<HTMLTextAreaElement>(
+    'textarea[placeholder="描述（可选）"]',
+  ) as HTMLTextAreaElement;
+}
+
+function buttons(container: HTMLElement, label: string): HTMLButtonElement[] {
   return Array.from(container.querySelectorAll<HTMLButtonElement>(`button[aria-label="${label}"]`));
 }
 
 const T = (id: string, content: string, order: number, extra: Record<string, unknown> = {}) =>
   makeTask({ id, content, order, date: DATE, createdAt: order, ...extra });
+
+function setTasks(tasks: ReturnType<typeof T>[]): void {
+  useTaskStore.setState({
+    tasks,
+    loading: false,
+    lastCreatedId: null,
+    pendingUndo: null,
+  });
+}
 
 beforeEach(() => {
   useDayStore.setState({ date: DATE, selfStatus: null });
@@ -100,105 +122,97 @@ afterEach(() => {
 
 describe('TasksPage — 展示顺序由 order 派生（回归：数组顺序 ≠ 展示顺序）', () => {
   it('任务数组故意乱序时，渲染仍按 order 排列', () => {
-    useTaskStore.setState({
-      tasks: [
-        T('t3', '第三', ORDER_STEP * 3),
-        T('t1', '第一', ORDER_STEP),
-        T('t2', '第二', ORDER_STEP * 2),
-      ],
-      loading: false,
-      lastCreatedId: null,
-      pendingUndo: null,
-    });
+    setTasks([
+      T('t3', '第三', ORDER_STEP * 3),
+      T('t1', '第一', ORDER_STEP),
+      T('t2', '第二', ORDER_STEP * 2),
+    ]);
 
     // 修复前这里是 ['第三', '第一', '第二']（数组顺序）
     expect(renderedContents(render())).toEqual(['第一', '第二', '第三']);
   });
 
-  it('点「下移」→ DOM 顺序真的换位（这正是用户报「点了没反应」的那一下）', () => {
-    useTaskStore.setState({
-      tasks: [T('t1', '第一', ORDER_STEP), T('t2', '第二', ORDER_STEP * 2), T('t3', '第三', ORDER_STEP * 3)],
-      loading: false,
-      lastCreatedId: null,
-      pendingUndo: null,
-    });
+  it('move 之后 DOM 顺序真的换位（这就是当年「点了没反应」的那一下）', () => {
+    setTasks([
+      T('t1', '第一', ORDER_STEP),
+      T('t2', '第二', ORDER_STEP * 2),
+      T('t3', '第三', ORDER_STEP * 3),
+    ]);
     const container = render();
     expect(renderedContents(container)).toEqual(['第一', '第二', '第三']);
 
+    // 行内上移 / 下移按钮已移除，换位改由 store 动作驱动（拖拽等后续交互）
     act(() => {
-      buttons(container, '下移')[0]!.click();
+      useTaskStore.getState().move('t1', 1);
     });
 
     expect(renderedContents(container)).toEqual(['第二', '第一', '第三']);
   });
 
-  it('点「上移」→ 末行往上挪一位', () => {
-    useTaskStore.setState({
-      tasks: [T('t1', '第一', ORDER_STEP), T('t2', '第二', ORDER_STEP * 2), T('t3', '第三', ORDER_STEP * 3)],
-      loading: false,
-      lastCreatedId: null,
-      pendingUndo: null,
-    });
-    const container = render();
-
-    act(() => {
-      buttons(container, '上移')[2]!.click();
-    });
-
-    expect(renderedContents(container)).toEqual(['第一', '第三', '第二']);
-  });
-
   it('软删的任务不渲染，也不占换位名额（下移跨过的是下一个存活任务）', () => {
-    useTaskStore.setState({
-      tasks: [
-        T('t1', '第一', ORDER_STEP),
-        T('dead', '已删', Math.floor(ORDER_STEP * 1.5), { deletedAt: 4000 }),
-        T('t2', '第二', ORDER_STEP * 2),
-      ],
-      loading: false,
-      lastCreatedId: null,
-      pendingUndo: null,
-    });
+    setTasks([
+      T('t1', '第一', ORDER_STEP),
+      T('dead', '已删', Math.floor(ORDER_STEP * 1.5), { deletedAt: 4000 }),
+      T('t2', '第二', ORDER_STEP * 2),
+    ]);
     const container = render();
     expect(renderedContents(container)).toEqual(['第一', '第二']);
 
     act(() => {
-      buttons(container, '下移')[0]!.click();
+      useTaskStore.getState().move('t1', 1);
     });
 
     expect(renderedContents(container)).toEqual(['第二', '第一']);
   });
 });
 
-describe('TasksPage — 行到边界时按钮置灰，而不是静默无反应', () => {
-  beforeEach(() => {
-    useTaskStore.setState({
-      tasks: [T('t1', '第一', ORDER_STEP), T('t2', '第二', ORDER_STEP * 2), T('t3', '第三', ORDER_STEP * 3)],
-      loading: false,
-      lastCreatedId: null,
-      pendingUndo: null,
-    });
-  });
-
-  it('首行「上移」disabled、末行「下移」disabled，中间行两个都可用', () => {
-    const container = render();
-    const up = buttons(container, '上移');
-    const down = buttons(container, '下移');
-
-    expect(up.map((b) => b.disabled)).toEqual([true, false, false]);
-    expect(down.map((b) => b.disabled)).toEqual([false, false, true]);
-  });
-
-  it('只剩一条任务时，上移和下移都不可用', () => {
-    useTaskStore.setState({
-      tasks: [T('only', '唯一', ORDER_STEP)],
-      loading: false,
-      lastCreatedId: null,
-      pendingUndo: null,
-    });
+describe('TasksPage — 行内不再有上移 / 下移按钮', () => {
+  it('整页找不到「上移」「下移」', () => {
+    setTasks([
+      T('t1', '第一', ORDER_STEP),
+      T('t2', '第二', ORDER_STEP * 2),
+    ]);
     const container = render();
 
-    expect(buttons(container, '上移')[0]!.disabled).toBe(true);
-    expect(buttons(container, '下移')[0]!.disabled).toBe(true);
+    expect(buttons(container, '上移')).toHaveLength(0);
+    expect(buttons(container, '下移')).toHaveLength(0);
+  });
+});
+
+describe('TasksPage — 分组与描述同一行', () => {
+  it('分组按钮在前、描述框在后，且描述框是 textarea（可换行）', () => {
+    setTasks([
+      T('t1', '第一', ORDER_STEP, { sectionId: 'work', description: '一段很长的描述' }),
+    ]);
+    const container = render();
+
+    const textarea = descriptionBox(container);
+    expect(textarea).toBeTruthy();
+    expect(textarea.value).toBe('一段很长的描述');
+
+    /*
+      分组胶囊外包了一层 `relative`（气泡浮层的锚点），所以第一格是这层壳、
+      壳里第一个元素才是分组按钮。这条断言同时锁住两件事：
+      分组仍在描述之前；气泡是**长在按钮旁边**而不是飘到别处。
+    */
+    const metaRow = textarea.parentElement!;
+    const groupWrap = metaRow.firstElementChild!;
+    const groupButton = groupWrap.querySelector<HTMLButtonElement>('button[aria-label^="分组"]');
+    expect(groupButton).toBeTruthy();
+    expect(groupWrap.firstElementChild).toBe(groupButton);
+  });
+
+  it('标题本身也是 textarea（长标题折行，不再被单行 input 横向吞掉）', () => {
+    setTasks([T('t1', '一条写得很长的任务', ORDER_STEP)]);
+    const container = render();
+
+    const title = container.querySelector<HTMLTextAreaElement>(
+      'textarea[placeholder="今天要做什么…"]',
+    );
+    expect(title).toBeTruthy();
+    expect(title!.value).toBe('一条写得很长的任务');
+    // 单行的标志：rows=1 + 不出现横向滚动，靠自动增高（resize-none）撑开
+    expect(title!.classList.contains('resize-none')).toBe(true);
+    expect(container.querySelector('input[placeholder="今天要做什么…"]')).toBeNull();
   });
 });

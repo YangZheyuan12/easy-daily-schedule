@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import clsx from 'clsx';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
-import { SECTION_CONFIG_MAP, sectionColor } from '@/domain/constants';
+import { sectionColor } from '@/domain/constants';
+import { useSectionConfig } from '@/hooks/useSectionConfigs';
 import { isSectionKey, type SectionKey } from '@/domain/enums';
 import { useDayStore } from '@/store/useDayStore';
 import { useRangeStore } from '@/store/useRangeStore';
@@ -49,7 +50,8 @@ export function SectionWeekPage() {
   const loadDate = useTimeSlotStore((s) => s.loadDate);
 
   const key: SectionKey = isSectionKey(sectionId) ? sectionId : 'work';
-  const config = SECTION_CONFIG_MAP[key];
+  // 标题 / 强调色取用户自定义后的板块配置
+  const config = useSectionConfig(key);
 
   const weekDays = useMemo(() => weekKeys(date), [date]);
 
@@ -116,7 +118,7 @@ export function SectionWeekPage() {
     <div className="flex flex-col min-h-full">
       <PageHeader
         title={`${config.name} · 本周`}
-        subtitle={`${weekDays[0]} 起 · 完成 ${timeline.done}/${timeline.total}`}
+        subtitle={`${weekDays[0]} 起`}
         accent={sectionColor(config)}
         onBack={() => navigate('/today', { state: { mode: backMode } })}
       />
@@ -194,7 +196,7 @@ export function SectionWeekPage() {
                 <WeekDayAdd
                   dateKey={day.dateKey}
                   sectionKey={key}
-                  placeholder={config?.placeholder ?? `记录一项${config.name}…`}
+                  placeholder={config.placeholder}
                   onAdded={refreshRange}
                 />
               </section>

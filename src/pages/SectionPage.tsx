@@ -1,7 +1,8 @@
 import { Icon } from '@/components/ui/Icon';
-import { useEffect, useMemo } from 'react';
+import { useEffect } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { SECTION_CONFIG_MAP, sectionColor } from '@/domain/constants';
+import { sectionColor } from '@/domain/constants';
+import { useSectionConfig } from '@/hooks/useSectionConfigs';
 import { isSectionKey, type SectionKey } from '@/domain/enums';
 import { useItemStore } from '@/store/useItemStore';
 import { useUiStore } from '@/store/useUiStore';
@@ -13,7 +14,6 @@ import { ItemSheet } from '@/components/item/ItemSheet';
 import { EmptyState } from '@/components/feedback/EmptyState';
 import { formatShortDate, isValidDateKey } from '@/utils/date';
 import { staggerDelay } from '@/utils/motion';
-import { toPercent } from '@/services/progressService';
 
 /** 板块详情页：核心的树形编辑界面。 */
 export function SectionPage() {
@@ -38,15 +38,14 @@ export function SectionPage() {
   }, [queryDate]);
 
   const key: SectionKey = isSectionKey(sectionId) ? sectionId : 'work';
-  const config = SECTION_CONFIG_MAP[key];
+  // 标题 / 强调色取用户自定义后的板块配置（板块改名后，这一页的标题跟着变）
+  const config = useSectionConfig(key);
 
   const { rows, focusId, setFocusId, handleKeyDown } = useTreeEditor(date, key);
 
-  const percent = useMemo(() => {
-    const topLevel = rows.filter((row) => row.item.parentId === null);
-    if (topLevel.length === 0) return 0;
-    return toPercent(topLevel.filter((row) => row.item.done).length / topLevel.length);
-  }, [rows]);
+  // 副标题的「N项」= 该板块当天的**顶层**条目数（与今日页组头同一口径：
+  // 子项是条目内部的分支，不单独计数；时间段只在今日页投影，本页不出现故不计）。
+  const topCount = rows.filter((row) => row.item.parentId === null).length;
 
   const drawerItem = items.find((item) => item.id === drawerItemId) ?? null;
 
@@ -60,7 +59,7 @@ export function SectionPage() {
     <div className="flex flex-col min-h-full">
       <PageHeader
         title={config.name}
-        subtitle={`${formatShortDate(date)} · 完成 ${percent}%`}
+        subtitle={`${formatShortDate(date)} · ${topCount}项`}
         accent={sectionColor(config)}
         onBack={() => navigate('/today')}
       />
@@ -93,7 +92,6 @@ export function SectionPage() {
               >
                 <TreeRow
                   row={row}
-                  accent={sectionColor(config)}
                   focused={focusId === row.item.id}
                   onFocus={() => setFocusId(row.item.id)}
                   onKeyDown={handleKeyDown}

@@ -2,7 +2,7 @@ import clsx from 'clsx';
 import { useState } from 'react';
 import { formatDateLabel, isToday, todayKey } from '@/utils/date';
 import { Icon } from '@/components/ui/Icon';
-import { Sheet } from '@/components/ui/Sheet';
+import { Popover } from '@/components/ui/Popover';
 
 /** 日期维度的视图模式 */
 export type DateViewMode = 'day' | 'week';
@@ -50,9 +50,15 @@ interface DateNavigatorProps {
  * 「今天」胶囊始终可达，保证任何时候一键回今天。
  *
  * `onViewModeChange` 传入后：右侧胶囊变成**模式切换**（当日 / 本周）。
- * 「回到今天」没有因此消失 —— 它被放进切换弹窗里，仍然是一步可达。
+ * 「回到今天」没有因此消失 —— 它既在切换浮层里（**只在看的不是今天时**出现，
+ * 今天时它是废操作，还会把菜单撑宽），也在**看的是别的日子且处于天视图时
+ * 直接顶掉胶囊**（此时「回到今天」才是用户最可能做的事，藏进菜单里是白白多一步）。
  * 中间日期在周视图下改由 `centerLabel` 显示整周范围：
  * 周视图里显示「10月14日」会让人以为看到的只是那一天。
+ *
+ * 切换菜单用 `Popover`（右上角方格，从右上角向右下展开）而不是 `Sheet`：
+ * 日期切换是「一眼扫过、一步选完」的操作，从屏幕底部升起的抽屉会把视线
+ * 从页面顶部拉到另一头，选完还得等它滑下去。
  */
 export function DateNavigator({
   date,
@@ -74,6 +80,8 @@ export function DateNavigator({
   const [switchOpen, setSwitchOpen] = useState(false);
   const modeSwitch = onViewModeChange !== undefined;
   const mode: DateViewMode = viewMode ?? 'day';
+  /** 天视图且看的不是今天 → 右上角直接给「回到今天」（顶掉视图切换胶囊） */
+  const showBackToToday = modeSwitch && mode === 'day' && !today;
 
   /*
     日期键是 `YYYY-MM-DD`，字典序即时间序 —— 直接比字符串就知道用户是往前还是往后翻。
@@ -164,15 +172,94 @@ export function DateNavigator({
       </div>
 
       {modeSwitch ? (
-        <button
-          type="button"
-          onClick={() => setSwitchOpen(true)}
-          className="press shrink-0 min-h-[34px] px-3.5 rounded-pill bg-surface-sunken text-meta text-ink inline-flex items-center gap-1"
-          aria-label="切换当日 / 本周视图"
-        >
-          {mode === 'day' ? '当日' : '本周'}
-          <Icon name="chevron-down" size={13} />
-        </button>
+        /*
+          天视图 + 看的不是今天 → 右上角直接是「回到今天」。
+          这时用户下一步几乎必然是回今天，把它藏进菜单等于逼人多点一次；
+          重音实色是因为它此刻就是这一屏的主操作。
+        */
+        showBackToToday ? (
+          <button
+            type="button"
+            onClick={onToday}
+            className="press shrink-0 min-h-[34px] px-3.5 rounded-pill bg-accent text-meta text-accent-fg shadow-glow inline-flex items-center gap-1"
+            aria-label="回到今天"
+            data-testid="back-to-today"
+          >
+            <Icon name="undo" size={13} />
+            回到今天
+          </button>
+        ) : (
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setSwitchOpen(true)}
+              className="press shrink-0 min-h-[34px] px-3.5 rounded-pill bg-surface-sunken text-meta text-ink inline-flex items-center gap-1"
+              aria-label="切换当日 / 本周视图"
+              aria-expanded={switchOpen}
+            >
+              {mode === 'day' ? '当日' : '本周'}
+              <Icon name="chevron-down" size={13} />
+            </button>
+
+            <Popover
+              open={switchOpen}
+              onClose={() => setSwitchOpen(false)}
+              /* 只有两项时收窄：150px 是为「回到今天 + 日期」那一行留的 */
+              width={today ? '104px' : '150px'}
+              label="视图范围"
+            >
+              {(
+                [
+                  ['day', '当日'],
+                  ['week', '本周'],
+                ] as const
+              ).map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => {
+                    onViewModeChange?.(key);
+                    setSwitchOpen(false);
+                  }}
+                  className={clsx(
+                    'press w-full min-h-[40px] px-2 rounded-sm flex items-center justify-between',
+                    mode === key ? 'text-accent' : 'text-ink',
+                  )}
+                >
+                  <span className="text-body">{label}</span>
+                  {mode === key && <Icon name="check" size={15} strokeWidth={2.4} />}
+                </button>
+              ))}
+
+              {/*
+                「回到今天」只在看的不是今天时出现。
+                今天时这一行是纯粹的噪音（点了什么都不会变），而且右侧那句
+                「10月15日周四」会把菜单撑到和触发按钮一样宽、把上面的「当日/本周」
+                挤成两行（用户反馈的占位错乱）。所以整行（连同分隔线）一起收掉。
+              */}
+              {!today && (
+                <>
+                  <div className="my-1 h-px bg-surface-line" />
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onToday();
+                      setSwitchOpen(false);
+                    }}
+                    className="press w-full min-h-[40px] px-2 rounded-sm flex items-center justify-between text-ink"
+                  >
+                    <span className="text-body">回到今天</span>
+                    {/* 🔴 严禁 toISOString().slice(0,10)（UTC 推移会差一天）—— 一律走 todayKey */}
+                    <span className="text-caption text-ink-faint tabular-nums">
+                      {formatDateLabel(todayKey())}
+                    </span>
+                  </button>
+                </>
+              )}
+            </Popover>
+          </div>
+        )
       ) : (
         <button
           type="button"
@@ -186,48 +273,6 @@ export function DateNavigator({
         </button>
       )}
 
-      <Sheet open={switchOpen} onClose={() => setSwitchOpen(false)} title="视图范围">
-        <div className="pt-2">
-          {(
-            [
-              ['day', '当日', '一天的时间轴'],
-              ['week', '本周', '一周七天 · 课程表'],
-            ] as const
-          ).map(([key, label, hint]) => (
-            <button
-              key={key}
-              type="button"
-              aria-pressed={mode === key}
-              onClick={() => {
-                onViewModeChange?.(key);
-                setSwitchOpen(false);
-              }}
-              className={clsx(
-                'press w-full min-h-tap flex items-center justify-between px-1 rounded-sm',
-                mode === key ? 'text-accent' : 'text-ink',
-              )}
-            >
-              <span className="text-lead">{label}</span>
-              <span className="text-caption text-ink-faint">{hint}</span>
-            </button>
-          ))}
-
-          <div className="my-1 h-px bg-surface-line" />
-
-          <button
-            type="button"
-            onClick={() => {
-              onToday();
-              setSwitchOpen(false);
-            }}
-            className="press w-full min-h-tap flex items-center justify-between px-1 rounded-sm text-ink"
-          >
-            <span className="text-lead">回到今天</span>
-            {/* 🔴 严禁 toISOString().slice(0,10)（UTC 推移会差一天）—— 一律走 todayKey */}
-            <span className="text-caption text-ink-faint">{formatDateLabel(todayKey())}</span>
-          </button>
-        </div>
-      </Sheet>
     </div>
   );
 }

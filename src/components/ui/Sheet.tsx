@@ -158,18 +158,27 @@ export function Sheet({ open, onClose, title, action, children, maxHeight = '85v
 interface SheetActionButtonProps {
   onClick: () => void;
   disabled?: boolean;
+  /** 危险操作（删除）：红底 + 底色文字，与「完成 / 保存」的重音色拉开距离 */
+  danger?: boolean;
   children: ReactNode;
 }
 
 /**
- * 抽屉右上角的主操作按钮（保存 / 完成）。
+ * 抽屉右上角的主操作按钮（完成 / 保存 / 删除）。
  *
  * 之前这里是个裸的 `<span>保存</span>` 式文字按钮 —— 有两个实际问题：
  * ① 没有禁用态，内容为空时点下去**什么都不会发生也没有任何解释**；
  * ② 和标题比起来太轻，不像「这一步的终点」。
  * 现在做成实心胶囊：可保存时用重音实色，不可保存时降级成下沉底弱文字（可点但不承诺结果）。
+ * `danger` 用于删除 —— 它和「保存」是同一格位置上的两种终点，但代价相反，
+ * 必须一眼分得清（条目详情页的「完成」已被删除取代，见 `ItemSheet`）。
  */
-export function SheetActionButton({ onClick, disabled = false, children }: SheetActionButtonProps) {
+export function SheetActionButton({
+  onClick,
+  disabled = false,
+  danger = false,
+  children,
+}: SheetActionButtonProps) {
   return (
     <button
       type="button"
@@ -178,7 +187,11 @@ export function SheetActionButton({ onClick, disabled = false, children }: Sheet
       className={clsx(
         'press min-h-[38px] px-4 rounded-pill text-body font-medium',
         'transition-colors duration-[var(--m-dur-2)] ease-[var(--m-ease-out)]',
-        disabled ? 'bg-surface-sunken text-ink-faint' : 'bg-accent text-accent-fg shadow-glow',
+        disabled
+          ? 'bg-surface-sunken text-ink-faint'
+          : danger
+            ? 'bg-heart text-app'
+            : 'bg-accent text-accent-fg shadow-glow',
       )}
     >
       {children}

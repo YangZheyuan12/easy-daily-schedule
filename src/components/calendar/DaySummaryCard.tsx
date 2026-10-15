@@ -1,4 +1,5 @@
-import { SECTION_CONFIGS, sectionColor } from '@/domain/constants';
+import { sectionColor } from '@/domain/constants';
+import { useSectionConfigs } from '@/hooks/useSectionConfigs';
 import type { DaySummary } from '@/domain/types';
 import { toPercent } from '@/services/progressService';
 import { useDayFestivals } from '@/hooks/useDayFestivals';
@@ -28,6 +29,8 @@ const GO_TARGETS = [
  * 重新找一遍，代价太大。真要补记再点下面的「当日 / 时间轴 / 任务」三个入口。
  */
 export function DaySummaryCard({ dateKey, summary, onGo }: DaySummaryCardProps) {
+  // 板块名 / 配色取用户自定义后的配置（日历完成情况统计跟着改名改色）
+  const sectionConfigs = useSectionConfigs();
   // 未来日期要换一套文案：说「还没有任何记录」等于暗示数据丢了，
   // 而实际上只是还没到。补记入口保留 —— 提前把计划写进去是允许的。
   const future = isFutureDate(dateKey);
@@ -56,7 +59,7 @@ export function DaySummaryCard({ dateKey, summary, onGo }: DaySummaryCardProps) 
 
         {/* 板块明细：压成一行，用「·」分隔（概念稿 C4 的形态） */}
         <div className="mt-2.5 flex items-center flex-wrap gap-x-1.5 gap-y-1 text-caption text-ink-muted">
-          {SECTION_CONFIGS.map((config) => {
+          {sectionConfigs.map((config) => {
             const section = summary.sections[config.key];
             return (
               <span key={config.key} className="inline-flex items-center gap-1">
