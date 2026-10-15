@@ -23,6 +23,12 @@ const config: CapacitorConfig = {
       /**
        * `native`：让 WebView 自己压缩视口，`useKeyboardAvoid` 的 visualViewport
        * 高度差才拿得到值。改成 `'body'` / `'none'` 会让键盘避让失效。
+       *
+       * ⚠️ 副作用（Android 尤其明显）：`native` 走 `adjustResize`，**布局视口**
+       * 会被一起压缩，于是 `fixed bottom-0` 的底部导航栏并不钉在屏幕底，
+       * 而是浮到键盘上面挡住正在输入的内容。所以 `BottomTabBar` 会在键盘弹起时
+       * 整条收下去（`useKeyboardVisible`）—— 不要试图靠改这个字段解决，
+       * 改了键盘避让就失效了。
        */
       resize: 'native',
     },
