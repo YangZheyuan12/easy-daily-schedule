@@ -62,6 +62,27 @@ export function totalMonthMinutes(slots: readonly TimeSlot[], monthKey: string):
   return totalMinutes(inMonth);
 }
 
+/**
+ * 按板块汇总**指定若干天**的时长（分钟）。
+ *
+ * 单独一个函数而不是让调用方先过滤：与 `sumMonthMinutesBySection` 同一理由，
+ * 周视图取数时拉的是「整周 7 天」，但日期键是显式集合（一周可能跨月），
+ * 直接 `sumMinutesBySection` 会把范围外的日子算进来。这里按白名单集合过滤。
+ */
+export function sumWeekMinutesBySection(
+  slots: readonly TimeSlot[],
+  dateKeys: readonly string[],
+): Record<SectionKey, number> {
+  const inWeek = new Set(dateKeys);
+  return sumMinutesBySection(slots.filter((slot) => inWeek.has(slot.date)));
+}
+
+/** 指定若干天里已归类时间段的合计时长（分钟） */
+export function totalWeekMinutes(slots: readonly TimeSlot[], dateKeys: readonly string[]): number {
+  const inWeek = new Set(dateKeys);
+  return totalMinutes(slots.filter((slot) => inWeek.has(slot.date)));
+}
+
 /** 全部已归类时间段的合计时长（分钟） */
 export function totalMinutes(slots: readonly TimeSlot[]): number {
   let sum = 0;

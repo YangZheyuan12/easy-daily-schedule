@@ -4,8 +4,10 @@ import {
   slotDurationMinutes,
   sumMinutesBySection,
   sumMonthMinutesBySection,
+  sumWeekMinutesBySection,
   totalMinutes,
   totalMonthMinutes,
+  totalWeekMinutes,
 } from '../durationService';
 import { makeSlot } from './fixtures';
 
@@ -128,5 +130,30 @@ describe('formatDuration — 展示文本', () => {
 
   it('负数夹到 0（不显示 -5m）', () => {
     expect(formatDuration(-5)).toBe('0m');
+  });
+});
+
+describe('sumWeekMinutesBySection / totalWeekMinutes — 按显式日期集合过滤', () => {
+  const week = ['2026-10-12', '2026-10-13', '2026-10-14', '2026-10-15', '2026-10-16', '2026-10-17', '2026-10-18'];
+  // 一周跨两个月：10/12–10/18，其中 10/18 属本周、10/19 属邻周
+  const slots = [
+    makeSlot({ id: 'in', date: '2026-10-14', startMin: 9 * 60, endMin: 10 * 60, sectionId: 'work' }), // 60
+    makeSlot({ id: 'in2', date: '2026-10-18', startMin: 14 * 60, endMin: 15 * 60, sectionId: 'study' }), // 60
+    makeSlot({ id: 'out', date: '2026-10-19', startMin: 9 * 60, endMin: 10 * 60, sectionId: 'work' }), // 邻周，应排除
+    makeSlot({ id: 'noSection', date: '2026-10-15', startMin: 9 * 60, endMin: 10 * 60, sectionId: null }), // 无板块，不计入各板块
+    makeSlot({ id: 'softDel', date: '2026-10-16', startMin: 9 * 60, endMin: 10 * 60, sectionId: 'fitness', deletedAt: 5000 }), // 软删，排除
+  ];
+
+  it('只累计落在给定周日期集合内的已归类时间段', () => {
+    const bySection = sumWeekMinutesBySection(slots, week);
+    expect(bySection.work).toBe(60);
+    expect(bySection.study).toBe(60);
+    expect(bySection.fitness).toBe(0); // 软删的不计
+    expect(bySection.life).toBe(0);
+    // 邻周、无板块都不计
+  });
+
+  it('合计时长也不含邻周 / 无板块 / 软删', () => {
+    expect(totalWeekMinutes(slots, week)).toBe(120);
   });
 });

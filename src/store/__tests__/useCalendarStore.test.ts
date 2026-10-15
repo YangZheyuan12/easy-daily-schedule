@@ -22,7 +22,7 @@ vi.mock('@/store/bootstrap', () => ({ repos: fakeRepos }));
 
 import { useCalendarStore } from '@/store/useCalendarStore';
 import { monthGrid } from '@/utils/date';
-import { makeInspiration, makeItem } from '@/services/__tests__/fixtures';
+import { makeInspiration, makeItem, makeSlot } from '@/services/__tests__/fixtures';
 
 interface Dataset {
   items: Item[];
@@ -74,8 +74,14 @@ function setMonth(monthKey: string, selectedDate: string): void {
     view: 'month',
     monthKey,
     yearKey: monthKey.slice(0, 4),
+    weekStartKey: '2026-01-05',
     selectedDate,
     summaries: {},
+    weekSummaries: {},
+    weekItems: [],
+    weekSlots: [],
+    weekDurations: { work: 0, study: 0, fitness: 0, life: 0 },
+    weekTotalMinutes: 0,
     yearSummaries: {},
     loading: false,
   });
@@ -407,5 +413,84 @@ describe('useCalendarStore — 并发切月（竞态）', () => {
     const state = useCalendarStore.getState();
     expect(state.monthKey).toBe('2026-04');
     expect(state.summaries['2026-04-05']?.sections.work.total).toBe(1);
+  });
+});
+
+describe('useCalendarStore — 周视图加载', () => {
+  beforeEach(() => {
+    fakeRepos.items.listByDateRange.mockReset();
+    fakeRepos.tasks.listByDateRange.mockReset();
+    fakeRepos.timeSlots.listByDateRange.mockReset();
+    fakeRepos.inspirations.listByDateRange.mockReset();
+    fakeRepos.selfStatus.listBetween.mockReset();
+    seed(EMPTY_DB);
+  });
+
+  it('loadWeek 取的是整周 7 天区间（周一 → 周日）', async () => {
+    setMonth('2026-10', '2026-10-14'); // 周三
+    await useCalendarStore.getState().loadWeek('2026-10-12'); // 该周周一
+
+    expect(fakeRepos.items.listByDateRange).toHaveBeenCalledWith('2026-10-12', '2026-10-18');
+    expect(fakeRepos.timeSlots.listByDateRange).toHaveBeenCalledWith('2026-10-12', '2026-10-18');
+    expect(useCalendarStore.getState().view).toBe('week');
+    // 7 天都有摘要
+    expect(Object.keys(useCalendarStore.getState().weekSummaries)).toHaveLength(7);
+  });
+
+  it('loadWeek 收集整周条目与时间段，供周任务总览复用', async () => {
+    seed({
+      ...EMPTY_DB,
+      items: [makeItem({ id: 'mon', date: '2026-10-12', sectionId: 'work', done: true })],
+      timeSlots: [
+        makeSlot({ id: 'tue', date: '2026-10-13', startMin: 9 * 60, endMin: 10 * 60, sectionId: 'study', done: true }),
+      ],
+    });
+    setMonth('2026-10', '2026-10-14');
+    await useCalendarStore.getState().loadWeek('2026-10-12');
+
+    const state = useCalendarStore.getState();
+    expect(state.weekItems).toHaveLength(1);
+    expect(state.weekSlots).toHaveLength(1);
+    expect(state.weekDurations.study).toBe(60);
+    expect(state.weekTotalMinutes).toBe(60);
+  });
+
+  it('setView(week) 以「当前选中日所在周」为展示周，并顺带取数', async () => {
+    setMonth('2026-10', '2026-10-14'); // 选中周三，所在周周一应为 2026-10-12
+    expect(useCalendarStore.getState().weekSummaries).toEqual({});
+
+    useCalendarStore.getState().setView('week');
+    await vi.waitFor(() => {
+      expect(useCalendarStore.getState().loading).toBe(false);
+    });
+
+    const state = useCalendarStore.getState();
+    expect(state.view).toBe('week');
+    expect(state.weekStartKey).toBe('2026-10-12');
+    expect(Object.keys(state.weekSummaries)).toHaveLength(7);
+  });
+
+  it('跨周切换后选中日夹回本周一，避免摘要卡取到空摘要', async () => {
+    setMonth('2026-10', '2026-10-14');
+    await useCalendarStore.getState().loadWeek('2026-10-12');
+    expect(useCalendarStore.getState().selectedDate).toBe('2026-10-14');
+
+    await useCalendarStore.getState().shiftWeek(1); // → 2026-10-19（下周一）
+    const state = useCalendarStore.getState();
+    expect(state.weekStartKey).toBe('2026-10-19');
+    // 旧选中日 10-14 已不在新周里 → 夹回 10-19，摘要卡取得到
+    expect(state.selectedDate).toBe('2026-10-19');
+    expect(state.weekSummaries[state.selectedDate]).toBeDefined();
+  });
+
+  it('周视图下 refresh 重新取当前周，不换成别的周', async () => {
+    seed({ ...EMPTY_DB, items: [makeItem({ id: 'x', date: '2026-10-14', done: true })] });
+    setMonth('2026-10', '2026-10-14');
+    await useCalendarStore.getState().loadWeek('2026-10-12');
+
+    await useCalendarStore.getState().refresh();
+    const state = useCalendarStore.getState();
+    expect(state.weekStartKey).toBe('2026-10-12');
+    expect(state.weekSummaries['2026-10-14']?.sections.work.total).toBe(1);
   });
 });

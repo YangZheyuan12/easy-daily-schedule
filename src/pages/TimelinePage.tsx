@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import clsx from 'clsx';
 import { SECTION_CONFIG_MAP, sectionColor, sectionTint } from '@/domain/constants';
 import type { TimeSlot } from '@/domain/types';
@@ -16,11 +16,18 @@ import {
   type SlotForm,
 } from '@/components/timeline/SlotEditorSheet';
 import { listDueSlots } from '@/services/reminderService';
-import { buildWeekTimetable, resolveWeekWindow } from '@/services/weekViewService';
+import { buildWeekTimetable } from '@/services/weekViewService';
+import { useTimelineWindowStore } from '@/store/useTimelineWindowStore';
 import { useNowMin } from '@/hooks/useNowMin';
 import { useRecentlyChanged } from '@/hooks/useRecentlyChanged';
 import { staggerDelay } from '@/utils/motion';
-import { formatShortDate, formatTimeRange, todayKey, weekKeys, weekRangeLabel } from '@/utils/date';
+import {
+  formatShortDate,
+  formatTimeRange,
+  todayKey,
+  weekKeys,
+  weekRangeShortLabel,
+} from '@/utils/date';
 
 /**
  * 时间轴页面：按天编排时间段，tap 勾选完成、点行编辑 / 删除；
@@ -33,6 +40,7 @@ import { formatShortDate, formatTimeRange, todayKey, weekKeys, weekRangeLabel } 
  */
 export function TimelinePage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const date = useDayStore((s) => s.date);
   const shiftDate = useDayStore((s) => s.shiftDate);
   const setDate = useDayStore((s) => s.setDate);
@@ -47,7 +55,14 @@ export function TimelinePage() {
   const rangeSlots = useRangeStore((s) => s.slots);
   const loadRange = useRangeStore((s) => s.loadRange);
 
-  const [mode, setMode] = useState<DateViewMode>('day');
+  /*
+    视图模式。正常从底部 Tab 进来是「当日」；
+    从日历「周任务总览」跳入时带 `{ mode: 'week' }`，要直接呈本周课程表，
+    且用跳转前对齐好的全局日期作为本周定位。
+  */
+  const [mode, setMode] = useState<DateViewMode>(
+    location.state && (location.state as { mode?: string }).mode === 'week' ? 'week' : 'day',
+  );
   const [formOpen, setFormOpen] = useState(false);
   const [form, setForm] = useState<SlotForm>(EMPTY_FORM);
   const nowMin = useNowMin();
@@ -56,15 +71,17 @@ export function TimelinePage() {
   /** 真实的「今天」（用于周视图里高亮今天那一列） */
   const todayDateKey = useMemo(() => todayKey(), []);
 
+  // 时间轴周视图的时间窗（起始 / 结束 / 分割线间隔）来自用户设置，默认 06:00–24:00 / 2 小时
+  const windowSettings = useTimelineWindowStore((s) => s.settings);
+
   useEffect(() => {
     if (mode !== 'week') return;
     void loadRange(weekDays[0] ?? date, weekDays[6] ?? date);
   }, [mode, weekDays, date, loadRange]);
 
-  const weekWindow = useMemo(() => resolveWeekWindow(rangeSlots), [rangeSlots]);
   const weekCells = useMemo(
-    () => buildWeekTimetable(rangeSlots, weekDays, weekWindow),
-    [rangeSlots, weekDays, weekWindow],
+    () => buildWeekTimetable(rangeSlots, weekDays, windowSettings),
+    [rangeSlots, weekDays, windowSettings],
   );
 
   // 软删的时间段不渲染（删除即隐藏，与 AppShell 的 loadDate 过滤口径一致）
@@ -145,7 +162,7 @@ export function TimelinePage() {
         onDateClick={() => navigate('/calendar', { state: { pickDateFrom: '/timeline' } })}
         viewMode={mode}
         onViewModeChange={setMode}
-        centerLabel={mode === 'week' ? weekRangeLabel(date) : undefined}
+        centerLabel={mode === 'week' ? weekRangeShortLabel(date) : undefined}
       />
 
       {mode === 'day' && <ReminderBanner />}
@@ -161,8 +178,9 @@ export function TimelinePage() {
             <WeekTimetable
               weekDays={weekDays}
               cells={weekCells}
-              timeWindow={weekWindow}
               todayKey={todayDateKey}
+              timeWindow={windowSettings}
+              tickStepHours={windowSettings.tickHours}
               onSelectSlot={handleWeekSelectSlot}
               onSelectEmpty={handleWeekSelectEmpty}
             />

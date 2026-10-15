@@ -1,16 +1,18 @@
 import { Icon } from '@/components/ui/Icon';
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import clsx from 'clsx';
 import { DaySummaryCard } from '@/components/calendar/DaySummaryCard';
-import { MonthDurationBar } from '@/components/calendar/MonthDurationBar';
+import { DurationBar } from '@/components/calendar/DurationBar';
 import { MonthGrid } from '@/components/calendar/MonthGrid';
+import { WeekGrid } from '@/components/calendar/WeekGrid';
+import { WeekTaskOverview } from '@/components/calendar/WeekTaskOverview';
 import { YearGrid } from '@/components/calendar/YearGrid';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { emptySummary, resolveCalendarSelection } from '@/services/calendarService';
 import { useCalendarStore } from '@/store/useCalendarStore';
 import { useDayStore } from '@/store/useDayStore';
-import { todayKey, toMonthKey, yearLabel } from '@/utils/date';
+import { todayKey, toMonthKey, weekKeys, yearLabel } from '@/utils/date';
 
 /**
  * 日历页。
@@ -37,16 +39,23 @@ export function CalendarPage() {
   const view = useCalendarStore((s) => s.view);
   const monthKey = useCalendarStore((s) => s.monthKey);
   const yearKey = useCalendarStore((s) => s.yearKey);
+  const weekStartKey = useCalendarStore((s) => s.weekStartKey);
   const selectedDate = useCalendarStore((s) => s.selectedDate);
   const summaries = useCalendarStore((s) => s.summaries);
+  const weekSummaries = useCalendarStore((s) => s.weekSummaries);
+  const weekItems = useCalendarStore((s) => s.weekItems);
+  const weekSlots = useCalendarStore((s) => s.weekSlots);
   const yearSummaries = useCalendarStore((s) => s.yearSummaries);
   const monthDurations = useCalendarStore((s) => s.monthDurations);
   const monthTotalMinutes = useCalendarStore((s) => s.monthTotalMinutes);
+  const weekDurations = useCalendarStore((s) => s.weekDurations);
+  const weekTotalMinutes = useCalendarStore((s) => s.weekTotalMinutes);
   const loading = useCalendarStore((s) => s.loading);
   const setView = useCalendarStore((s) => s.setView);
   const loadMonth = useCalendarStore((s) => s.loadMonth);
   const shiftMonth = useCalendarStore((s) => s.shiftMonth);
   const shiftYear = useCalendarStore((s) => s.shiftYear);
+  const shiftWeek = useCalendarStore((s) => s.shiftWeek);
   const selectDate = useCalendarStore((s) => s.selectDate);
 
   const initialized = useRef(false);
@@ -65,7 +74,11 @@ export function CalendarPage() {
     })();
   }, [loadMonth, selectDate]);
 
-  const summary = summaries[selectedDate] ?? emptySummary(selectedDate);
+  // 摘要卡取数：周视图用 weekSummaries，月视图用 summaries（两者 key 都是日期键）
+  const summarySource = view === 'week' ? weekSummaries : summaries;
+  const summary = summarySource[selectedDate] ?? emptySummary(selectedDate);
+  /** 周视图的 7 天（周一 → 周日） */
+  const weekDays = useMemo(() => weekKeys(weekStartKey), [weekStartKey]);
 
   /** 点一格：总是更新选中态；若本次是「选日子」，再落到全局日期并返回来路 */
   const handleSelectDay = (dateKey: string) => {
@@ -79,6 +92,16 @@ export function CalendarPage() {
     // 先把全局日期切到选中日，再跳目标页 —— AppShell 会据此重新装载该日数据
     useDayStore.getState().setDate(selectedDate);
     navigate(target === 'today' ? '/today' : target === 'timeline' ? '/timeline' : '/tasks');
+  };
+
+  /**
+   * 周任务总览里的两个跳转入口：先对齐全局日期到选中日（让目标页的「本周」
+   * 与日历当前周一致），再带 `{ mode: 'week' }` 进入本周视图。
+   * 今日页与时间轴页都认这个 state 来初始化周视图。
+   */
+  const handleGoWeek = (target: 'today' | 'timeline') => {
+    useDayStore.getState().setDate(selectedDate);
+    navigate(target === 'today' ? '/today' : '/timeline', { state: { mode: 'week' } });
   };
 
   const handleSelectMonth = (targetMonth: string) => {
@@ -101,7 +124,9 @@ export function CalendarPage() {
               ? '点一格即切换到那一天，并回到上一页'
               : view === 'year'
                 ? '点月份看当月，可跨年回看'
-                : '点一格看当天完成情况，可跨月补记'
+                : view === 'week'
+                  ? '点一格看当天完成情况，可跨周补记'
+                  : '点一格看当天完成情况，可跨月补记'
         }
       />
 
@@ -119,13 +144,18 @@ export function CalendarPage() {
         */}
         <div className="flex items-center px-5 pt-1.5">
           <div className="relative inline-flex rounded-pill bg-surface-sunken p-[3px] text-body">
+            {/*
+              三段等宽，位移量 = 段宽 × 视图序号。周/月/年分别落在 0/54/108px，
+              与月视图时期（两段）共用同一套「滑块滑过去」的手法。段宽写死 54px。
+            */}
             <span
               aria-hidden
               className="absolute top-[3px] bottom-[3px] left-[3px] w-[54px] rounded-pill bg-surface shadow-card transition-transform duration-[var(--m-dur-3)] ease-[var(--m-ease-out)]"
-              style={{ transform: view === 'year' ? 'translateX(54px)' : 'translateX(0)' }}
+              style={{ transform: `translateX(${(view === 'week' ? 0 : view === 'month' ? 1 : 2) * 54}px)` }}
             />
             {(
               [
+                ['week', '周'],
                 ['month', '月'],
                 ['year', '年'],
               ] as const
@@ -151,7 +181,7 @@ export function CalendarPage() {
           方向即语义：进**年**视图是视角拉远（一个月 → 一整年），
           进**月**视图是拉近（钻进那个月）。首屏也是 month，所以这一下同时也是页面入场。
         */}
-        <div key={view} className={view === 'year' ? 'm-zoom-out' : 'm-zoom-in'}>
+        <div key={view} className={view === 'year' ? 'm-zoom-out' : view === 'week' ? 'm-fade' : 'm-zoom-in'}>
           {view === 'year' ? (
             <>
               <div className="flex items-center justify-between px-5 pt-2">
@@ -183,6 +213,36 @@ export function CalendarPage() {
                 onSelectMonth={handleSelectMonth}
               />
             </>
+          ) : view === 'week' ? (
+            <>
+              <WeekGrid
+                weekStartKey={weekStartKey}
+                weekDays={weekDays}
+                summaries={weekSummaries}
+                selectedDate={selectedDate}
+                todayKey={todayKey()}
+                onSelect={handleSelectDay}
+                onShiftWeek={(delta) => void shiftWeek(delta)}
+              />
+
+              {/* 本周时长条：与月视图同族，数据来自时间轴 */}
+              <DurationBar
+                durations={weekDurations}
+                total={weekTotalMinutes}
+                title="本周时长"
+                emptyHint="本周还没有归类到板块的时间段。到时间轴排一段时间并选板块，这里就会累计。"
+              />
+
+              {/* 本周任务总览：四板块完成度 + 跳转「今日 / 时间轴」的本周视图 */}
+              <WeekTaskOverview
+                items={weekItems}
+                slots={weekSlots}
+                weekDays={weekDays}
+                onOpen={handleGoWeek}
+              />
+
+              <DaySummaryCard dateKey={selectedDate} summary={summary} onGo={handleGo} />
+            </>
           ) : (
             <>
               <MonthGrid
@@ -195,7 +255,7 @@ export function CalendarPage() {
               />
 
               {/* 本月时长条：数据来自时间轴，只在月视图显示（年视图下「本月」没有意义） */}
-              <MonthDurationBar durations={monthDurations} total={monthTotalMinutes} />
+              <DurationBar durations={monthDurations} total={monthTotalMinutes} />
 
               <DaySummaryCard dateKey={selectedDate} summary={summary} onGo={handleGo} />
             </>

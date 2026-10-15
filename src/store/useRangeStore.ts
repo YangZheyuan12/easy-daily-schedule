@@ -20,7 +20,12 @@ interface RangeState {
   slots: TimeSlot[];
   loading: boolean;
 
-  loadRange: (start: string, end: string) => Promise<void>;
+  /**
+   * 装载区间快照（只读）。
+   * @param force 为 true 时忽略「同区间已缓存」的短路，强制从仓储重新读取。
+   *   供周详情页内联增删后即时刷新使用 —— 普通切页回来没必要打两次 IndexedDB。
+   */
+  loadRange: (start: string, end: string, force?: boolean) => Promise<void>;
 }
 
 export const useRangeStore = create<RangeState>((set, get) => {
@@ -33,10 +38,10 @@ export const useRangeStore = create<RangeState>((set, get) => {
     slots: [],
     loading: false,
 
-    async loadRange(start, end) {
+    async loadRange(start, end, force = false) {
       const key = `${start}~${end}`;
       // 同一区间已经在手上就不重复取 —— 切页面回来时不必再打一次 IndexedDB
-      if (get().key === key) return;
+      if (!force && get().key === key) return;
 
       const token = (requestSeq += 1);
       set({ loading: true });

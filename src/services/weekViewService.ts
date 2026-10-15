@@ -2,7 +2,7 @@ import type { Item, TimeSlot } from '@/domain/types';
 import type { SectionKey } from '@/domain/enums';
 import { SECTION_CONFIGS } from '@/domain/constants';
 import { compareByOrder } from '@/domain/constants';
-import { formatShortDate, weekdayLabel } from '@/utils/date';
+import { formatShortDate, minToHHMM, weekdayLabel } from '@/utils/date';
 
 /**
  * 周视图（纯函数，零浏览器 API）。
@@ -26,13 +26,23 @@ export interface WeekWindow {
   endMin: number;
 }
 
-/** 当周没有任何时间段时的兜底窗口（08:00–22:00） */
-export const DEFAULT_WEEK_WINDOW: WeekWindow = { startMin: 8 * 60, endMin: 22 * 60 };
+/**
+ * 周视图的纵向时间范围：**固定 06:00–24:00**（用户 2026-10-14 拍板）。
+ *
+ * 之前是「按当周数据自动收窄」，被弃用的原因有两个，都是实际用出来的：
+ * - **格子位置每周漂移**。同一门课上周在第 3 行、这周在第 5 行，
+ *   课程表的价值恰恰是「一眼看出周三下午很满」这种**跨周可比**的判断，
+ *   而漂移的网格让每一周都得重新读一遍刻度。
+ * - **收窄后的窗口会把短块挤成一团**。跨度小时每段占的像素反而更密，
+ *   文字互相压住 —— 固定 18 小时后，一小时 40px，半小时的块也有 20px，够放一行字。
+ *
+ * 起点选 6 点不是 0 点：凌晨那 6 小时对绝大多数作息是空的，留着只是白滚一段。
+ * 终点选 24 点而不是 23 点，是为了让「23:30 那一段」有格子可放（23 点做终点会把它顶出去）。
+ */
+export const WEEK_WINDOW: WeekWindow = { startMin: 6 * 60, endMin: 24 * 60 };
 
-/** 自动收窄时向两端各扩出的余量（分钟） */
-const WINDOW_PADDING = 60;
-/** 窗口最短跨度（小时）。避免「只有一段 09:00–09:30」时窗口窄成一小时、网格挤成一团 */
-const MIN_WINDOW_HOURS = 4;
+/** 横向分割线的间隔（小时）。2 小时一条 —— 每小时一条会让网格看起来像笔记本横线，反而看不出「节」 */
+export const TICK_STEP_HOURS = 2;
 
 const MINUTES_IN_DAY = 24 * 60;
 
@@ -44,51 +54,24 @@ function effectiveRange(slot: TimeSlot): { start: number; end: number } {
   return end > start ? { start, end } : { start, end: start };
 }
 
-/**
- * 周视图的纵向时间范围：**按当周数据自动收窄**（用户 2026-10-14 拍板）。
- *
- * 取当周最早开始 / 最晚结束，各向外扩 60 分钟并对齐到整点 —— 扩出去不是为了填满屏幕，
- * 而是让最早和最晚那两段时间块**不贴在网格边缘**（贴边会被误认为被截断）。
- * 一整天没数据时回落 `DEFAULT_WEEK_WINDOW`：那时收窄到 0 高度反而更糟，
- * 用户看到的是「什么都没有」，而不是「今天还没排」。
- */
-export function resolveWeekWindow(slots: readonly TimeSlot[]): WeekWindow {
-  let min = Number.POSITIVE_INFINITY;
-  let max = Number.NEGATIVE_INFINITY;
-
-  for (const slot of slots) {
-    if (slot.deletedAt !== null) continue;
-    const { start, end } = effectiveRange(slot);
-    min = Math.min(min, start);
-    max = Math.max(max, end);
-  }
-
-  if (!Number.isFinite(min) || !Number.isFinite(max)) return { ...DEFAULT_WEEK_WINDOW };
-
-  // 向外扩并取整点：floor / ceil 到小时
-  let start = Math.max(0, Math.floor((min - WINDOW_PADDING) / 60) * 60);
-  let end = Math.min(MINUTES_IN_DAY, Math.ceil((max + WINDOW_PADDING) / 60) * 60);
-
-  // 跨度不足下限：从起点往下补（补不动就往上补），保证网格不至于挤成一团
-  if (end - start < MIN_WINDOW_HOURS * 60) {
-    const deficit = MIN_WINDOW_HOURS * 60 - (end - start);
-    const room = start; // 起点之上还有多少空间
-    const pull = Math.min(deficit, room);
-    start -= pull;
-    end = Math.min(MINUTES_IN_DAY, end + (deficit - pull));
-  }
-
-  // 极端情况：数据全在 00:00 附近，start 已经是 0 而 end 仍被 clamp 住
-  if (end <= start) return { startMin: 0, endMin: MINUTES_IN_DAY };
-
-  return { startMin: start, endMin: end };
+/** 窗口内的刻度（用于画横向网格线）。终点恰好落在步长上时也会包含它（24:00） */
+export function gridTicks(
+  timeWindow: WeekWindow = WEEK_WINDOW,
+  stepHours: number = TICK_STEP_HOURS,
+): number[] {
+  const step = Math.max(1, stepHours) * 60;
+  const ticks: number[] = [];
+  for (let min = timeWindow.startMin; min <= timeWindow.endMin; min += step) ticks.push(min);
+  return ticks;
 }
 
-/** 窗口内的整点刻度（用于画横向网格线） */
-export function hourTicks(timeWindow: WeekWindow): number[] {
-  const ticks: number[] = [];
-  for (let min = timeWindow.startMin; min <= timeWindow.endMin; min += 60) ticks.push(min);
-  return ticks;
+/**
+ * 刻度的时间文本。`minToHHMM` 会把 1440 夹到 23:59，
+ * 而窗口终点就是 24:00 —— 显示成「23:59」是明显的错字，所以这里单独兜住。
+ */
+export function tickLabel(min: number): string {
+  if (min >= MINUTES_IN_DAY) return '24:00';
+  return minToHHMM(min);
 }
 
 /* ------------------------------------------------------------------ */
@@ -110,8 +93,11 @@ export interface WeekCell {
   laneCount: number;
 }
 
-/** 太短的时间段也给一个可点的最小高度（分钟），否则 5 分钟的一段在屏幕上不到 1px */
-const MIN_VISIBLE_MINUTES = 20;
+/**
+ * 太短的时间段也给一个可点的最小高度（分钟）。
+ * 固定窗口后 1 分钟 ≈ 0.67px，20 分钟只有 13px（一行字都放不下），所以抬到 30 分钟 ≈ 20px。
+ */
+const MIN_VISIBLE_MINUTES = 30;
 
 /**
  * 课程表布局：把时间段铺到「天 × 时间」的网格上。
@@ -276,4 +262,113 @@ export function buildWeekSectionBoards(
 
     return { key: config.key, name: config.name, icon: config.icon, days, total, done };
   });
+}
+
+/* ------------------------------------------------------------------ */
+/* 四、板块周详情（点田字格某一格进去）                                  */
+/* ------------------------------------------------------------------ */
+
+/** 板块周详情里的一条事项 */
+export interface WeekTimelineEntry {
+  id: string;
+  title: string;
+  done: boolean;
+  kind: 'item' | 'timeSlot';
+  /** 时间文本：时间段是「09:00–10:00」；**没排时间**的条目为 null（渲染端留空时间列） */
+  timeLabel: string | null;
+  /** 排序键：时间段的开始分钟；条目为 null（排在有时间的事项之后，见下） */
+  startMin: number | null;
+}
+
+export interface WeekTimelineDay {
+  dateKey: string;
+  /** 「周三」 */
+  weekday: string;
+  /** 「10月14日」 */
+  dateLabel: string;
+  entries: WeekTimelineEntry[];
+}
+
+export interface WeekSectionTimeline {
+  key: SectionKey;
+  name: string;
+  days: WeekTimelineDay[];
+  total: number;
+  done: number;
+}
+
+/**
+ * 单个板块一整周的**时间线**（今日页田字格点进去的那一页）。
+ *
+ * 与田字格唯一的区别是**天内顺序**：田字格按「先条目、后时间段」（和今日页同一口径），
+ * 这一页按**时间顺序** —— 因为它就是要回答「这周几点做了什么」，
+ * 用户点进来时脑子里问的是时间，不是录入顺序。
+ *
+ * 没排时间的条目怎么办：它们没有可排序的时间，**放在那一天的最后**，
+ * 时间列留空。硬把它们插进时间序列只能靠 `createdAt`（那是录入时刻，不是做事的时刻），
+ * 插进去就是在编一个用户没说过的顺序。
+ */
+export function buildWeekSectionTimeline(
+  items: readonly Item[],
+  slots: readonly TimeSlot[],
+  weekDays: readonly string[],
+  key: SectionKey,
+): WeekSectionTimeline {
+  const config = SECTION_CONFIGS.find((item) => item.key === key) ?? SECTION_CONFIGS[0];
+  const aliveItems = items.filter(
+    (item) => item.deletedAt === null && item.parentId === null && item.sectionId === key,
+  );
+  const aliveSlots = slots.filter(
+    (slot) => slot.deletedAt === null && slot.sectionId === key,
+  );
+
+  const days: WeekTimelineDay[] = [];
+  let total = 0;
+  let done = 0;
+
+  for (const dateKey of weekDays) {
+    const entries: WeekTimelineEntry[] = [];
+
+    const daySlots = aliveSlots
+      .filter((slot) => slot.date === dateKey)
+      .sort((a, b) => effectiveRange(a).start - effectiveRange(b).start || a.order - b.order);
+    for (const slot of daySlots) {
+      const { start, end } = effectiveRange(slot);
+      entries.push({
+        id: slot.id,
+        title: slot.content.trim() || '未命名时间段',
+        done: slot.done,
+        kind: 'timeSlot',
+        timeLabel:
+          end > start ? `${minToHHMM(start)}–${minToHHMM(end)}` : minToHHMM(start),
+        startMin: start,
+      });
+    }
+
+    const dayItems = aliveItems
+      .filter((item) => item.date === dateKey)
+      .sort(compareByOrder);
+    for (const item of dayItems) {
+      entries.push({
+        id: item.id,
+        title: item.title,
+        done: item.done,
+        kind: 'item',
+        timeLabel: null,
+        startMin: null,
+      });
+    }
+
+    if (entries.length === 0) continue;
+    total += entries.length;
+    done += entries.filter((entry) => entry.done).length;
+    days.push({
+      dateKey,
+      weekday: weekdayLabel(dateKey),
+      dateLabel: formatShortDate(dateKey),
+      entries,
+    });
+  }
+
+  return { key, name: config?.name ?? '', days, total, done };
 }

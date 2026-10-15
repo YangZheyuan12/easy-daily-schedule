@@ -31,6 +31,7 @@ export type IconName =
   | 'trash'
   | 'undo'
   | 'sync'
+  | 'image'
   | 'dot';
 
 interface IconProps {
@@ -159,6 +160,13 @@ const STROKE: Record<Exclude<IconName, 'heart' | 'star' | 'dot'>, ReactNode> = {
       <path d="M19.5 7.4V12h-4.6" />
       <path d="M4.5 12a7.5 7.5 0 0 1 12.8-5.3" />
       <path d="M4.5 16.6V12h4.6" />
+    </>
+  ),
+  image: (
+    <>
+      <rect x="3.4" y="4.6" width="17.2" height="14.8" rx="2.2" />
+      <circle cx="8.6" cy="9.4" r="1.7" />
+      <path d="M4.8 17.4 9.2 12.6l3 2.8 2.2-2 4.6 4.2" />
     </>
   ),
 };

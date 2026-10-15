@@ -2,7 +2,9 @@ import { HashRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { AppShell } from '@/components/layout/AppShell';
 import { TodayPage } from '@/pages/TodayPage';
 import { SectionPage } from '@/pages/SectionPage';
+import { SectionWeekPage } from '@/pages/SectionWeekPage';
 import { TasksPage } from '@/pages/TasksPage';
+import { TaskKindPage } from '@/pages/TaskKindPage';
 import { TimelinePage } from '@/pages/TimelinePage';
 import { CalendarPage } from '@/pages/CalendarPage';
 import { MePage } from '@/pages/MePage';
@@ -21,7 +23,10 @@ export function AppRouter() {
           <Route index element={<Navigate to="/today" replace />} />
           <Route path="/today" element={<TodayPage />} />
           <Route path="/section/:sectionId" element={<SectionPage />} />
+          <Route path="/week-section/:sectionId" element={<SectionWeekPage />} />
           <Route path="/tasks" element={<TasksPage />} />
+          <Route path="/tasks/deadline" element={<TaskKindPage kind="deadline" />} />
+          <Route path="/tasks/goal" element={<TaskKindPage kind="goal" />} />
           <Route path="/timeline" element={<TimelinePage />} />
           <Route path="/calendar" element={<CalendarPage />} />
           <Route path="/me" element={<MePage />} />

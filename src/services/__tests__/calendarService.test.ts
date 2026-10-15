@@ -4,6 +4,7 @@ import {
   EMPTY_SUMMARY,
   buildDaySummary,
   buildMonthSummaries,
+  buildWeekSummaries,
   buildYearSummaries,
   emptySummary,
   hasAnyData,
@@ -54,6 +55,33 @@ describe('buildMonthSummaries — 分日聚合', () => {
       fitness: { done: 1, total: 1 },
       life: { done: 0, total: 2 },
     });
+  });
+});
+
+describe('buildWeekSummaries — 给定日期集合逐日聚合', () => {
+  // 一周跨两个月：2026-10-12（周一）→ 2026-10-18（周日）
+  const WEEK = ['2026-10-12', '2026-10-13', '2026-10-14', '2026-10-15', '2026-10-16', '2026-10-17', '2026-10-18'];
+
+  it('只为传入的 7 个日期产出摘要，邻周/邻月日期不混入', () => {
+    const items = [
+      makeItem({ id: 'in', date: '2026-10-14', sectionId: 'work', done: true }),
+      makeItem({ id: 'out', date: '2026-10-19', sectionId: 'work', done: true }), // 邻周周日之后，应排除
+    ];
+    const summaries = buildWeekSummaries(WEEK, items, NO_TASKS, NO_SLOTS, NO_INSPIRATIONS, NO_SELF);
+
+    expect(Object.keys(summaries).sort()).toEqual([...WEEK].sort());
+    expect(summaries['2026-10-14']?.sections.work).toEqual({ done: 1, total: 1 });
+    // 邻周 10/19 不会出现，且 10/14 不被 10/19 污染
+    expect(summaries['2026-10-19']).toBeUndefined();
+  });
+
+  it('归入板块的时间段并入该板块完成度（与 buildDaySummary 同一口径）', () => {
+    const slots = [
+      makeSlot({ id: 's1', date: '2026-10-14', startMin: 9 * 60, endMin: 10 * 60, sectionId: 'study', done: true }),
+    ];
+    const summary = buildWeekSummaries(WEEK, NO_ITEMS, NO_TASKS, slots, NO_INSPIRATIONS, NO_SELF)['2026-10-14'];
+    expect(summary?.sections.study).toEqual({ done: 1, total: 1 });
+    expect(summary?.hasData).toBe(true);
   });
 });
 

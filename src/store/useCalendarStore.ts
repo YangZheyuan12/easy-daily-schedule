@@ -1,20 +1,28 @@
 import { create } from 'zustand';
-import type { DaySummary } from '@/domain/types';
+import type { DaySummary, Item, TimeSlot } from '@/domain/types';
 import type { SectionKey } from '@/domain/enums';
 import {
   type MonthMiniSummary,
   buildMonthSummaries,
+  buildWeekSummaries,
   buildYearSummaries,
 } from '@/services/calendarService';
-import { sumMonthMinutesBySection, totalMonthMinutes } from '@/services/durationService';
+import {
+  sumMonthMinutesBySection,
+  sumWeekMinutesBySection,
+  totalMonthMinutes,
+  totalWeekMinutes,
+} from '@/services/durationService';
 import {
   clampDayToMonth,
   monthGrid,
+  shiftDateKey,
   shiftMonthKey,
   shiftYearKey,
   toMonthKey,
   toYearKey,
   todayKey,
+  weekKeys,
   yearRange,
 } from '@/utils/date';
 import { repos } from './bootstrap';
@@ -28,32 +36,45 @@ import { repos } from './bootstrap';
  * 连续 30 次会明显卡住主线程。
  */
 
-type CalendarView = 'month' | 'year';
+type CalendarView = 'week' | 'month' | 'year';
 
 interface CalendarState {
-  /** 当前视图：月 / 年 */
+  /** 当前视图：周 / 月 / 年 */
   view: CalendarView;
   /** 当前显示的月份 'YYYY-MM' */
   monthKey: string;
   /** 当前显示的年份 'YYYY' */
   yearKey: string;
+  /** 当前显示的周：该周周一的日期键（周视图专用） */
+  weekStartKey: string;
   /** 当前选中的日期键 */
   selectedDate: string;
   /** 月历每一格的摘要，key 为日期键 */
   summaries: Record<string, DaySummary>;
+  /** 周视图每一天的摘要，key 为日期键 */
+  weekSummaries: Record<string, DaySummary>;
+  /** 周视图整周的条目与时间段（供周任务总览复用 buildWeekSectionBoards） */
+  weekItems: Item[];
+  weekSlots: TimeSlot[];
   /** 年历每个月的迷你汇总，key 为月键 */
   yearSummaries: Record<string, MonthMiniSummary>;
   /** 本月各板块时长（分钟，来自时间轴） */
   monthDurations: Record<SectionKey, number>;
   /** 本月已归类时间段的合计时长（分钟） */
   monthTotalMinutes: number;
+  /** 本周各板块时长（分钟，来自时间轴） */
+  weekDurations: Record<SectionKey, number>;
+  /** 本周已归类时间段的合计时长（分钟） */
+  weekTotalMinutes: number;
   loading: boolean;
 
   setView: (view: CalendarView) => void;
   loadMonth: (monthKey: string) => Promise<void>;
   loadYear: (yearKey: string) => Promise<void>;
+  loadWeek: (weekStartKey: string) => Promise<void>;
   shiftMonth: (delta: number) => Promise<void>;
   shiftYear: (delta: number) => Promise<void>;
+  shiftWeek: (delta: number) => Promise<void>;
   selectDate: (dateKey: string) => void;
   refresh: () => Promise<void>;
 }
@@ -115,17 +136,23 @@ export const useCalendarStore = create<CalendarState>((set, get) => {
     view: 'month',
     monthKey: toMonthKey(todayKey()),
     yearKey: toYearKey(todayKey()),
+    weekStartKey: weekKeys(todayKey())[0] ?? todayKey(),
     selectedDate: todayKey(),
     summaries: {},
+    weekSummaries: {},
+    weekItems: [],
+    weekSlots: [],
     yearSummaries: {},
     monthDurations: { work: 0, study: 0, fitness: 0, life: 0 },
     monthTotalMinutes: 0,
+    weekDurations: { work: 0, study: 0, fitness: 0, life: 0 },
+    weekTotalMinutes: 0,
     loading: false,
 
     /**
      * 切视图。
      *
-     * ⚠️ 切到年视图必须顺带取数：早先这里只改 `view`，而 `yearSummaries`
+     * ⚠️ 切到年 / 周视图必须顺带取数：早先这里只改 `view`，而 `yearSummaries`
      * 初始是空对象 —— 用户点「年」会看到 12 个月全部显示「未记录」，
      * 直到他点了「下一年」才突然全冒出来。那是把「还没取数」渲染成了
      * 「这一整年什么都没记」，与日历页「不说谎」的底线冲突。
@@ -136,7 +163,55 @@ export const useCalendarStore = create<CalendarState>((set, get) => {
         void get().loadYear(get().yearKey);
         return;
       }
+      if (view === 'week') {
+        // 以「当前选中日所在周」为展示周，保证切换后选中日仍在视图里
+        const monday = weekKeys(get().selectedDate)[0] ?? get().selectedDate;
+        void get().loadWeek(monday);
+        return;
+      }
       set({ view });
+    },
+
+    async loadWeek(weekStartKey) {
+      const token = (requestSeq += 1);
+      set({ loading: true, weekStartKey, view: 'week' });
+      try {
+        const days = weekKeys(weekStartKey);
+        const start = days[0] ?? weekStartKey;
+        const end = days[6] ?? weekStartKey;
+        const [items, tasks, timeSlots, inspirations, selfStatuses] = await Promise.all([
+          repos.items.listByDateRange(start, end),
+          repos.tasks.listByDateRange(start, end),
+          repos.timeSlots.listByDateRange(start, end),
+          repos.inspirations.listByDateRange(start, end),
+          repos.selfStatus.listBetween(start, end),
+        ]);
+        if (token !== requestSeq) return; // 期间又切了视图，丢弃本次结果
+        const summaries = buildWeekSummaries(days, items, tasks, timeSlots, inspirations, selfStatuses);
+        const durations = sumWeekMinutesBySection(timeSlots, days);
+        const totalMinutesInWeek = totalWeekMinutes(timeSlots, days);
+        // 选中日若已不在这一周里（常见于跨周切换），夹回本周一，避免摘要卡取到空摘要说谎
+        const sel = days.includes(get().selectedDate) ? get().selectedDate : days[0];
+        set({
+          weekSummaries: summaries,
+          weekItems: items,
+          weekSlots: timeSlots,
+          weekDurations: durations,
+          weekTotalMinutes: totalMinutesInWeek,
+          selectedDate: sel,
+          loading: false,
+        });
+      } catch {
+        if (token !== requestSeq) return;
+        set({
+          weekSummaries: {},
+          weekItems: [],
+          weekSlots: [],
+          weekDurations: { work: 0, study: 0, fitness: 0, life: 0 },
+          weekTotalMinutes: 0,
+          loading: false,
+        });
+      }
     },
 
     async loadMonth(monthKey) {
@@ -199,6 +274,11 @@ export const useCalendarStore = create<CalendarState>((set, get) => {
       await get().loadYear(next);
     },
 
+    async shiftWeek(delta) {
+      const next = shiftDateKey(get().weekStartKey, 7 * delta);
+      await get().loadWeek(next);
+    },
+
     selectDate(dateKey) {
       set({ selectedDate: dateKey });
     },
@@ -206,6 +286,8 @@ export const useCalendarStore = create<CalendarState>((set, get) => {
     async refresh() {
       if (get().view === 'year') {
         await get().loadYear(get().yearKey);
+      } else if (get().view === 'week') {
+        await get().loadWeek(get().weekStartKey);
       } else {
         await get().loadMonth(get().monthKey);
       }

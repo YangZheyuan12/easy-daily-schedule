@@ -81,6 +81,28 @@ export function weekRangeLabel(key: string): string {
   return `${formatShortDate(first)} – ${formatShortDate(last)}`;
 }
 
+/**
+ * 周范围的**单行**标签（日期导航中间那一行用）。
+ *
+ * 同月时后半段只写「日」：`10月12日–18日`；跨月才补月份：`10月30日–11月5日`。
+ * 存在的理由很具体：`weekRangeLabel` 的完整写法在 24px 下会**折成两行**，
+ * 把日期导航撑高、挤掉下面的内容。跨年不写年份 —— 一周最多跨一个年界，
+ * 而「12月29日–1月4日」已经足够定位，加上年份反而又会长回去。
+ */
+export function weekRangeShortLabel(key: string): string {
+  const keys = weekKeys(key);
+  const first = keys[0];
+  const last = keys[keys.length - 1];
+  if (!first || !last) return formatShortDate(key);
+
+  const a = parseDateKey(first);
+  const b = parseDateKey(last);
+  const left = `${a.getMonth() + 1}月${a.getDate()}日`;
+  const right =
+    a.getMonth() === b.getMonth() ? `${b.getDate()}日` : `${b.getMonth() + 1}月${b.getDate()}日`;
+  return `${left}–${right}`;
+}
+
 /* ------------------------------------------------------------------ */
 /* 月历（日历页用）                                                     */
 /* ------------------------------------------------------------------ */

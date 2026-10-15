@@ -240,6 +240,33 @@ export function buildMonthSummaries(
   );
 }
 
+/**
+ * 构建**一周**（给定日期键集合）的日摘要表。
+ *
+ * 与 `buildMonthSummaries` 同一套逐日聚合核心（同一口径、同一组纯函数），
+ * 区别只是「范围」由调用方显式传入这 7 个日期键，而不是从月历网格推导。
+ * 这样一周跨两个月时，两个月的格子都能拿到真实摘要 —— 不会漏算。
+ *
+ * 日历周视图直接 `summaries[dateKey]` 取值，UI 不用写兜底。
+ */
+export function buildWeekSummaries(
+  dateKeys: readonly string[],
+  items: readonly Item[],
+  tasks: readonly Task[],
+  timeSlots: readonly TimeSlot[],
+  inspirations: readonly Inspiration[],
+  selfStatuses: readonly DailySelfStatus[],
+): Record<string, DaySummary> {
+  return buildRangeSummaries(
+    dateKeys.map((dateKey) => ({ dateKey })),
+    items,
+    tasks,
+    timeSlots,
+    inspirations,
+    selfStatuses,
+  );
+}
+
 /** 年视图里某个月的迷你汇总（聚合该月每天的数据） */
 export interface MonthMiniSummary {
   monthKey: string;

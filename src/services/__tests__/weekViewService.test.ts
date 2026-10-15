@@ -1,10 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
-  DEFAULT_WEEK_WINDOW,
+  WEEK_WINDOW,
   buildWeekSectionBoards,
   buildWeekTimetable,
-  hourTicks,
-  resolveWeekWindow,
+  gridTicks,
 } from '../weekViewService';
 import { makeItem, makeSlot } from './fixtures';
 
@@ -19,50 +18,21 @@ const WEEK = [
   '2026-10-18',
 ];
 
-describe('resolveWeekWindow — 按当周数据自动收窄', () => {
-  it('没有数据时回落默认窗口 08:00–22:00', () => {
-    expect(resolveWeekWindow([])).toEqual({ startMin: 8 * 60, endMin: 22 * 60 });
-    expect(resolveWeekWindow([makeSlot({ id: 'a', deletedAt: 5000 })])).toEqual(DEFAULT_WEEK_WINDOW);
+describe('WEEK_WINDOW — 固定 06:00–24:00（不随当周数据收窄）', () => {
+  it('固定窗口常量', () => {
+    expect(WEEK_WINDOW).toEqual({ startMin: 6 * 60, endMin: 24 * 60 });
   });
 
-  it('最早 / 最晚各外扩一小时并对齐整点', () => {
-    const timeWindow = resolveWeekWindow([
-      makeSlot({ id: 'a', startMin: 9 * 60, endMin: 10 * 60 }),
-      makeSlot({ id: 'b', startMin: 15 * 60 + 30, endMin: 17 * 60 }),
+  it('gridTicks 默认每两小时一条分割线，且终点 24:00 也被包含', () => {
+    expect(gridTicks(WEEK_WINDOW)).toEqual([
+      360, 480, 600, 720, 840, 960, 1080, 1200, 1320, 1440,
     ]);
-    // 8:00 (=9-1) → 18:00 (=17+1)
-    expect(timeWindow).toEqual({ startMin: 8 * 60, endMin: 18 * 60 });
   });
 
-  it('软删的时间段不参与窗口计算（凌晨那段不该把窗口拉到 2:00）', () => {
-    const timeWindow = resolveWeekWindow([
-      makeSlot({ id: 'a', startMin: 9 * 60, endMin: 10 * 60 }),
-      makeSlot({ id: 'b', startMin: 3 * 60, endMin: 4 * 60, deletedAt: 5000 }),
+  it('gridTicks 可按自定义步长给出整点刻度', () => {
+    expect(gridTicks({ startMin: 8 * 60, endMin: 18 * 60 })).toEqual([
+      480, 600, 720, 840, 960, 1080,
     ]);
-    // 只看 a：8:00(=9-1) → 11:00(=10+1)；跨度不足 4 小时，再往下探一小时到 7:00
-    expect(timeWindow.startMin).toBe(7 * 60);
-    expect(timeWindow.endMin).toBe(11 * 60);
-  });
-
-  it('跨度不足 4 小时时兜底拉到 4 小时，避免网格挤成一团', () => {
-    const timeWindow = resolveWeekWindow([
-      makeSlot({ id: 'a', startMin: 9 * 60, endMin: 9 * 60 + 30 }),
-    ]);
-    // 8:00 → 13:00（(9.5+1) 向上取整 = 11:00，不足 4 小时再往下补到 8:00 仍差 1 小时 → 补到 13:00）
-    expect(timeWindow.endMin - timeWindow.startMin).toBeGreaterThanOrEqual(4 * 60);
-  });
-
-  it('窗口不会越出 00:00–24:00', () => {
-    const timeWindow = resolveWeekWindow([
-      makeSlot({ id: 'a', startMin: 0, endMin: 30 }),
-      makeSlot({ id: 'b', startMin: 23 * 60, endMin: 24 * 60 }),
-    ]);
-    expect(timeWindow.startMin).toBe(0);
-    expect(timeWindow.endMin).toBe(24 * 60);
-  });
-
-  it('hourTicks 给出窗口内的整点刻度', () => {
-    expect(hourTicks({ startMin: 8 * 60, endMin: 11 * 60 })).toEqual([480, 540, 600, 660]);
   });
 });
 

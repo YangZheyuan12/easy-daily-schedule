@@ -29,7 +29,13 @@ interface DateNavigatorProps {
    */
   viewMode?: DateViewMode;
   onViewModeChange?: (mode: DateViewMode) => void;
-  /** 可选：中间大字的替代文案（周视图下显示「10月13日 – 10月19日」而不是单日） */
+  /**
+   * 可选：中间大字的替代文案（周视图下显示整周范围而不是单日）。
+   *
+   * 传它时字号降到 `heading`（18px）并锁 `whitespace-nowrap` —— 「10月12日–18日」
+   * 这类范围文案比单日日期长得多，用 24px 会被 flex 挤到折行，把导航条撑成两行。
+   * 调用方应传 `weekRangeShortLabel()`（同月只写一次月份）而不是 `weekRangeLabel()`。
+   */
   centerLabel?: string;
 }
 
@@ -63,6 +69,7 @@ export function DateNavigator({
   const clickable = onDateClick !== undefined;
   // 空串与 undefined 同等对待：都视为「没有副标题」，保证旧调用的 DOM 不变
   const hasSubtitle = typeof subtitleText === 'string' && subtitleText.length > 0;
+  const hasCenterLabel = typeof centerLabel === 'string' && centerLabel.length > 0;
 
   const [switchOpen, setSwitchOpen] = useState(false);
   const modeSwitch = onViewModeChange !== undefined;
@@ -89,7 +96,7 @@ export function DateNavigator({
 
   return (
     <div className="flex items-center justify-between px-5 pt-[calc(8px+env(safe-area-inset-top))] pb-1">
-      <div className="flex items-center -ml-2">
+      <div className="flex items-center -ml-2 min-w-0">
         <button
           type="button"
           onClick={onPrev}
@@ -104,8 +111,8 @@ export function DateNavigator({
           onClick={onDateClick ?? onToday}
           className={clsx(
             'min-h-tap px-1 flex items-center active:opacity-60',
-            // 仅在带副标题时才允许收缩，保证无副标题时 class 与旧版逐字一致
-            hasSubtitle && 'min-w-0',
+            // 仅在带副标题 / 长范围文案时才允许收缩，保证无副标题时 class 与旧版逐字一致
+            (hasSubtitle || hasCenterLabel) && 'min-w-0',
           )}
           aria-label={clickable ? '点击选择日期' : today ? '今天是' + formatDateLabel(date) : '回到今天'}
         >
@@ -121,6 +128,17 @@ export function DateNavigator({
               <span className="text-title font-semibold text-ink tracking-tight">{centerText}</span>
               {/* 副标题：与主日期同处一个动画块，切日期时一起滑入 / 滑出 */}
               <span className="text-caption text-ink-faint truncate max-w-[42vw]">{subtitleText}</span>
+            </span>
+          ) : hasCenterLabel ? (
+            /* 周范围：字号降一档 + 不折行，否则「10月12日–18日」会把导航撑成两行 */
+            <span
+              key={centerText}
+              className={clsx(
+                'text-heading font-semibold text-ink tracking-tight whitespace-nowrap',
+                direction === 0 ? 'm-fade' : direction > 0 ? 'm-slide-right' : 'm-slide-left',
+              )}
+            >
+              {centerText}
             </span>
           ) : (
             <span
