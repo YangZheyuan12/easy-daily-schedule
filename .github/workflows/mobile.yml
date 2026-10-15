@@ -48,13 +48,31 @@ jobs:
           chmod +x ./gradlew
           ./gradlew assembleDebug
 
+      # 先打印产物树再打包：Gradle 版本的差异会让 apk 落点（debug / release、
+      # 是否带 splits）对不上预期，硬编码路径一旦错位就只剩一句 "No files were found"，
+      # 没有现场信息没法远程排错。
+      - name: List APK outputs
+        run: find android/app/build/outputs -name "*.apk" -print || true
+
+      # 把 apk 复制成想要的文件名再上传：
+      # zip 内部的条目名取决于上传时的**文件路径末尾**，光改 artifact 名没用。
+      # 落到 android/app/build/distributions/（该目录已在 .gitignore 里，
+      # 且是 Gradle 惯例位置），cp -f 保证重跑时覆盖。
+      - name: Rename APK for distribution
+        run: |
+          mkdir -p android/app/build/distributions
+          cp -f android/app/build/outputs/apk/debug/app-debug.apk \
+                android/app/build/distributions/ezschedule-daily.apk
+          ls -l android/app/build/distributions
+
       # artifact 名字 = 下载下来的 zip 名（GitHub 打包时直接加 .zip 后缀），
-      # 所以这里叫什么，Actions → Artifacts 里下载的就是 `ezschedule-daily-apk.zip`。
+      # 所以这里叫什么，Actions → Artifacts 里下载的就是 `ezschedule-daily-apk.zip`；
+      # zip 里的内容则是上一步改好名的 `ezschedule-daily.apk`（单文件上传 = zip 根目录下直接是它）。
       # 注意 v4 要求**同一 run 内 artifact 名唯一**，改名前先确认别的 job 没占用。
       - uses: actions/upload-artifact@v4
         with:
           name: ezschedule-daily-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          path: android/app/build/distributions/ezschedule-daily.apk
           retention-days: 30
 
   ios:
