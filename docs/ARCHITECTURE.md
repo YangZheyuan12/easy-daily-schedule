@@ -2453,15 +2453,284 @@ export function resolveCalendarSelection(
 
 ---
 
+## 九-G、v1.7 增量设计（板块自定义：名称 / 颜色 / 图标 + 「我的」页折叠卡）
+
+### 9-G.1 动机与范围
+
+用户要求自定义四大板块「工作 / 学习 / 健身 / 生活」的**字段名称**与**颜色**。
+范围收敛为三件事：
+
+| 用户要的 | 实现 |
+| --- | --- |
+| 板块数量固定 4 个 | `SectionKey` 恒为 `work/study/fitness/life`，**键与数量不可改** |
+| 板块名可自定义 | `SectionProfile.name`，改名后 placeholder 一起变 |
+| 板块颜色可自定义 | `SectionProfile.color`（`#RRGGBB`，12 色板），图标额外可换（`icon`） |
+
+🔴 **键与数量为什么不能放开**：`Item.sectionId` / `Task.sectionId` / `TimeSlot.sectionId`、
+日历与时长的统计口径全部按这四个键存。允许用户增删板块会制造**悬空引用**
+（某条记录的 `sectionId` 指向一个已不存在的板块），而「改名」只是展示层的映射，
+不碰任何存储结构 —— 这正是 Q5「Section 不作为存储实体，常量 + 偏好配置」的落地。
+
+### 9-G.2 分层落点
+
+| 层 | 文件 | 职责 |
+| --- | --- | --- |
+| domain | `domain/constants.ts` | `SectionProfile` / `DEFAULT_SECTION_PROFILES` / `SECTION_COLOR_CHOICES` / `SECTION_ICON_CHOICES` / `normalizeSectionProfiles` / `resolveSectionConfigs` / `resolveTaskSectionConfigs`（全部纯函数） |
+| store | `store/useSectionProfileStore.ts` | 内存 + 持久化（`repos.settings`，键 `sectionProfiles`），**派生 `configs` 在写入时算好** |
+| hooks | `hooks/useSectionConfigs.ts` | `useSectionConfigs` / `useSectionConfig` / `useTaskSectionConfigs` / `useTaskSectionConfig` |
+| UI | `components/me/SectionSettings.tsx`、`components/ui/CollapsibleCard.tsx` | 「我的」页的设置卡与折叠卡 |
+
+`SectionConfig` 新增 `cssColor` / `cssTint` 两个**运行时着色字段**：
+没自定义 → `rgb(var(--c-work))`（跟随三套主题）；自定义过 → 用户选的 hex（三主题一致）。
+`sectionColor()` / `sectionTint()` 改为读这两个字段，组件不再自己拼 `rgb(var(...))`。
+
+### 9-G.3 关键决策与理由
+
+1. **`SectionProfile.color` 必须能是 `null`（= 没改过）**，不能退化成「改成了内置 hex」。
+   后者会让三套主题各自的板块色板被同一个 hex 顶掉 —— 换主题时板块色不再变化，
+   而这在 UI 上很难一眼看出来（`domain/__tests__/sectionProfile.test.ts` 用
+   「默认档案合成结果与 `SECTION_CONFIGS` 逐字段相等」锁死）。
+2. **组件一律走 `useSectionConfigs()`，不直接 import `SECTION_CONFIGS`**。
+   后者是内置默认值，用户改完就是过期数据。`buildDiaryList` /
+   `buildWeekSectionBoards` 等 service 仍返回内置 `name`（service 是纯函数、不该知道
+   用户偏好），**渲染端一律以配置为准**，所以组头、田字格标题、日历统计都不受影响。
+3. **归一化兜底**：名字空串 → 回落默认名（组头不能变空白）；颜色非 6 位 hex → 回落 `null`
+   （回到主题色）。最坏结果只是回到出厂状态，不会出现空标题或看不见的色点。
+4. **名字是本地草稿、失焦才提交**：直接绑 store 的话，用户清空重打的中间态会被归一化
+   弹回默认值，边删边跳打不进去。
+5. **颜色用色板（12 色）而不是取色器**：自由取色器在深浅两套主题上都可能挑出看不见的颜色。
+6. **折叠状态不持久化**：「此刻在看哪张卡」是临时状态，不是偏好。
+
+### 9-G.4 影响面（用户要求的检查清单）
+
+已全部接入配置读取：`DiaryList`（今日日视图组名/色点/placeholder）、
+`WeekSectionBoards`（本周田字格标题）、`SectionPage` / `SectionWeekPage`（板块详情页标题与强调色）、
+`TaskRow` / `SectionPickerSheet`（任务分组）、`SlotEditorSheet` / `WeekTimetable` / `TimelinePage`
+（时间轴分组、日视图标签、周课表色块）、`TimetableImportPage`（导入页「归到板块」）、
+`DaySummaryCard` / `DayCell` / `DurationBar` / `YearGrid` / `WeekTaskOverview`（日历完成情况、
+月历色点、时长条、年视图）。**零 Dexie 变更**（DB_VERSION 仍为 4）。
+
+### 9-G.5 「我的」页折叠卡
+
+`CollapsibleCard` 统一包住外观主题、板块设置、时间轴视图、存储与同步、
+数据备份、关于。动机：每张卡内部都是一组控件，全摊开要滚两屏才看得到底下的开关。
+🔴 **六张卡默认全部收起**（2026-10-15 第四轮收敛，见 §9-H）：`defaultOpen` 默认值即为 `false`，
+当前主题名写在标题行 `hint` 上，收不着也知道用的是哪套。
+🔴 展开态**跨页保持**（2026-10-16 第六轮，见 §9-J）：改由 `useExpanded(expandKey)` 驱动，
+每张卡一个稳定 key —— 本节早期「状态不持久化是刻意的」结论已按用户要求作废。
+
+### 9-G.6 验证方式
+
+- **新增 27 个用例**：`domain/__tests__/sectionProfile.test.ts`（21，合成契约 + 脏配置收敛）、
+  `components/__tests__/sectionProfileWiring.test.ts`（6，jsdom 端到端：store → hook → `DiaryList`）。
+- **已做负向验证**：把默认档案的 `color` 改成内置 hex、把 placeholder 改回读默认名，
+  5 条 domain 用例立刻红；把 store 的 `setName` 改成空实现，3 条接线用例立刻红。
+- `tasksPageMove.test.ts` 同步更新（标题由 `input` 换成自动增高 `textarea`，
+  并把「标题不是单行 input」锁进断言）。
+
+### 9-H 任务页气泡化与「我的」页默认收起（2026-10-15 第四轮 UI 收敛）
+
+#### 9-H.1 动机与范围
+
+四项用户反馈，全部是**交互位置与默认状态**问题，不动数据层：
+
+| # | 反馈 | 改动 |
+| --- | --- | --- |
+| 1 | 点任务条目的「分组」时弹窗要在**对应分组的下方**、气泡形式，不要出现在底部，动效是扩大/缩小 | `SectionPickerSheet`（底部抽屉）→ `SectionPickerPopover`（锚定气泡） |
+| 2 | 期限任务和长时目标**默认在底部堆叠**，而非紧跟条目之后 | 两张卡改默认收起 |
+| 3 | 给删除某条任务也做一个 ui 动效 | `TaskRow` 退场动效 |
+| 4 | 「我的」页所有卡片**默认收起** | `CollapsibleCard` 默认值翻转 |
+
+#### 9-H.2 分层落点
+
+- `components/ui/Popover.tsx`：新增 `align?: 'left' | 'right'`（默认 `right`）。
+  不只是换个定位类——展开动效的 `transform-origin` 也要镜像（右上角 ↔ 左上角），
+  否则气泡会从角外「滑」进来而不是从角上长出来。为此新增 `m-pop-tl` / `m-pop-tl-out`
+  与 `m-pop-tr` 左右镜像（`transform-origin: 0 0`、起始位移 `translate(8px, -8px)`）。
+- `components/task/SectionPickerPopover.tsx`（新）：`align="left"` + `width 236px`，
+  五大分组胶囊横排可换行，底部保留「其他 = 不分组、不参与同步」说明。
+  旧的 `SectionPickerSheet.tsx` 已删除。
+- `components/task/TaskRow.tsx`：分组胶囊外新增一层 `relative` 当气泡锚点
+  （`firstElementChild` 由按钮变成这层壳，`tasksPageMove.test.ts` 断言已同步）；
+  气泡的开关由页面 `pickingId` 单点控制（同一时刻只有一行展开）。
+- `components/task/TaskPreviewCard.tsx`（新）：期限任务 / 长时目标共用的只读预览卡。
+  🔴 **不再整卡 `role="button"`**——标题、「管理」、展开箭头是三个独立按钮：
+  老结构里「想展开结果跳了页」，键盘用户也没法只展开而不跳页。预览列表 `useState(false)` 默认收起，
+  展开时播 `m-fade`；`DeadlineCard` / `GoalCard` 退化为它的两个用法（`renderMeta` 注入期限文案 / 描述）。
+- `components/task/TaskRow.tsx` 删除动效：`m-row-exit`（`styles/index.css`）。
+  用 **`grid-template-rows: 1fr → 0fr` 过渡**而不是 `max-height`——行高是动态的
+  （标题/描述都是自动增高的 textarea），`max-height` 得先量一次真实高度，而 fr 过渡让浏览器自己算。
+  标记 `is-leaving` 后 280ms（与 `--m-dur-3` 对齐）才真调 `remove`（软删），
+  动画途中重复点只算一次；退格删空行与点删除按钮走同一条路；卸载时清定时器。
+- `components/ui/CollapsibleCard.tsx`：`defaultOpen` 默认值 `true → false`，
+  `MePage` 六张卡（外观主题/板块设置/时间轴视图/存储与同步/数据备份/关于）全部默认收起；
+  当前主题名写在标题行 `hint` 上，收不着也知道用的是哪套。
+
+#### 9-H.3 验证方式
+
+- 新增 4 个测试文件 11 个用例：`components/task/__tests__/sectionPickerPopover.test.ts`（3：
+  气泡 ≠ 底部抽屉、锚定在分组按钮下方且 `left-0/top-full/m-pop-tl`、点选项真改分组且退场后才卸载）、
+  `taskRowDelete.test.ts`（3：动效途中未软删、280ms 后才删、重复点只算一次、退格同路径）、
+  `taskPreviewCards.test.ts`（3：默认收起、展开/收起、空列表只显示说明）、
+  `components/ui/__tests__/collapsibleCard.test.ts`（2：默认收起、点标题展开再收起）。
+- **已做负向验证**：把 `align` 改成 `right`、删除改成即时 `remove`、预览卡 `useState(true)`、
+  折叠卡默认值翻回 `true`——四组共 9 条立刻红（不受改动影响的 2 条保持绿，符合预期）。
+- 全量：`tsc` ✓、`check:layers` 185 文件 ✓、`vitest` **1099 用例 / 53 文件** ✓、`build` 453.83KB ✓。
+  🔴 首次全量跑曾被沙箱 EPERM 静默吞掉一个测试文件（52/53、866 用例、退出码仍 0），
+  重跑核对文件数后才采信——见「验收教训」第 2 条。
+
+### 9-I 分组气泡防遮挡 + 时间段同步 + 今日页行内编辑（2026-10-15 第五轮）
+
+#### 9-I.1 分组气泡浮于整个页面上方
+
+用户实测「点分组，弹出的气泡被挡住了」。根因不是 z-index 不够，而是**层叠上下文**：
+页面容器带着 `m-rise`（动画期间 `transform` 会造出层叠上下文）、各页有 `fixed` 悬浮按钮
+（「+ 添加任务」在 z-auto 但 DOM 更后）与底栏（z-30）—— `absolute + z-50` 的气泡被压在下面。
+
+修法（`ui/Popover.tsx`）：新增可选 `anchorRef`，**传了就 portal 到 `document.body` +
+`fixed` 定位 + `z-[55]`**（高于底栏与悬浮按钮，低于 toast 的 z-60），与页面元素彻底分层；
+`useLayoutEffect` 里按锚点实时摆放，`scroll`（捕获段）/ `resize` 时跟着按钮走，
+**下方放不下且上方放得下时自动向上翻转**。不传 `anchorRef` 的调用点（日期导航右上角）
+保持原 `absolute` 行为。`SectionPickerPopover` 传入分组胶囊的 ref。
+
+#### 9-I.2 时间轴 → 同步到今日（勾选式复制）
+
+与 R-043 任务同步同族：**一次性复制 + 来源标记去重**，不是 R-042 那种自动投影
+（投影没有「挑」，服务的是另一个场景）。`Item` 新增 `sourceSlotId: string | null`
+（零 Dexie 变更，仍 v4；仓储读取归一化），`services/slotSyncService.ts` 提供
+`planSlotSync`（过滤：非当天 / 软删 / **未归板块** / 空内容 / 已同步）+ `createSyncedSlotItems`
+（复用 `createSiblingAfter` 落 order），`useItemStore.syncFromSlots` 落地。
+
+UI（`TimelinePage`）：顶部右侧「同步到今日」按钮 → 勾选模式：行首出现勾选框
+（未分组 = 虚线禁用态；已同步 = 锁定在勾选态），点卡片即勾选，底部换成「取消 + 同步 N 项到今日」。
+周视图里格子太小不好勾，点按钮先切回当日视图。
+
+🔴 **今日页去重**：同步成的条目与时间段的自动投影**二选一** —— `DiaryList` 把
+「已有存活条目 `sourceSlotId` 指向它」的时间段投影过滤掉，改看那条可编辑的条目
+（删掉同步出的条目，投影自然回来）。只算**存活**条目：软删条目若还藏着投影，
+该时段会在今日页彻底消失。
+
+#### 9-I.3 今日页行内编辑 + 「⋯」详情（板块页不再是必经之路）
+
+用户要求「所有事件项都可以在主页直接编辑……点三个点就出现原本在板块页编辑会出现的气泡，
+就等于说我不要这个页面了」。
+
+- `DiaryRow` 的条目行（顶层 + 子项）：点标题文字 → `EditableTitle` 行内编辑
+  （受控 draft + 自动增高 textarea；Enter / 失焦提交，Esc 取消；
+  **trim 后为空保留原标题**——误触全选+删除不丢内容，真删走「⋯」里的删除）；
+  行尾「⋯」（`MoreButton`）→ `useUiStore.openDrawer` 打开与板块页**同一张** `ItemSheet`
+  （图片 / 描述 / 子分支 / 删除，`TodayPage` 负责渲染）。
+- 时间段投影行**不做这些**（用户明确「时间轴导入过去的不做修改」）：仍只读，
+  点它去时间轴页，行尾只有「在今日隐藏」。
+- 板块页（`/section/:id`）**保留**：组头与周视图田字格仍是它的入口，看整棵树的视图仍在；
+  但编辑不再非去它不可。
+
+#### 9-I.4 验证方式
+
+- 新增 4 个测试文件 21 个用例：`services/__tests__/slotSyncService.test.ts`（10）、
+  `pages/__tests__/timelineSlotSync.test.ts`（5：勾选模式形态 / 未分组禁用 / 已同步锁定 /
+  确认落地 / 取消）、`pages/__tests__/todayPageEditing.test.ts`（3：「⋯」开抽屉 /
+  投影行无「⋯」 / 同步后投影让位）、`diaryListInlineAdd.test.ts` 增补 3 条行内编辑用例
+  （原「点条目跳板块页」契约按新交互改写）。
+- **已做负向验证**：放开 `planSlotSync` 的未分组过滤、`selecting &&` 改 `false &&`、
+  删掉 `MoreButton`——8 条立刻红。
+- 全量：`tsc` ✓、`check:layers` 189 文件 ✓、`vitest` **1120 用例 / 56 文件** ✓、`build` 459.45KB ✓。
+
+---
+
+### 9-J 移除进度显示 + 展开态跨页保持 + 「N项」计数（2026-10-16 第六轮）
+
+#### 9-J.1 「0/3」这类进度显示全部撤掉
+
+用户要求：「今日页面中，删掉 0/3 这样的进度条，包括点进『工作』编辑页面之后，
+显示的『完成 0%』也要删掉」。撤掉的位置：
+
+| 位置 | 原显示 | 现状 |
+| --- | --- | --- |
+| 今日页组头（`DiaryList.SectionGroup`） | 色点 + 组名 + `{done}/{total}` | 色点 + 组名 + 「N项」纯计数（§9-J.4 同日追改） |
+| 板块页副标题（`SectionPage`） | `10月15日 · 完成 67%` | `10月16日 · N项`（§9-J.4 同日追改；原 `percent` useMemo 与 `toPercent` import 已删除） |
+| 今日页周视图田字格（`WeekSectionBoards`） | 格头 `{done}/{total}` | 只剩色点 + 组名 + 箭头 |
+| 板块页树父行（`TreeRow`） | 展开时 `{done}/{total}` 直系子项进度 | 只保留**折叠时**的「藏着几条」徽标（那是计数不是进度） |
+| 板块周视图副标题（`SectionWeekPage`） | `10/12 起 · 完成 3/8` | 只剩起始日（同类显示，一并撤掉保持一致性） |
+
+保留不动的：`progressService` 与其全部口径测试、日历摘要卡 / 月历色点 / 年视图的
+完成度（用户点名的是今日与工作两个页面）；`treeService` 仍计算 `childrenProgress`
+（`VisibleRow` 字段与口径测试都在，只是没有 UI 消费者——字段注释已注明）；
+**任务页**副标题的「完成 x/y（z%）」与顶部进度条用户没提，刻意没动。
+
+#### 9-J.2 展开 / 收起跨页保持
+
+用户要求：「在任务页面中展开期限任务和长时目标，切换到别的页面再切换回来时，
+它依然要是展开的状态，其他类似的展开收起条目同理」。根因：这些状态都在组件
+`useState` 里，切 Tab 会卸载页面组件，状态随之丢失。
+
+修法：状态搬家到 UI store —— `useUiStore.expansions: Record<string, boolean>`
+（key → 开/关）+ `setExpanded`；组件侧统一走新 hook `hooks/useExpanded(key, defaultOpen)`。
+🔴 **只活在会话内，不落盘**：用户要的是「切过去再回来不丢」，不是「明天打开还是展开的」；
+刷新重置与 `drawerItemId` / `toasts` 一致。`defaultOpen` 只在用户没表达过意愿时生效，
+点过一次之后以 store 为准（收起也是明确表达）。
+
+接入点与 key 命名空间：
+
+| 组件 | key | 备注 |
+| --- | --- | --- |
+| `TaskPreviewCard`（期限 / 长时目标） | `tasks:deadline` / `tasks:goal` | 新增必填 prop `expandKey`，由 `DeadlineCard` / `GoalCard` 各传一个 |
+| `CollapsibleCard`（我的页六卡） | `me:appearance` / `me:sections` / `me:timeline` / `me:storage` / `me:backup` / `me:about` | 同上，prop 必填 |
+| `SelfStatusCard`（今日页） | `today:self-status` | |
+| `SectionRow`（板块设置内每行） | `me:section:{key}` | 正在改哪个板块，切走再回来不改 |
+| `ImageStrip`（今日页行内图片条） | `images:{itemId}` | 默认展开，收起态按条目保持 |
+| `ReminderBanner` | `dismissedReminder`（单值字段） | 语义相反（true = 已打发走），故不与 expansions 混放；键内容派生（日期 + 到期 id 集合），新时段到期自动重现 |
+
+`CollapsibleCard` 原文件头「状态不持久化是刻意的」注释已按新决策改写（§9-G.5 同步标注作废）。
+
+#### 9-J.3 验证方式
+
+- 新增 2 个测试文件 8 个用例：`hooks/__tests__/useExpanded.test.ts`（5：默认值两种取值 /
+  切换 / 同 key 双实例共享 / 卸载重挂载保持 / 不同 key 互不干扰）、
+  `components/reminder/__tests__/reminderBannerDismiss.test.ts`（3：到期提示 /
+  收起后重挂载不弹出 / 新时段到期自动重现）。
+- 更新 2 个测试文件：`collapsibleCard.test.ts` 与 `taskPreviewCards.test.ts` 各补
+  「展开后卸载重挂载仍是展开」用例，并加 `beforeEach` 复位 `expansions`
+  （状态在 store 里跨用例存活，不复位会污染「默认收起」断言）。
+- **已做负向验证**：把 `useExpanded` 改回本地 `useState` → 4 条持久化用例立刻红
+  （hook 2 条 + CollapsibleCard / TaskPreviewCard 各 1）；把 `ReminderBanner` 改回
+  本地 `useState` → 跨页收起用例立刻红。
+- 全量：`tsc` ✓、`check:layers` **192 文件** ✓、`vitest` **1130 用例 / 58 文件**
+  （与 `find src -name "*.test.ts"` 核对一致）✓、`build` 459.34KB ✓。
+
+#### 9-J.4 组头「N项」计数回归（同日追改）
+
+用户看完 §9-J.1 的效果后反馈「感觉有点光秃秃」，要求**在今日页组头后加一行小字
+「0项」**，点进去的编辑页面也显示，且**数量统计来自分类下面的事件数量**。
+即：进度（完成率）不回来，纯计数回来。
+
+| 位置 | 计数口径 | 说明 |
+| --- | --- | --- |
+| 今日页四板块组头（`DiaryList.SectionGroup`） | 本板块**顶层条目 + 归到本板块的时间段**（只数可见：隐藏 / 已同步的不计） | 与日历摘要卡 `DaySummary.sections` 同一口径；子项是条目内部分支不计 |
+| 今日页灵感组头（`InspirationGroup`） | 当天灵感条数 | 原为「N 条 / —」，统一为「N项」 |
+| 板块页副标题（`SectionPage`） | 该板块当天**顶层**条目数 | 与今日页组头同口径；时间段只在今日页投影、本页不出现故不计 |
+
+🔴 只放**数量**、不放完成率 —— 完成率口径仍只在 `progressService` / 日历摘要卡。
+两个页面的计数可能因时间段投影差 1（今日页含投影、板块页不含），这是刻意的：
+各自统计「本页这个分类下看得见的事件数」。灵感组空时也显示「0项」（不再显示「—」）。
+
+新增测试：`components/diary/__tests__/diaryListGroupCount.test.ts`（5 条：顶层+时间段
+口径 / 子项不计 / 未归类时间段不进组 / 软删不计 / 无完成率字符）与
+`pages/__tests__/sectionPageSubtitle.test.ts`（3 条：顶层口径 / 空板块 0项 / 只数本板块）。
+负向验证：把组头口径改成含子项 → 「子项不计入」红；副标题退回纯日期 → 3 条全红。
+全量：`tsc` ✓、`check:layers` **194 文件** ✓、`vitest` **1138 用例 / 60 文件** ✓、`build` 459.51KB ✓。
+
+---
+
 ## 十、待明确事项（需拍板，附推荐默认）
 
 | # | 问题 | 选项 | **架构推荐默认** | 影响面 |
 | --- | --- | --- | --- | --- |
-| Q1 | **勾选父条目是否联动子项**？子项全勾是否自动勾父？ | 联动 / 不联动 / 仅父→子单向 | **不联动**，父条目仅展示 `2/5` 直系子项进度 | `progressService` + `TreeRow` |
+| Q1 | **勾选父条目是否联动子项**？子项全勾是否自动勾父？ | 联动 / 不联动 / 仅父→子单向 | **不联动**。直系子项进度仍由 `treeService` 计算（口径测试锁定），但 UI 已不展示（2026-10-16 用户要求去掉「x/y」进度显示，见 §9-J.1） | `progressService` + `TreeRow` |
 | Q2 | **环形图中心「总完成率」口径**？ | ① 四板块顶层完成数之和 ÷ 顶层总数之和；② 四板块 `ratio` 的算术平均 | **①（加权口径）**。② 会让「只有 1 条且已完成」的板块权重等于「10 条的板块」，失真 | `progressService.computeRingData` |
 | Q3 | **层级上限**是否强制拦截？ | 不限制 / 软提示 / 硬拦截 | **软提示 > 8 层**（Toast 提示但仍允许），符合 PRD §7.2「超出提示但不强制拦截」 | `constants.MAX_LEVEL` |
 | Q4 | **`Item` 内联 `description/rating/review`**（架构决策 A1）是否认可？ | 内联 / 独立 `ITEM_DETAIL` 表 | **内联**。邻接表 KV 下 join 是纯浪费，P0 纯文本无独立实体必要 | `domain/types.ts` + 表结构 |
-| Q5 | **`Section` 不作为存储实体**（架构决策 A2）是否认可？ | 常量 + 偏好配置 / 独立表 | **常量 + 偏好配置**。P1 改名需求由 `LocalSettingsRepository` 满足 | 表结构 + `SectionCard` |
+| Q5 | **`Section` 不作为存储实体**（架构决策 A2）是否认可？ | 常量 + 偏好配置 / 独立表 | **常量 + 偏好配置**。P1 改名需求由 `LocalSettingsRepository` 满足（**已实现，见 §9-G**：`useSectionProfileStore` + `useSectionConfigs()`，键与数量仍固定 4 个） | 表结构 + `SectionCard` |
 | Q6 | **撤销窗口 5s** 是否可配置？ | 固定 / 可配置 | **固定 5000ms 常量**，P1 再考虑放进设置 | `constants.UNDO_WINDOW_MS` |
 | Q7 | **软删除物理清理时机**？ | 启动时清理 / 定时清理 | **启动时清理 `now - 7d` 之前的软删记录**（保留 7 天缓冲，避免误清） | `bootstrap.ts` |
 | Q8 | **P0 拖拽排序**是否用「上/下移按钮」替代真拖拽？ | 按钮替代 / P0 就上 dnd-kit | **P0 用上/下移按钮**（PRD §6.3 已允许），R-018 真拖拽放 P1 | `TaskRow` / `TreeRow` |
