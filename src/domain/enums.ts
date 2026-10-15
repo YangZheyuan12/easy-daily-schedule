@@ -31,6 +31,30 @@ export function isTaskSectionKey(value: unknown): value is TaskSectionKey {
   return typeof value === 'string' && (TASK_SECTION_KEYS as readonly string[]).includes(value);
 }
 
+/** 任务种类：每日任务 / 期限任务 / 长时目标 */
+export type TaskKind = 'daily' | 'deadline' | 'goal';
+
+/** 抽象期限（相对「今天」的滚动窗口） */
+export type RelativeDeadline = '3d' | '1w' | '2w';
+
+export const RELATIVE_DEADLINES = ['3d', '1w', '2w'] as const;
+
+/** 抽象期限的展示文案 */
+export const RELATIVE_DEADLINE_LABEL: Record<RelativeDeadline, string> = {
+  '3d': '三天内',
+  '1w': '一周内',
+  '2w': '两周内',
+};
+
+/**
+ * 一条任务是否为「每日任务」。
+ * undefined 视为每日（兼容老数据 / 测试夹具里没写 kind 的任务）。
+ * 期限任务与长时目标是跨日期持久存在的，不随「今日」切换而重置。
+ */
+export function isDailyTask(task: { kind?: TaskKind }): boolean {
+  return task.kind === undefined || task.kind === 'daily';
+}
+
 /** 评分取值：0 表示未评分，1–5 为星级。 */
 export type Rating = 0 | 1 | 2 | 3 | 4 | 5;
 

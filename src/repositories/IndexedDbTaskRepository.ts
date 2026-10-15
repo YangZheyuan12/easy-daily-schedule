@@ -12,9 +12,17 @@ import { filterAlive, filterDeleted } from './mappers';
  *
  * 归一化为「其他」而不是某个板块，是因为同步到今日页会把四大板块的任务复制成条目 ——
  * 若把历史任务默认算作「工作」，一次同步就会凭空造出一批用户没打算同步的条目。
+ *
+ * 同时归一化 `kind`（缺省按每日任务）与 `description`（缺省空串），
+ * 让业务层永远拿不到 undefined，避免到处写 `?? 'daily'` / `?? ''`。
  */
 function normalizeTask(task: Task): Task {
-  return { ...task, sectionId: task.sectionId ?? OTHER_KEY };
+  return {
+    ...task,
+    sectionId: task.sectionId ?? OTHER_KEY,
+    kind: task.kind ?? 'daily',
+    description: task.description ?? '',
+  };
 }
 
 export class IndexedDbTaskRepository implements TaskRepository {

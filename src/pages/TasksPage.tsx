@@ -2,6 +2,7 @@ import { Icon } from '@/components/ui/Icon';
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { TaskSectionKey } from '@/domain/enums';
+import { isDailyTask } from '@/domain/enums';
 import { compareByOrder } from '@/domain/constants';
 import { useTaskStore } from '@/store/useTaskStore';
 import { useItemStore } from '@/store/useItemStore';
@@ -9,6 +10,8 @@ import { useDayStore } from '@/store/useDayStore';
 import { useUiStore } from '@/store/useUiStore';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { TaskRow } from '@/components/task/TaskRow';
+import { DeadlineCard } from '@/components/task/DeadlineCard';
+import { GoalCard } from '@/components/task/GoalCard';
 import { SectionPickerSheet } from '@/components/task/SectionPickerSheet';
 import { ConfirmSheet } from '@/components/ui/ConfirmSheet';
 import { EmptyState } from '@/components/feedback/EmptyState';
@@ -45,14 +48,17 @@ export function TasksPage() {
     展示顺序**由 `order` 派生**，不是数组位置 —— 与板块树（buildTree 按 order 排子节点）同一套约定。
     原来直接 `tasks.filter()` 就用数组顺序渲染，于是 `move()` 把 order 换好了、
     页面上却纹丝不动（要重新加载才「突然生效」）。现在换位与撤销都自动正确。
+
+    这里只挑「每日任务」渲染（期限任务 / 长时目标是跨日期持久存在的，
+    归到下方两张独立卡片，完成度与同步都只算每日任务）。
   */
-  const alive = useMemo(
-    () => tasks.filter((t) => t.deletedAt === null).sort(compareByOrder),
+  const dailyAlive = useMemo(
+    () => tasks.filter((t) => isDailyTask(t) && t.deletedAt === null).sort(compareByOrder),
     [tasks],
   );
-  const progress = useMemo(() => computeTaskProgress(alive), [alive]);
+  const progress = useMemo(() => computeTaskProgress(dailyAlive), [dailyAlive]);
 
-  const pickingTask = pickingId === null ? null : alive.find((t) => t.id === pickingId) ?? null;
+  const pickingTask = pickingId === null ? null : dailyAlive.find((t) => t.id === pickingId) ?? null;
 
   const handleInherit = async () => {
     const { created, skipped } = await inherit(date);
@@ -71,7 +77,7 @@ export function TasksPage() {
     const count = currentDrafts().length;
     // 没有可同步的就不弹框 —— 弹一个「确认同步 0 项」的框只会让人以为坏了
     if (count === 0) {
-      pushToast(alive.length === 0 ? '还没有任务可以同步' : '四大板块的任务都已经同步到今日了');
+      pushToast(dailyAlive.length === 0 ? '还没有任务可以同步' : '四大板块的任务都已经同步到今日了');
       return;
     }
     setSyncCount(count);
@@ -136,7 +142,7 @@ export function TasksPage() {
       </div>
 
       <div className="m-rise flex-1 px-5 pt-3 pb-24" style={{ animationDelay: '60ms' }}>
-        {alive.length === 0 ? (
+        {dailyAlive.length === 0 ? (
           <EmptyState
             icon={<Icon name="task" size={40} className="text-ink-faint" />}
             title={isToday(date) ? '今天还没有任务' : `${formatShortDate(date)} 还没有任务`}
@@ -149,7 +155,7 @@ export function TasksPage() {
         ) : (
           /* 概念稿 C4：所有任务装在同一张纸卡里，行与行之间不画线 */
           <div className="bg-surface rounded-card shadow-card p-1.5">
-            {alive.map((task, index) => (
+            {dailyAlive.map((task, index) => (
               <TaskRow
                 key={task.id}
                 task={task}
@@ -157,7 +163,7 @@ export function TasksPage() {
                    而不是点下去什么都不发生（原来的样子，用户会以为按钮坏了）。
                    边界是**整条列表**的首尾：分组不参与名次判断 */
                 canMoveUp={index > 0}
-                canMoveDown={index < alive.length - 1}
+                canMoveDown={index < dailyAlive.length - 1}
                 focused={focusId === task.id}
                 onFocus={() => setFocusId(task.id)}
                 onEnter={() => {
@@ -169,6 +175,12 @@ export function TasksPage() {
             ))}
           </div>
         )}
+
+        {/* 任务的两个纵向卡片：期限任务、长时目标（跨日期持久存在，可折叠） */}
+        <div className="mt-3 space-y-3">
+          <DeadlineCard />
+          <GoalCard />
+        </div>
       </div>
 
       <div className="fixed inset-x-0 bottom-[100px] flex justify-center px-4 pointer-events-none">

@@ -31,6 +31,7 @@ export function TaskRow({
 }: TaskRowProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const setContent = useTaskStore((s) => s.setContent);
+  const setDescription = useTaskStore((s) => s.setDescription);
   const toggleDone = useTaskStore((s) => s.toggleDone);
   const remove = useTaskStore((s) => s.remove);
   const move = useTaskStore((s) => s.move);
@@ -43,9 +44,12 @@ export function TaskRow({
   /** 「其他」= 没分组：画成空心圈，跟四个板块的实心色点在形态上就区分开 */
   const ungrouped = task.sectionId === OTHER_KEY;
   const label = ungrouped ? '未分组' : section.name;
+  /** 描述行：聚焦时或已有描述时显示（添加 / 查看任务描述） */
+  const showDescription = focused || (task.description?.length ?? 0) > 0;
 
   return (
-    <div className="flex items-center min-h-tap">
+    <div className="flex flex-col">
+      <div className="flex items-center min-h-tap">
       <Tick
         done={task.done}
         size={20}
@@ -149,6 +153,18 @@ export function TaskRow({
           <Icon name="close" size={15} />
         </button>
       </div>
+      </div>
+
+      {showDescription && (
+        <input
+          value={task.description ?? ''}
+          onChange={(event) => setDescription(task.id, event.target.value)}
+          onFocus={onFocus}
+          placeholder="描述（可选）"
+          className="m-strike-ink -mt-0.5 mb-1.5 ml-[38px] px-1 text-caption outline-none bg-transparent text-ink-faint"
+          enterKeyHint="enter"
+        />
+      )}
     </div>
   );
 }

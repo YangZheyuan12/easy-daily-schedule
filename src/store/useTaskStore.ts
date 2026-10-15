@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { Task } from '@/domain/types';
-import type { TaskSectionKey } from '@/domain/enums';
-import { OTHER_KEY } from '@/domain/enums';
+import type { TaskSectionKey, RelativeDeadline } from '@/domain/enums';
+import { OTHER_KEY, isDailyTask } from '@/domain/enums';
 import { clock, repos } from './bootstrap';
 import { persistTasks } from './helper';
 import { newTaskId } from '@/services/idService';
@@ -10,17 +10,44 @@ import { undoLabel } from '@/services/undoService';
 import { shiftDateKey } from '@/utils/date';
 import { compareByOrder, ORDER_STEP } from '@/domain/constants';
 
+interface DeadlineInput {
+  content: string;
+  description?: string;
+  /** 具体截止日期（YYYY-MM-DD）与 `relative` 二选一 */
+  dueDate?: string;
+  /** 抽象期限 */
+  relative?: RelativeDeadline;
+}
+
+interface GoalInput {
+  content: string;
+  description?: string;
+}
+
 interface TaskState {
+  /**
+   * 当前页面持有的全部任务：**当日每日任务** + **跨日期的持久任务**（期限任务 / 长时目标）。
+   * 持久任务与页面选中的日期无关，但为减少读取次数，这里一次性合并持有，
+   * 渲染时再按 `kind` 分流。`loadDate` 负责把两边拼起来。
+   */
   tasks: Task[];
   loading: boolean;
   lastCreatedId: string | null;
   pendingUndo: { ids: string[]; label: string; deletedAt: number; snapshot: Task[] } | null;
 
   loadDate: (date: string) => Promise<void>;
-  add: (date: string, content: string) => string | null;
+  add: (date: string, content: string, description?: string) => string | null;
+  /** 新增期限任务（跨日期持久存在，带截止日期或抽象期限） */
+  addDeadline: (date: string, input: DeadlineInput) => string | null;
+  /** 新增长时目标（跨日期持久存在，无期限） */
+  addGoal: (date: string, input: GoalInput) => string | null;
   setContent: (id: string, content: string) => void;
   /** 改分组（四大板块 / 其他）。同步到今日页只认四大板块，这里不作限制 */
   setSection: (id: string, sectionId: TaskSectionKey) => void;
+  /** 编辑任务描述（所有种类通用） */
+  setDescription: (id: string, description: string) => void;
+  /** 改期限任务的期限（具体日期或抽象期限，二选一；都传 undefined 即清除） */
+  setDue: (id: string, due: { dueDate?: string; relative?: RelativeDeadline }) => void;
   toggleDone: (id: string) => void;
   move: (id: string, direction: -1 | 1) => void;
   remove: (id: string) => void;
@@ -48,14 +75,21 @@ export const useTaskStore = create<TaskState>((set, get) => {
     async loadDate(date) {
       set({ loading: true });
       try {
-        const tasks = await repos.tasks.listByDate(date);
-        set({ tasks, loading: false });
+        // 一次性把「当日每日任务」与「跨日期持久任务」合并持有，
+        // 渲染时再按 kind 分流。持久任务用 listAll 取出 deadline/goal 两种。
+        const [daily, all] = await Promise.all([
+          repos.tasks.listByDate(date),
+          repos.tasks.listAll(),
+        ]);
+        const dailyOnly = daily.filter((t) => isDailyTask(t));
+        const persistent = all.filter((t) => t.kind === 'deadline' || t.kind === 'goal');
+        set({ tasks: [...dailyOnly, ...persistent], loading: false });
       } catch {
         set({ tasks: [], loading: false });
       }
     },
 
-    add(date, content) {
+    add(date, content, description = '') {
       const now = clock.now();
       const task: Task = {
         id: newTaskId(),
@@ -64,6 +98,52 @@ export const useTaskStore = create<TaskState>((set, get) => {
         // 默认落在「其他」：用户还没说它属于哪个板块，就先不当作任何板块的事。
         // 反过来（默认「工作」）会让一次同步凭空把新任务塞进工作板块。
         sectionId: OTHER_KEY,
+        kind: 'daily',
+        description,
+        done: false,
+        order: nextOrder(get().tasks),
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: null,
+        inheritedFrom: null,
+      };
+      commit([...get().tasks, task], [task.id], true);
+      set({ lastCreatedId: task.id });
+      return task.id;
+    },
+
+    addDeadline(date, input) {
+      const now = clock.now();
+      const task: Task = {
+        id: newTaskId(),
+        date,
+        content: input.content,
+        sectionId: OTHER_KEY,
+        kind: 'deadline',
+        description: input.description ?? '',
+        dueDate: input.dueDate,
+        dueRelative: input.relative,
+        done: false,
+        order: nextOrder(get().tasks),
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: null,
+        inheritedFrom: null,
+      };
+      commit([...get().tasks, task], [task.id], true);
+      set({ lastCreatedId: task.id });
+      return task.id;
+    },
+
+    addGoal(date, input) {
+      const now = clock.now();
+      const task: Task = {
+        id: newTaskId(),
+        date,
+        content: input.content,
+        sectionId: OTHER_KEY,
+        kind: 'goal',
+        description: input.description ?? '',
         done: false,
         order: nextOrder(get().tasks),
         createdAt: now,
@@ -80,6 +160,25 @@ export const useTaskStore = create<TaskState>((set, get) => {
       const now = clock.now();
       const tasks = get().tasks.map((t) => (t.id === id ? { ...t, content, updatedAt: now } : t));
       commit(tasks, [id], false);
+    },
+
+    setDescription(id, description) {
+      const now = clock.now();
+      const tasks = get().tasks.map((t) =>
+        t.id === id ? { ...t, description, updatedAt: now } : t,
+      );
+      // 描述是连续输入，走防抖（不立即落盘）
+      commit(tasks, [id], false);
+    },
+
+    setDue(id, due) {
+      const now = clock.now();
+      const tasks = get().tasks.map((t) =>
+        t.id === id
+          ? { ...t, dueDate: due.dueDate, dueRelative: due.relative, updatedAt: now }
+          : t,
+      );
+      commit(tasks, [id], true);
     },
 
     setSection(id, sectionId) {
@@ -100,17 +199,20 @@ export const useTaskStore = create<TaskState>((set, get) => {
       const all = get().tasks;
       const now = clock.now();
       /*
-        只让「存活」的任务参与换位。软删的任务还留在数组里（撤销要能原样恢复），
-        但它已经不在页面上 —— 让它占掉一次「下移一格」的位置，
-        用户按一次按钮就会觉得少挪了一格、或者干脆没动。
+        只让「存活**且为每日任务**」的任务参与换位。
+        期限任务 / 长时目标是跨日期持久存在的，不参与每日列表的上下重排。
+        软删的任务还留在数组里（撤销要能原样恢复），但它已经不在页面上 ——
+        让它占掉一次「下移一格」的位置，用户按一次按钮就会觉得少挪了一格。
       */
-      const alive = all.filter((t) => t.deletedAt === null).sort(compareByOrder);
+      const alive = all
+        .filter((t) => isDailyTask(t) && t.deletedAt === null)
+        .sort(compareByOrder);
       const index = alive.findIndex((t) => t.id === id);
       const swapIndex = index + direction;
       if (index === -1 || swapIndex < 0 || swapIndex >= alive.length) return;
 
       /*
-        🔴 换位是**全局**的，不看分组（R-043 改版）。
+        🔴 换位是**每日列表内全局**的，不看分组（R-043 改版）。
         任务页是单一列表平铺渲染的，分组只是每行的一个属性（色点），不是分段容器。
         若限制成同组内换位，用户按「下移」会毫无反应 —— 而列表上明明下面还有一行。
         分组不影响名次，这一点必须和渲染方式保持一致。

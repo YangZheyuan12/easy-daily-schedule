@@ -1,4 +1,5 @@
 import type { SectionKey } from '@/domain/enums';
+import { isDailyTask } from '@/domain/enums';
 import type { Item, Task, TaskSyncDraft } from '@/domain/types';
 import { isSyncableSection } from '@/domain/constants';
 import type { Clock } from './clock';
@@ -31,8 +32,11 @@ export function planTaskSync(
   items: readonly Item[],
   date: string,
 ): TaskSyncDraft[] {
-  // 防御性按当天过滤：本函数的 contract 是「某一天」，漏过滤会把别天的任务同步过来
-  const dayTasks = tasks.filter((task) => task.date === date && task.deletedAt === null);
+  // 防御性按当天过滤：本函数的 contract 是「某一天」，漏过滤会把别天的任务同步过来。
+  // 只认「每日任务」—— 期限任务 / 长时目标是跨日期持久存在的，不该被同步进今日页。
+  const dayTasks = tasks.filter(
+    (task) => task.date === date && task.deletedAt === null && isDailyTask(task),
+  );
   const dayItems = items.filter((item) => item.date === date && item.deletedAt === null);
 
   const syncedTaskIds = new Set<string>();
