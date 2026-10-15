@@ -48,9 +48,12 @@ jobs:
           chmod +x ./gradlew
           ./gradlew assembleDebug
 
+      # artifact 名字 = 下载下来的 zip 名（GitHub 打包时直接加 .zip 后缀），
+      # 所以这里叫什么，Actions → Artifacts 里下载的就是 `ezschedule-daily-apk.zip`。
+      # 注意 v4 要求**同一 run 内 artifact 名唯一**，改名前先确认别的 job 没占用。
       - uses: actions/upload-artifact@v4
         with:
-          name: android-debug-apk
+          name: ezschedule-daily-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 30
 
