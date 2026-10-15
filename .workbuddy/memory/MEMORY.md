@@ -3,240 +3,124 @@
 ## 定位与规模（冻结快照，采集 2026-10-14）
 移动端优先 **H5 网页**（Vite+React），不是 App。5 个底部 Tab：今日/时间轴/任务/日历/我的。
 **纯前端无后端**，数据全存 IndexedDB。云同步（dexie-cloud）是 P2。
-生产代码约 **8.8k 行 TS/TSX**（另 575 行 CSS + 6.9k 行测试）；`dist` 396KB（JS 369KB + CSS 28KB）。
-分层行数（不含测试）：domain 495 / services 2098 / store 985 / utils 343 / hooks 216 /
-components 2754 / pages 1125 / theme 158 / router 33 / repositories 618。
+生产代码约 **8.8k 行 TS/TSX**（另 575 行 CSS + 6.9k 行测试）；`dist` ≈ 426KB（JS 426KB + CSS 32KB）。
 → 无浏览器 API 的纯净层（domain+services+store+utils）约 **3.9k 行，占生产代码 44%**。
 
-| 项 | 选型 | 关键理由 |
-| --- | --- | --- |
-| 构建 | Vite 5 + React 18 + TS | — |
-| UI | **Tailwind 3 + 手写组件**（MUI 已移除） | 与 preflight 冲突、+300KB、迁小程序全废 |
-| 路由 | React Router 6（HashRouter） | — |
-| 状态 | **Zustand 4.5** | 选择器订阅避免全量重渲染；`getState()` 可在 React 外调（flush 刚需） |
-| 存储 | **Dexie 4**（IndexedDB） | 复合索引 `[date+sectionId]`、`bulkPut`（递归软删刚需） |
-| ID | **nanoid** | 不用 `crypto.randomUUID`（需 secure context，小程序无） |
-| 日期 | 自写 `utils/date.ts`，**本地时区** | 严禁 `toISOString().slice(0,10)`（UTC 推移 bug） |
-| 主题 | **CSS 变量 + `data-theme`**，Tailwind 色名全指向变量 | 零运行时依赖 |
+## 技术选型
+构建 Vite5+React18+TS ｜ UI **Tailwind3 + 手写组件**（MUI 已移除，+300KB/迁小程序全废）｜
+路由 React Router6 HashRouter ｜ 状态 **Zustand4.5**（选择器订阅；`getState()` 可 React 外调供 flush）｜
+存储 **Dexie4**（IndexedDB，复合索引 `[date+sectionId]`、`bulkPut`）｜ ID **nanoid**（禁 `crypto.randomUUID`）｜
+日期 自写 `utils/date.ts` **本地时区**（禁 `toISOString().slice(0,10)`）｜ 主题 CSS 变量+`data-theme` 零运行时依赖。
 
 ## 架构红线（CRITICAL）
-1. **分层单向**：UI → Store → services → domain；repositories 是 domain/ports 的适配器
-2. `src/domain/`、`src/services/` **禁止** window / document / localStorage / indexedDB / visualViewport
-   —— 迁小程序 100% 复用的前提，由零依赖脚本 `scripts/check-layers.mjs`（`npm run check:layers`）卡口。
-   **项目无 eslint / prettier 依赖，不要把红线说成 ESLint 强制**（文档仍有几处历史错误表述）
-3. `src/repositories/` 是唯一允许碰存储 API 的层；`repositories/index.ts` 的 `createRepositories()` 是**唯一装配点**
-4. 树用**邻接表**（`id`+`parentId`+`order`），不用嵌套 JSON / 物化路径
-5. **软删只改 `deletedAt`**，其他字段不动 —— 撤销能完整恢复层级/顺序/折叠态的前提
-6. 持久化：输入防抖 500ms + 离散操作立即写 + `visibilitychange`/`pagehide` 强制 flush
+1. **分层单向**：UI → Store → services → domain；repositories 是 domain/ports 的适配器。
+2. `src/domain/`、`src/services/` **禁止** window/document/localStorage/indexedDB/visualViewport —— 迁小程序 100% 复用的前提，由 `scripts/check-layers.mjs`（`npm run check:layers`）卡口。**项目无 eslint/prettier**，别把红线说成 ESLint 强制。
+3. `src/repositories/` 是唯一允许碰存储 API 的层；`repositories/index.ts` 的 `createRepositories()` 是**唯一装配点**。
+4. 树用**邻接表**（`id`+`parentId`+`order`），不用嵌套 JSON/物化路径。
+5. **软删只改 `deletedAt`**，其他字段不动（撤销完整恢复层级/顺序/折叠态的前提）。
+6. 持久化：输入防抖 500ms + 离散操作立即写 + `visibilitychange`/`pagehide` 强制 flush。
+7. 🔴 `check-layers.mjs` 是**正则**匹配，`services/` 里变量/参数**不能叫 `window`**（会误判成浏览器 API，曾踩 23 处违规）。一律用 `timeWindow`；`document`/`location`/`history` 同理别当变量名。
+8. `SectionKey` 从 `@/domain/enums` 导入，**不在** `domain/types` 导出（曾 TS2459）。
 
-## 主题系统（三套，paper 为默认）
-`paper`（纸感暖白）/ `plain`（素白）/ `nocturne`（夜航深色）。差异是**六维同时变**：
-底色/卡片形态/圆角/分隔策略/阴影/信息密度。
-- **语义类名永不变，值换成变量**：`bg-surface` / `text-ink-faint` / `border-edge-strong` / `text-accent` /
-  `text-heart` / `text-star` / `rounded-card`。组件零改动。
-- 变量用 `R G B` 三元组（`--c-surface: 255 254 250`），Tailwind 写 `rgb(var(--c-surface) / <alpha-value>)`，
-  这样 `bg-surface/95` 才生效。**不要写回 hex。**
-- 板块色运行时用 `sectionColor(cfg)` / `sectionTint(cfg)`（返回 `rgb(var(--c-work))`）；
-  `SectionConfig.color/tint` 只作设计稿基准值。**组件内联 style 出现 hex = 回归。**
-- 落点：`src/theme/themes.ts` / `useThemeStore.ts`（`repos.settings` key `theme`）/ `useApplyTheme.ts`
-  （**唯一**写 `data-theme` 处）。`index.html` 有内联防闪烁脚本读 `dsa:theme`。切换器在「我的」页。
+## 主题系统（三套，paper 默认）
+`paper`/`plain`/`nocturne` 差异是**六维同时变**（底色/卡片形态/圆角/分隔/阴影/密度）。
+- 语义类名永不变、值换变量：`bg-surface`/`text-ink-faint`/`border-edge-strong`/`text-accent`/`text-heart`/`text-star`/`rounded-card`。
+- 变量用 `R G B` 三元组（`--c-surface: 255 254 250`），Tailwind 写 `rgb(var(--c-surface) / <alpha-value>)` 才支持 `bg-surface/95`。**不写回 hex**（组件内联 hex = 回归）。
+- 板块色 `sectionColor(cfg)`/`sectionTint(cfg)`（返回 `rgb(var(--c-work))`）。落点：`src/theme/{themes,useThemeStore,useApplyTheme}.ts`（`useApplyTheme` 是**唯一**写 `data-theme` 处）。
 
-## 字号刻度（八档）
-在 `src/styles/index.css` 的 `:root{--fs-*}`，映射进 `tailwind.config.ts`：
-`micro 12 / caption 13 / meta 14 / body 15 / lead 16 / heading 18 / title 24 / display 32`。
-- **组件里禁止写 `text-[15px]`**，一律语义类名。值写成纯字符串（不带 lineHeight），否则盖掉 `leading-*`。
-  **字号不进主题系统**，只定义一份。
-- ① **13px 是可读文字地板**，「今日」是基准屏（组头 18 / 顶层条目 16 / 子项与输入 15 / 计数 13）；
-  12px 只给塞不下的计数徽标（仅 `TreeRow`）。② **每次提档必跑** `scripts/tools/overflow-scan.js`。
-- `PageHeader` 副标题 `text-body`(15)，四屏共用；`DateNavigator.subtitleText` `text-caption`(13)；
-  时间轴时间列 14（**列宽 ≥100px**，否则 `09:00–10:00` 折行）。
+## 字号刻度（八档，只定义一份，不进主题）
+`micro12/caption13/meta14/body15/lead16/heading18/title24/display32`。
+- 组件禁写 `text-[15px]`，一律语义类名（值纯字符串，否则盖掉 `leading-*`）。
+- 13px 是可读地板；今日基准屏 组头18/顶层16/子项与输入15/计数13；12px 仅 `TreeRow` 计数徽标。
+- 每次提档必跑 `scripts/tools/overflow-scan.js`。
 
 ## 底部导航与安全区（联动值）
-胶囊 **h70** · 图标 21 · 标签 caption(13) · 内 padding 4 · 底距 16 → 占 86px。
-三处主操作按钮与 `UndoBar` 用 `bottom-[100px]`，`AppShell` 内容 `pb-[120px]`。**改一处同步四处。**
-**安全区只能叠加不能替代**：`safe-top`/`safe-bottom` 是覆盖式的，会清零同元素 `pb-4`。
-一律显式 calc：`pb-[calc(16px+env(safe-area-inset-bottom))]`。
+胶囊 h70·图标21·标签caption13·内padding4·底距16 → 占86px。主操作按钮与 `UndoBar` 用 `bottom-[100px]`，`AppShell` 内容 `pb-[120px]`。安全区只能**叠加不能替代**（覆盖式会清零 `pb-4`）→ 一律 `pb-[calc(16px+env(safe-area-inset-bottom))]`。
 
 ## 日历页双语义（导航约定）
-只有一个日历组件，靠 `location.state.pickDateFrom` 分语义：
-- **回看**（底部 Tab 进）：点一格只更新摘要卡，不跳页
-- **选日子**（今日/任务/时间轴点进来）：`useDayStore.setDate` + `navigate(pickFrom,{replace:true})` 回原页
-**不要再新开 DatePickerSheet**。入口：今日页 `DateNavigator.onDateClick`、任务页 `PageHeader.subtitle`
-里的 `<button aria-label="选择日期">`、时间轴页 `onDateClick`。`PageHeader.subtitle` 类型是 `ReactNode`。
-**`?date=` 必须经 `isValidDateKey` 校验后单向 bootstrap 进 `useDayStore`**，不引入第二个日期变量。
+靠 `location.state.pickDateFrom` 分：**回看**（底部 Tab 进，点格只更新摘要卡不跳页）/ **选日子**（今日/任务/时间轴点进来，`useDayStore.setDate`+`navigate(pickFrom,{replace:true})` 回原页）。**别新开 DatePickerSheet**。`?date=` 经 `isValidDateKey` 校验后单向 bootstrap 进 `useDayStore`。
 
 ## 业务口径
-- 板块完成率 = **顶层条目**完成数 ÷ 顶层总数；子项不重复计入分母；父条目显示直系 `子项完成/子项总数`
-- 加权口径（Σ顶层完成÷Σ顶层总数）作 `DaySummary.overall`，用于日历摘要卡
-- 主页编号 = 展示序号，仅四板块**顶层条目**跨组连续 1~N；子项/灵感不编号
-- 时间段带 `sectionId` 时按 `done` 折叠进该板块完成度；不带只贡献「当天有记录」。
-  灵感只贡献「有记录」，不进 sections/overall/日历色点
-- **R-044（2026-10-14 已实现）周视图 + 本月时长条**：
-  - 时间轴页右上角切「当日 / 本周」，本周=**课程表**（周一~周日 × 纵向时间）；
-    今日页右上角切「本周」= 四板块**田字格**；日历页月视图加**本月四板块时长条**
-  - 时长口径（用户拍板）：**实际时间优先，未记录则回退计划时间**；只算目标月
-    （月历网格会拉到邻月补位日，必须按 `date.startsWith(monthKey)` 过滤）
-  - 课程表时间窗**按当周数据自动收窄**（最早/最晚各外扩 60min 取整点，无数据回落 8:00–22:00）
-  - 🔴 课程表**重叠并排**（各占 1/N 列宽），绝不叠放 —— 叠放会让用户以为「我的组会不见了」
-  - 🔴 周视图编辑**不新建写路径**：点块/空格先 `setDate(那天)` 再开同一个抽屉，
-    仍走日维度 `useTimeSlotStore`，避免「这条记录属于哪个作用域」的歧义
-  - 田字格口径与今日页一致：**只取顶层条目 + 归类时间段**，子项不单列
-  - 取数：`useRangeStore`（区间一次查 items+slots，带竞态守卫）；
-    时长条复用月历那次取数，不额外查库。三处视图都是**只读派生**，不写库
-  - 落点：`services/{weekViewService,durationService}.ts`、`store/useRangeStore.ts`、
-    `components/timeline/{WeekTimetable,SlotEditorSheet}.tsx`、`components/diary/WeekSectionBoards.tsx`、
-    `components/calendar/MonthDurationBar.tsx`；`DateNavigator` 加 `viewMode/onViewModeChange/centerLabel`
-- **🔴 `check-layers.mjs` 是正则匹配，`services/` 里变量/参数不能叫 `window`**（会误判成浏览器 API）。
-  踩过：把时间窗参数命名成 `window` → 23 处违规。一律用 `timeWindow`。
-  同理 `document`/`location`/`history` 等词也别拿来当变量名。
-- `SectionKey` 从 `@/domain/enums` 导入，**不在** `domain/types` 导出（写过一次导致 TS2459）
-- **R-043（2026-10-14 已实现，同日改版）任务分组 + 同步到今日**：
-  🔴 **分组不是分段容器** —— 任务页保持**单一列表平铺**，分组只是每行的一个属性
-  （行首标记）。曾按五分组分段渲染，用户明确要求退回平铺：
-  「只是想在填写时可以选择是否分组」。分段会连带造出「空组要不要显示」
-  「跨组换位怎么算」两个伪问题。
-  行首标记：四大板块=实心色点，「其他」=**空心圈**（形态上就表达"未分组"）；
-  **聚焦（正在填写）该行时才在标记旁展开组名**，静态排版只留点。
-  「同步到今日」按钮 + `ConfirmSheet` 确认 → 把四大板块任务**一次性复制**成今日页条目
-  （追加到该板块顶层末尾，`done` 跟随）。**「其他」不参与同步**。
-  - 🔴 **一次性复制，不是投影**（与 R-042 的时间段相反）：用户要的是「按钮 + 确认」这个动作语义。
-    去重靠 `Item.sourceTaskId`（`planTaskSync` 排掉已同步的）→ 重复点不会堆两份。
-  - `Task.sectionId: TaskSectionKey`（四大 + `'other'`）；**老数据归一化为 `'other'`，不是板块** ——
-    默认成「工作」会让一次同步凭空造出一批条目。新任务默认也是 `'other'`。
-  - **零 Dexie 变更**：新字段都不是索引 → `DB_VERSION` 仍为 3，无需迁移。
-  - **`move` 是全局换位，不看分组**（曾改成组内换位，随改版一起退回）：
-    列表平铺时若限制组内换位，按「下移」会毫无反应，而下面明明还有一行 → 像按钮坏了。
-    边界 = 整条列表的首尾。
-- **R-042（2026-10-14 已实现）时间段同步到今日页**：`sectionId !== null` 且未软删的时间段，
-  **只读投影**进今日页对应板块（`DiaryEntry.kind === 'timeSlot'`），排在该板块条目**之后**，
-  与顶层条目一起参与跨组连续编号；勾选直接写回 `TimeSlot.done`。
-  🔴 **只读投影，绝不复制成 Item** —— 一份数据就没有双向同步问题，撤销语义也单一
-  （`entries[i].item` 恒 undefined，有单测卡着）。
-  今日页组头计数 = 顶层条目 + 归类时间段，与 `DaySummary.sections` 口径对齐
-  （此前组头只数条目、日历摘要卡数两者，同一天两处数字不一致）。
-  **刻意不改 `SectionPage`**：板块详情页只数 items —— 它管的是条目树，
-  加入只读时间段行会让编辑交互变复杂（不能缩进/加子项）。这是「今日=汇总视图，板块页=条目编辑视图」的区分。
-- `order` 步长 1000，中点插入。**末位公式** `children.length===0 ? ORDER_STEP : maxOrder+ORDER_STEP`
-- **🔴 展示顺序一律从 `order` 派生，不是数组位置**：渲染端 `.filter(alive).sort(compareByOrder)`；
-  `useTaskStore.move` 只在存活任务间换位（软删的仍占数组，会白占一次位移），`order` 原样保留 → 撤销自动回位。
-  `compareByOrder` 在 `src/domain/constants.ts`。**曾踩真 bug**：`move()` 改了 order 但页面按数组
-  `map` 渲染 → 「按钮点了没反应、刷新才换位」。
-- Tab 挂到「上一个同级兄弟」；Shift+Tab 子树 level 递归 -1；层级软上限 8；撤销窗口 5s；软删 7 天物理清理
-- **主页快捷新增（R-039）路径不同**：灵感走 `useInspirationStore.add(date, content)`；
-  四板块走 `useItemStore.addSibling(null, date, sectionId, title)`。
-  **必须一次性带标题建成，禁止「先建空条目再 setTitle」**
-- 往某板块内联新增会让后续板块**编号顺延**（定义决定，不是 bug）
-- **空状态必须可操作**：曾因 `diaryService` 里 `if (rows.length===0) continue;` 把空板块连新增入口
-  一起隐藏。空容器可以省，**入口不能省**。
+- 板块完成率 = **顶层条目**完成数÷顶层总数；子项不进分母；父条目显示直系 `子项完成/子项总数`。
+- 加权口径（Σ顶层完成÷Σ顶层总数）作 `DaySummary.overall`（日历摘要卡）。主页编号仅四板块**顶层条目**跨组连续 1~N；子项/灵感不编号。
+- 时间段带 `sectionId` 按 `done` 折叠进该板块；不带只贡献「当天有记录」。灵感只贡献「有记录」，不进 sections/overall/日历色点。
+- `order` 步长1000 中点插入；末位 `children.length===0 ? ORDER_STEP : maxOrder+ORDER_STEP`。
+- 🔴 **展示顺序一律从 `order` 派生**（渲染端 `.filter(alive).sort(compareByOrder)`），不是数组位置（曾踩 move 改 order 但按数组 map 渲染的 bug）。
+- Tab 挂「上一个同级兄弟」；Shift+Tab 子树 level 递归-1；层级软上限8；撤销窗口5s；软删7天物理清理。
+- 主页快捷新增（R-039）：灵感走 `useInspirationStore.add`；四板块走 `useItemStore.addSibling(null,date,sectionId,title)`，**必须一次性带标题建成**。
+- 往某板块内联新增会让后续板块编号顺延（定义决定）。
 
-## 农历 / 节气 / 节日（R-040 一期）
-落点 `src/services/lunar/`（lunarData/lunarService/solarTermService/festivalService）+ `src/hooks/useDayFestivals.ts`。
-- **节气 ≠ 查表**：实时解太阳视黄经（Meeus ch.25 低精度）+ 牛顿迭代 + 整数 JDN 换算 **+8h 北京时间定日**，
-  `λ(k)=(285+15k) mod 360`。**禁止退回平均值紧凑公式**（1980 立春/冬至、2010 惊蛰/立秋 全错一天）；
-  **不得用 `getUTCDate()` 定日**。
-- 农历表**用外部锚点验证**（已知春节/闰月），结构不变量是同义反复。残留：不改年长的闰月序号篡改检不出。
-- `lunarToSolar` 越界（1900-01-31 / 2100-12-31）返回 `null`。
-- 展示点**仅两处**：今日页 `DateNavigator.subtitleText`、日历页 `DaySummaryCard`
-  （`data-testid="day-summary-festival"`）。月历格子与年视图不显示，格子高度不变。
+### 关键已实现增量
+- **R-042 时间段只读投影进今日页**：`sectionId!==null` 且未软删的时间段投影为 `DiaryEntry.kind==='timeSlot'`，排条目之后、参与跨组编号，勾选写回 `TimeSlot.done`。**绝不复制成 Item**（撤销语义单一）。今日组头计数=顶层条目+归类时间段。刻意不改 `SectionPage`。
+- **R-043 任务分组+同步到今日**：任务页单一列表平铺，分组是行首属性标记（四大=实心色点，「其他」=空心圈）。「同步到今日」按钮+`ConfirmSheet` → 四大板块任务**一次性复制**成今日条目（去重靠 `Item.sourceTaskId`）；「其他」不参与。`Task.sectionId` 默认 `'other'`。零 Dexie 变更（当时 DB_VERSION=3）。`move` 是全局换位（不看分组）。
+- **R-044 周视图+本月时长条**：时间轴「本周」=课程表（周一~周日×纵向时间，重叠并排绝不叠放，时间窗按当周自动收窄，编辑走日维度 `useTimeSlotStore` 不新建写路径）；今日「本周」=四板块田字格；日历月视图加本月时长条。时长口径「实际优先、未记录回退计划、只算目标月」。三处都是**只读派生**。`useRangeStore` 区间一次查、带竞态守卫。
+- **R-046（2026-10-15 已实现，同日改版）条目图片附件**：**新表 `itemImages`（DB_VERSION=4）** 存 Blob，`itemId` 索引；`useItemImageStore` 管 `byItem`；`useObjectUrl` 安全回收对象 URL；孤儿图在 `purgeExpiredSoftDeletes` 按 `items` 全量 id 清理。图片仅四板块条目（顶层+子项），时间轴投影/灵感暂不支持。
+  🔴 **入口唯一（用户纠偏）**：上传/删除/看大图只在**条目详情抽屉** `ItemSheet`（板块页点行尾「⋯」打开）里的 `ItemImageSection`；**今日列表只做只读预览**（行内缩略图条，与任务条同现、可折叠、点开大图），已删掉今日行尾「⋯」与独立 `ItemImageSheet`。该段落排在此抽屉**第一位**（任务描述之前）。理由：图片与描述/评价同级=「改这一条记录」，两个可写入口会让用户困惑「我在今日加的图去哪了」。
+  ⚠️ `loadForItems` 是**覆盖式**写 `byItem`、只有一个全局 `loadedKey`，今日(key=日期+id串)与抽屉(key=itemId)会互相判重击；因路由切换必卸载另一页、重挂载 key 已变会自动重拉（自愈），暂不改 store 语义。
 
-## 数据实体（Dexie v3，`DB_VERSION=3`）
-`items`(树)/`tasks`/`days`/`selfStatus:'&date'`/`timeSlots:'&id,date,[date+sectionId],deletedAt'`/
-`inspirations:'&id,date,deletedAt'`。v1→v2 删 `reviews`；v2→v3 加 `inspirations`。
+## 农历/节气/节日（R-040）
+落点 `src/services/lunar/`+`src/hooks/useDayFestivals.ts`。节气实时解太阳视黄经（Meeus ch.25）+牛顿迭代+整数JDN+**+8h 北京时间定日**，禁平均值紧凑公式、禁 `getUTCDate()`。`lunarToSolar` 越界(1900-01-31/2100-12-31)返 null。展示仅两处：今日 `DateNavigator.subtitleText`、日历 `DaySummaryCard`(`data-testid="day-summary-festival"`)。
+
+## 数据实体（Dexie，`DB_VERSION=4`）
+`items`(树)/`tasks`/`days`/`selfStatus:'&date'`/`timeSlots:'&id,date,[date+sectionId],deletedAt'`/`inspirations`/`itemImages:'&id,itemId'`。
+v1→v2 删 `reviews`；v2→v3 加 `inspirations`；v4 加 `itemImages`。每个 `version(n)` 必须声明完整 schema。
 
 ## 文档索引
-- `docs/PRD.md`（R-001~R-016、R-030~R-041；R-041 纪念日=二期未实现）
-- `docs/ARCHITECTURE.md`（§4 现状稿对齐真实 src/；§9-B~§9-E 增量专章；附录 B 追溯矩阵）
-- `docs/TASKS.md`（T01–T16=P0/P1，T17–T33=增量；M1–M10）
-- `docs/MOBILE-APP-MIGRATION.md`（2026-10-14 新增：H5→手机 App 的四条路线评估）
-- `README.md`（启动方式、能力表、MVP 验收路径）
+`docs/PRD.md`（R-001~R-016、R-030~R-041，R-041 纪念日=二期）/ `docs/ARCHITECTURE.md`（§4 现状+§9-B~E 增量+附录B）/ `docs/TASKS.md` / `docs/MOBILE-APP-MIGRATION.md` / `README.md`。
 
 ## 常用命令
-```bash
-npm run dev / build / preview
-npm run verify        # check:layers + typecheck + test + build
-npm run check:layers  # 分层红线（自写 node 脚本）
-npm test              # vitest 快路径
-npm run test:strict   # 逐文件跑并校验无文件漏跑
-```
+`npm run dev/build/preview` ｜ `npm run verify`(check:layers+typecheck+test+build) ｜ `npm run check:layers` ｜ `npm test` ｜ `npm run test:strict`(逐文件+漏跑校验)。
 
-## 🔴 五条验收教训
-1. **`tsc --noEmit` 必须单独跑，测试绿 ≠ 代码干净。** 重复两行 `import type` 造成 TS2300，
-   但 vitest 全绿、`vite build` 也通过（`import type` 运行时被擦除）。**只有 tsc 能发现。**
-2. **`npm test` 显绿不等于跑全了。** 沙箱偶发 EPERM 会**静默丢掉某个测试文件**，退出码仍是 0。
-   怀疑漏跑用 `test:strict`。
-3. **自写校验脚本必须先做负向验证（证明它真会失败）。** `test:strict` 曾把「1 个用例失败」
-   误报成环境 EPERM（宽松正则先命中失败彩带标题）。只在绿灯路径验证过的工具，「通过」毫无信息量。
-4. **测试文件名只能是 `*.test.ts`，`.test.tsx` 是双漏**：`vite.config.ts` 的 `test.include` 与
-   `check-test-baseline.mjs` 都只收 `*.test.ts`。组件测试首行加 `// @vitest-environment jsdom`
-   + 用 `createElement` 代替 JSX。
-5. **验证期工作树是「移动靶」，闸门数字要在最后一个写者停下后才采信。** 纪律：跑闸门前
-   `grep -rn "NEGATIVE-VERIFY" src/` 确认无残留；文档里的文件数/行数一律写「冻结快照 + 采集时间」，
-   从属句改写成不依赖数值的表述。
+## 验收教训（5 条）
+1. **`tsc --noEmit` 必须单独跑**，测试绿≠代码干净（重复 `import type` 仅 tsc 能抓）。
+2. **`npm test` 显绿≠跑全了**；沙箱偶发 EPERM 静默丢文件、退出码仍 0 → 用 `test:strict`。
+3. 自写校验脚本**先负向验证**（证明真会失败），否则绿灯无意义。
+4. 测试文件名只收 `*.test.ts`（`.test.tsx` 双漏）；组件测试首行 `// @vitest-environment jsdom`+`createElement`。
+5. 验证期工作树是移动靶，闸门数字最后写者停下后才采信；文档数字写「冻结快照+采集时间」。
 
 ## 版本控制
-- 远端 **https://github.com/YangZheyuan12/easy-daily-schedule**（公开），`main` 跟踪 `origin/main`。
-- `.gitignore` 取舍有含义：`.workbuddy/memory/` **入库**；`.workbuddy/tmp/` **不入库**（scratch）。
-- 长期有用的界面验证/度量工具在 **`scripts/tools/`**（入库，见其 README）；字号改动必跑
-  `scripts/tools/overflow-scan.js`。
-- 提交 author `杨喆媛 <517130023@qq.com>` **未关联 GitHub 账号**（`verified:false`）→ 不计入贡献图。
+远端 `https://github.com/YangZheyuan12/easy-daily-schedule`（公开），`main` 跟踪 `origin/main`。`.workbuddy/memory/` 入库、`.workbuddy/tmp/` 不入库。提交 author `杨喆媛 <517130023@qq.com>` 未关联 GitHub（`verified:false`）→ 不计入贡献图。
 
 ## 环境坑（Windows）
-1. **git：代理 shell 里的 git 不是用户在用的那个。** PortableGit 排在 `/d/apps/Git/cmd/git` 前面，
-   且其 `credential.helper` 不可用。→ **凡涉及凭据（push/pull/fetch）必须显式调
-   `/d/apps/Git/cmd/git.exe`**。项目 git 在 `D:\apps\Git`。
-2. **统计数字必须能找到独立印证路径**（已踩四次：非 ASCII 路径被 `core.quotePath` 转义致 38 张 PNG
-   漏审、`tr -d '\0'` 压行数、`trees?recursive=1` 把目录算成文件）。规则：git 路径列表一律 `-z`+`xargs -0`；
-   `trees?recursive=1` 只数 `"type":"blob"`；报数前先找第二条路径核对。
-3. **npm optional deps bug** 会让 `@rollup/rollup-win32-x64-msvc`、`@esbuild/win32-x64` 缺失。
-   解法：`npm install @rollup/rollup-win32-x64-msvc @esbuild/win32-x64 --no-save`
-4. **🔴 `curl` 探测不通 ≠ git 不通，别据此断言「推不了」。** 曾因
-   `curl -x $http_proxy https://github.com` 返回 000（只有 `api.github.com` 通）
-   就判定「沙箱推不了、只能让用户手动 push」，而实际
-   `/d/apps/Git/cmd/git.exe fetch/push origin main` **完全正常**（走 git 自己的通道）。
-   2026-10-14 实测：`git push origin main` 一次成功。
-   → 以后凡涉及 push，**先真跑一次**，别用 curl 的探测结果代替。
-   排错顺序：`git fetch` → 看 `origin/main..main` → 直接 push。
+1. **git 凭据必须用 `/d/apps/Git/cmd/git.exe`**（PortableGit 排在前面且 credential.helper 不可用）。
+2. 统计数字要独立印证路径（git 路径列表 `-z`+`xargs -0`；`trees?recursive=1` 只数 `"type":"blob"`）。
+3. npm optional deps bug 会缺 `@rollup/rollup-win32-x64-msvc`/`@esbuild/win32-x64` → `npm install ... --no-save`。
+4. 🔴 **`curl` 不通 ≠ git 不通**，别据此断言推不了；凡 push 先真跑一次（`git fetch`→看 `origin/main..main`→push）。
 
-## 移动端打包（路线 B：Capacitor，2026-10-14 已落地）
-决策：自用 + 别人 clone 可用 / iOS 要能用 / **不做系统通知** / 走 Capacitor 套壳。
-- 依赖：Capacitor **8.5.3**（core/app/keyboard/status-bar + cli@dev + android/ios 平台）。
-  **工具链硬要求：Node 22+ / Xcode 26+ / Android Studio Otter 2025.2.1+。**
-- `capacitor.config.ts`（`webDir: 'dist'`，`plugins.Keyboard.resize: 'native'`）。
-  ⚠️ **刻意不改 `server.iosScheme`**（默认 `capacitor`）：网上「改 scheme」是**从 Cordova 迁移**
-  的处方（origin 变了旧数据读不到）；本项目无历史 origin，且 **WKWebView 不允许接管 http/https**。
-- **真正的风险是 iOS 会回收 WebView 网站数据**（IndexedDB 可能被清空），
-  而本项目 100% 数据在本地且无导出能力 → 「数据导出/导入」应提到最高优先级（PRD 里还在 P1）。
-- `android/` `ios/` **入库**；`.gitignore` 只忽略 build/Pods/`cap sync` 生成物。
-- `src/platform/capacitorBridge.ts`：切后台 `appStateChange` 强制 flush + 状态栏配色跟随主题 +
-  去 iOS 键盘工具条。**只被 `main.tsx` import** —— 因为 `@capacitor/*` 进 vitest 的 node
-  环境有风险，绝不能被 `store/` 或任何被测试 import 的模块牵连。内部全部用
-  `Capacitor.isNativePlatform()` 兜住，Web 构建零副作用。
-- `capacitor.config.ts` 已加进 `tsconfig.node.json` 的 include：配置键写错只有 tsc 能发现，
-  `cap sync` 会静默忽略未知键（`ios: { scheme }` 就是这么被抓出来的，正确写法是
-  顶层 `server.iosScheme`）。
-- scripts：`mobile:sync` / `mobile:android` / `mobile:ios`。
-- `vite.config.ts` 的 `base` = `process.env.VITE_BASE_PATH ?? '/'`（Pages 子路径部署用，
-  默认不影响本地与 Capacitor）。
-- CI：`.github/workflows/{ci,mobile,pages}.yml` —— 网页闸门 / Android debug APK /
-  **iOS 未签名 .app**（装不上 iPhone，需 Xcode + 免费 Apple ID 签名，7 天有效期）/ Pages 部署。
-  iOS job 用 `macos-26` runner（Capacitor 8 要 Xcode 26+）。
-- 🔴 **iOS job 只做编译校验，不出产物**（第 3 次实践后的定论）：
-  xcodebuild 报 BUILD SUCCEEDED 但 `find ios/build` 找不到任何 `.app`
-  （真机 `CODE_SIGNING_ALLOWED=NO` 与模拟器两版都一样），
-  而 GitHub step **日志正文要管理员权限（匿名 API 403）**，只能拿到 step 的 conclusion。
-  → 模拟器 `.app` 反正装不到 iPhone，打包上传无价值；退出码就是唯一有用信号。
-  别再往「让 iOS job 出产物」上花时间。
-- 🔴 **Capacitor 8 的 iOS 工程是纯 SPM**：`ios/App/` 下**没有 `.xcworkspace`、没有 `Podfile`**，
-  插件依赖走 `ios/App/CapApp-SPM/Package.swift`。所以 xcodebuild 必须用
-  **`-project ios/App/App.xcodeproj`**，写 `-workspace` 会直接报「does not exist」。
-  （我最初就是照老经验写了 -workspace，靠 `ls ios/App` 才发现的。）
+## 移动端打包（Capacitor 8.5.3，2026-10-14 落地）
+依赖 core/app/keyboard/status-bar + cli@dev + android/ios；工具链要 Node22+/Xcode26+/Android Studio Otter 2025.2.1+。
+- `capacitor.config.ts`：`webDir:'dist'`、`plugins.Keyboard.resize:'native'`；**刻意不改 `server.iosScheme`**（WKWebView 不准接管 http/https）。
+- 🔴 **真正风险是 iOS 回收 WebView 网站数据**（IndexedDB 可能被清）→ **数据导出/导入提最高优先级**（PRD 仍在 P1）。
+- 🔴 **`appId`（`com.yangzheyuan.dailyschedule`）/ 安卓 applicationId 是数据连续性红线**：改包名 = 系统判为另一个 App = 新沙盒 = 旧数据即使没卸载也读不到。
+- **数据安全口径（2026-10-15 答疑）**：覆盖安装（不删旧版）数据保留；**先删旧版再装 = 沙盒删除 = 全丢**；iOS 还可能在存储吃紧时清 WebView 数据。当前**无任何导出/导入**（已 grep 确认），删了就找不回。另：把数据额外写一份到 `@capacitor/preferences`（iOS UserDefaults）可让 iCloud/谷歌备份带上它，且天然是桌面小组件的数据源。
+- `android/` `ios/` 入库（`.gitignore` 只忽略 build/Pods/sync 生成物）。
+- `src/platform/capacitorBridge.ts`：切后台强制 flush+状态栏跟随主题+去 iOS 键盘工具条；**只被 `main.tsx` import**（防 `@capacitor/*` 牵连 vitest）。`Capacitor.isNativePlatform()` 兜住，Web 零副作用。
+- CI：`.github/workflows/{ci,mobile,pages}.yml`。iOS job **只编译校验不出产物**（macos-26 runner，xcodebuild 不下 `.app`）。
+- 🔴 **Capacitor 8 iOS 是纯 SPM**：`ios/App/` 无 `.xcworkspace`/`Podfile`，xcodebuild 必须用 `-project ios/App/App.xcodeproj`。
+- **备案（2026-10-15 调研）**：**桌面小组件不需单独备案**（无独立包名，随主包分发）；备案义务在 App 本身。本 App 是纯本地单机工具，通管局有「单机不联网 APP 无需备案」口径，但**上架国内商店渠道强制要备案号**。个人主体限非经营性工具类。
+- **若做小组件的真门槛**：数据在 WebView 的 IndexedDB，原生小组件读不到 → 须经 Capacitor 插件把当日快照写到 iOS App Group / Android SharedPreferences 共享区；iOS 还需加 Widget Extension target。
 
-## ⚠️ 已知未修问题（发现即记账，别重复发现）
-- **数据导出 / 导入缺失**：配合 Capacitor 后这是最高优先级风险（见上节 iOS 回收数据）。
-- ~~键盘避让未接通~~ **已于 2026-10-14 修掉**：`Sheet` 现在消费 `--keyboard-offset`
-  （外层 `paddingBottom: var(--keyboard-offset,0px)` + 面板 `maxHeight` 减去同值；
-  无键盘时变量不存在→回落 0px，布局与修复前一致）。
-- **文档仍把分层红线说成 ESLint 强制**（真实是 `check-layers.mjs`）：
-  `ARCHITECTURE.md:23/24/2106` + §3.3、`TASKS.md:31/139/180/386/394/436`；
-  但 `ARCHITECTURE.md:255` 已有正确更正注，属内部不一致。
-- **PRD `L667`** 仍写「环形图用 SVG 手写或轻量库」，而环形图 UI 已移除。
+## 数据备份（R-047，2026-10-15 已实现）
+纯本地 + 无账号同步 ⇒ 卸载 / 换机 / iOS 回收 WebView 数据 = 全丢，备份是唯一解药。
+- 三层分工（守分层红线）：`services/backupService.ts` **纯**构建/解析/校验（`BACKUP_VERSION`、`app:'daily-schedule'`、软删不过滤进备份、坏 JSON/异 app/未来版本都拒绝）；
+  `platform/{fileBridge,imageCodec}.ts` 才碰浏览器 API（`a[download]` 下载、`input[type=file]` 选文件、Blob↔base64）；
+  `store/useBackupStore.ts` 编排（读 `listAll` → 转图 → 落文件；导入后 `refreshStores()` 重拉当日）。
+- 导入两语义：**合并**=upsert（同主键覆盖，幂等）；**覆盖**=先 `clearEverything()` 再写。
+  图片默认不带（base64 膨胀 ~1/3），勾选「备份包含图片」才导。
+- 数据层为此补：`timeSlots/inspirations/itemImages/selfStatus.listAll`、`selfStatus.upsertMany+clearAll`、`days.upsertMany+clearAll`。
+- UI：`MePage` 的「数据备份」卡（导出 / 导入 + 合并/覆盖 Sheet + toast）。
+
+## 安卓覆盖安装（2026-10-15 已修根因）
+🔴 根因是**签名不一致**：debug 用本机 `debug.keystore`、release 原先根本没配签名 →
+系统拒绝升级 → 只能卸载 → 沙盒删除 → IndexedDB 全丢。次要原因是 `versionCode` 常年 1。
+- 修法：`android/app/build.gradle` 读 `android/app/keystore.properties`（**不提交**），
+  让 **debug 与 release 共用同一把钥匙** + `versionCode` 递增（现 2）。
+- 步骤/报错对照/「第一次仍需卸载一次」的恢复流程见 `docs/ANDROID-SIGNING.md`。
+- 验证：`adb install -r <apk>`（保留数据重装）；`INSTALL_FAILED_UPDATE_INCOMPATIBLE`=签名不符，
+  `VERSION_DOWNGRADE`=versionCode 降低。
+- 🔴 keystore 丢了就再也发不出「官方升级」包（届时只能卸载重装）；**也不能提交**（仓库公开）。
+
+## 已知未修问题
+- ~~数据导出/导入缺失~~（R-047 已实现）。
+- 文档仍把分层红线说成 ESLint 强制（`ARCHITECTURE.md`/`TASKS.md` 多处，与 §3.3 更正注内部不一致）。
+- **PRD L667** 仍写「环形图用 SVG/轻量库」，而环形图 UI 已移除。
