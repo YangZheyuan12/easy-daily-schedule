@@ -29,6 +29,25 @@ export class IndexedDbDayRepository implements DayRepository {
       throw new StorageError('读取日期记录失败', error);
     }
   }
+
+  async upsertMany(days: Day[]): Promise<void> {
+    if (days.length === 0) return;
+    try {
+      await this.db.transaction('rw', this.db.days, async () => {
+        await this.db.days.bulkPut(days);
+      });
+    } catch (error) {
+      throw new StorageError('写入日期记录失败', error);
+    }
+  }
+
+  async clearAll(): Promise<void> {
+    try {
+      await this.db.days.clear();
+    } catch (error) {
+      throw new StorageError('清空日期记录失败', error);
+    }
+  }
 }
 
 /** 当日自我状态（心情 + 身体）。主键即日期键，天然幂等。 */
@@ -57,6 +76,33 @@ export class IndexedDbSelfStatusRepository implements SelfStatusRepository {
       return await this.db.selfStatus.where('date').between(startDate, endDate, true, true).toArray();
     } catch (error) {
       throw new StorageError('读取区间自我状态失败', error);
+    }
+  }
+
+  async listAll(): Promise<DailySelfStatus[]> {
+    try {
+      return await this.db.selfStatus.toArray();
+    } catch (error) {
+      throw new StorageError('读取全部自我状态失败', error);
+    }
+  }
+
+  async upsertMany(rows: DailySelfStatus[]): Promise<void> {
+    if (rows.length === 0) return;
+    try {
+      await this.db.transaction('rw', this.db.selfStatus, async () => {
+        await this.db.selfStatus.bulkPut(rows);
+      });
+    } catch (error) {
+      throw new StorageError('写入自我状态失败', error);
+    }
+  }
+
+  async clearAll(): Promise<void> {
+    try {
+      await this.db.selfStatus.clear();
+    } catch (error) {
+      throw new StorageError('清空自我状态失败', error);
     }
   }
 }

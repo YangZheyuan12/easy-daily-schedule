@@ -52,6 +52,16 @@ export class IndexedDbTimeSlotRepository implements TimeSlotRepository {
     }
   }
 
+  /** 备份导出用：全表拉取（含软删，由调用方决定过滤策略） */
+  async listAll(): Promise<TimeSlot[]> {
+    try {
+      const rows = await this.db.timeSlots.toArray();
+      return rows.map(normalizeSlot).sort(compareByOrder);
+    } catch (error) {
+      throw new StorageError('读取全部时间段失败', error);
+    }
+  }
+
   async upsertMany(slots: TimeSlot[]): Promise<void> {
     if (slots.length === 0) return;
     try {

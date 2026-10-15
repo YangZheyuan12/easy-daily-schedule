@@ -36,6 +36,16 @@ export class IndexedDbInspirationRepository implements InspirationRepository {
     }
   }
 
+  /** 备份导出用：全表拉取（含软删，由调用方决定过滤策略） */
+  async listAll(): Promise<Inspiration[]> {
+    try {
+      const rows = await this.db.inspirations.toArray();
+      return rows.sort(compareByOrder);
+    } catch (error) {
+      throw new StorageError('读取全部灵感失败', error);
+    }
+  }
+
   async upsertMany(rows: Inspiration[]): Promise<void> {
     if (rows.length === 0) return;
     try {

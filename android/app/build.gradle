@@ -1,5 +1,32 @@
 apply plugin: 'com.android.application'
 
+/*
+ * ── 固定签名：这是「覆盖安装」能不能成功的关键，也就是数据会不会丢的关键 ──
+ *
+ * Android 允许覆盖安装（保住数据）的硬条件有三条：
+ *   1. applicationId 一致；
+ *   2. **签名一致**；
+ *   3. versionCode 不低于已装版本。
+ *
+ * 默认状态下第 2 条必然不满足：`npx cap run android` / Android Studio 直接 Run
+ * 装的是**本机 debug.keystore 签名**的 debug 包，而自己打的 release 包要么没签名、
+ * 要么用的是另一把钥匙。签名不同 → 系统拒绝升级 → 只能先卸载 →
+ * 卸载会把整个沙盒连 IndexedDB 一起删掉，本项目的记录就全没了（纯本地、无账号同步）。
+ *
+ * 解法：让 debug 与 release **共用同一把钥匙**。把 keystore.properties 放在
+ * 本文件同级目录（android/app/），两者就都走同一签名，从此可以互相覆盖升级。
+ * 步骤见 docs/ANDROID-SIGNING.md。
+ *
+ * ⚠️ keystore 与 keystore.properties **绝不能提交**（本仓库是公开的）：
+ *    泄露等于把「以你的名义发同名同签名包」的权限交出去。已在 .gitignore 中排除。
+ */
+def keystorePropsFile = file('keystore.properties')
+def keystoreProps = new Properties()
+def hasKeystore = keystorePropsFile.exists()
+if (hasKeystore) {
+    keystoreProps.load(new FileInputStream(keystorePropsFile))
+}
+
 android {
     namespace = "com.yangzheyuan.dailyschedule"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -7,8 +34,10 @@ android {
         applicationId "com.yangzheyuan.dailyschedule"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        // ⚠️ 每次发版必须递增 versionCode（versionName 只是给人看的字符串）。
+        //    低于已装版本会直接装不上：INSTALL_FAILED_VERSION_DOWNGRADE。
+        versionCode 2
+        versionName "1.1"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -16,10 +45,30 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        release {
+            if (hasKeystore) {
+                storeFile file(keystoreProps['storeFile'])
+                storePassword keystoreProps['storePassword']
+                keyAlias keystoreProps['keyAlias']
+                keyPassword keystoreProps['keyPassword']
+            }
+        }
+    }
+
     buildTypes {
         release {
+            // 没配 keystore 时退回 debug 签名，本地构建不至于直接失败
+            signingConfig hasKeystore ? signingConfigs.release : signingConfigs.debug
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+        debug {
+            // 与 release 同一把钥匙：本地 debug 包与之后发的 release 包能互相覆盖升级。
+            // 这一行就是「不用卸载旧版」的全部秘密。
+            if (hasKeystore) {
+                signingConfig signingConfigs.release
+            }
         }
     }
 }

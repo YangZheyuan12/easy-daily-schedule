@@ -28,6 +28,15 @@ android/app/src/main/assets/capacitor.config.json
 android/app/src/main/assets/public/
 ios/App/App/capacitor.config.json
 
+# ---------- 签名密钥（🔴 绝不能提交）----------
+# 本项目仓库是公开的：keystore 泄露 = 任何人都能打出「同名同签名」的包，
+# 用户的手机会把它当成官方升级直接覆盖安装。密码同理。
+android/app/keystore.properties
+android/*.keystore
+android/*.jks
+*.keystore
+*.jks
+
 # ---------- 缓存与一次性临时文件 ----------
 .vite
 coverage
@@ -35,6 +44,8 @@ coverage
 *.tsbuildinfo
 # vitest 的编译缓存（由 test:strict 生成，可随时重建）
 .tmp-vitest/
+# vitest 的临时目录（Windows 沙箱下 TEMP 指向项目内，规避 EPERM；可随时重建）
+.vitest-tmp/
 # vite 启动时写出的时间戳临时文件
 vite.config.ts.timestamp-*.mjs
 
