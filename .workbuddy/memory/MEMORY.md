@@ -61,5 +61,7 @@ items/tasks/days/selfStatus/timeSlots/inspirations/itemImages，每个 `version(
 
 ## 版本控制 / 环境
 远端 github.com/YangZheyuan12/easy-daily-schedule（公开）。git 必须用 `/d/apps/Git/cmd/git.exe`；
-push 报 502/SSL 时清代理环境变量再 push（详见往日日志）。🔴 curl 不通 ≠ git 不通。
+🔴 push 报 502 / SSL unexpected eof 时：**沙箱外（dangerouslyDisableSandbox）+ 清空代理变量**
+`https_proxy= http_proxy= HTTPS_PROXY= HTTP_PROXY= git push origin main` 才通（沙箱内代理必挂、
+直连必 reset；fetch 间歇可用但不可依赖）。curl 不通 ≠ git 不通。
 命令：`npm run verify`（layers+typecheck+test+build）/ `npm test` / `npm run test:strict`。
