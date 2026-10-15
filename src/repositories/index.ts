@@ -8,6 +8,7 @@ import {
 } from './IndexedDbDayRepository';
 import { IndexedDbTimeSlotRepository } from './IndexedDbTimeSlotRepository';
 import { IndexedDbInspirationRepository } from './IndexedDbInspirationRepository';
+import { IndexedDbItemImageRepository } from './IndexedDbItemImageRepository';
 import { LocalSettingsRepository } from './LocalSettingsRepository';
 
 export { db };
@@ -19,6 +20,7 @@ export {
 } from './IndexedDbDayRepository';
 export { IndexedDbTimeSlotRepository } from './IndexedDbTimeSlotRepository';
 export { IndexedDbInspirationRepository } from './IndexedDbInspirationRepository';
+export { IndexedDbItemImageRepository } from './IndexedDbItemImageRepository';
 export { LocalSettingsRepository, MemorySettingsRepository } from './LocalSettingsRepository';
 
 /**
@@ -35,6 +37,7 @@ export function createRepositories(): Repositories {
     selfStatus: new IndexedDbSelfStatusRepository(db),
     timeSlots: new IndexedDbTimeSlotRepository(db),
     inspirations: new IndexedDbInspirationRepository(db),
+    itemImages: new IndexedDbItemImageRepository(db),
     settings: new LocalSettingsRepository(),
   };
 }

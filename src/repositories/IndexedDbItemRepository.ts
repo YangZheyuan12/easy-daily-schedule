@@ -102,6 +102,15 @@ export class IndexedDbItemRepository implements ItemRepository {
     }
   }
 
+  /** 含软删记录的全部 id，仅供孤儿图片清理使用 */
+  async listAllIds(): Promise<string[]> {
+    try {
+      return (await this.db.items.toArray()).map((row) => row.id);
+    } catch (error) {
+      throw new StorageError('读取全部条目 id 失败', error);
+    }
+  }
+
   /**
    * 启动时清理过期软删记录（超过 7 天）。
    * 放在仓储层是因为只有它知道底层存储怎么查最省。

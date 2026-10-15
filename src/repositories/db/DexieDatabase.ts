@@ -1,5 +1,13 @@
 import Dexie, { type EntityTable } from 'dexie';
-import type { DailySelfStatus, Day, Inspiration, Item, Task, TimeSlot } from '@/domain/types';
+import type {
+  DailySelfStatus,
+  Day,
+  Inspiration,
+  Item,
+  ItemImage,
+  Task,
+  TimeSlot,
+} from '@/domain/types';
 import { DB_NAME, DB_VERSION, STORES } from './schema';
 
 /**
@@ -15,6 +23,7 @@ export class AppDatabase extends Dexie {
   selfStatus!: EntityTable<DailySelfStatus, 'date'>;
   timeSlots!: EntityTable<TimeSlot, 'id'>;
   inspirations!: EntityTable<Inspiration, 'id'>;
+  itemImages!: EntityTable<ItemImage, 'id'>;
 
   constructor(name: string = DB_NAME) {
     super(name);

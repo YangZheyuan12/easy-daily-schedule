@@ -8,6 +8,7 @@ import { useUiStore } from '@/store/useUiStore';
 import { Sheet, SheetActionButton, ConfirmDialog } from '@/components/ui/Sheet';
 import { RatingStars } from '@/components/ui/RatingStars';
 import { useAutoResizeTextarea } from '@/hooks/useAutoResizeTextarea';
+import { ItemImageSection } from '@/components/item/ItemImageSection';
 
 interface ItemSheetProps {
   item: Item | null;
@@ -16,10 +17,13 @@ interface ItemSheetProps {
 }
 
 /**
- * 条目详情抽屉：任务描述 + 个人评价 + 子分支管理 + 删除。
+ * 条目详情抽屉：任务描述 + 个人评价 + 子分支管理 + 图片附件 + 删除。
  *
  * 高度不超过 85vh 且内部滚动；键盘弹起时由 `useKeyboardAvoid`
  * 把输入区顶上来，避免输入框被软键盘挡住。
+ *
+ * 图片附件收在这里（而不是今日列表的「⋯」）—— 它是「改这一条记录」的
+ * 一部分，和描述、评价同级，入口唯一。
  */
 export function ItemSheet({ item, accent, sectionName }: ItemSheetProps) {
   const closeDrawer = useUiStore((s) => s.closeDrawer);
@@ -87,6 +91,9 @@ export function ItemSheet({ item, accent, sectionName }: ItemSheetProps) {
             )}
           </button>
         </div>
+
+        {/* 图片附件：放在第一位 —— 上传 / 看大图 / 删除都在这里（今日列表只做只读预览） */}
+        <ItemImageSection itemId={shown.id} />
 
         {/* 任务描述 */}
         <Section title="任务描述">

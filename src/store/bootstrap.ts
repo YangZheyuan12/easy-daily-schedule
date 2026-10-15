@@ -75,6 +75,10 @@ export async function purgeExpiredSoftDeletes(): Promise<void> {
       const candidate = repo as { purgeExpired?: (c: number) => Promise<number> };
       if (typeof candidate.purgeExpired === 'function') await candidate.purgeExpired(cutoff);
     }
+    // 清理孤儿图片：所属条目已不存在（被物理清理）的附件一并删除。
+    // 传 items 表**全部** id（含软删未到期），保证「还能撤销」的条目图片不被误删。
+    const existingItemIds = new Set(await repos.items.listAllIds());
+    await repos.itemImages.purgeOrphans(existingItemIds);
   } catch (error) {
     // 清理失败不影响启动，静默即可
     emitError(error);

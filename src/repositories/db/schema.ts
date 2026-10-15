@@ -8,10 +8,18 @@
  *   所以「未删除」的过滤走内存 filter（数据量在单日几百条量级，完全够用），
  *   「已删除」的清理走 `filter` 全表扫描（启动时执行一次）。
  */
-import type { DailySelfStatus, Day, Inspiration, Item, Task, TimeSlot } from '@/domain/types';
+import type {
+  DailySelfStatus,
+  Day,
+  Inspiration,
+  Item,
+  ItemImage,
+  Task,
+  TimeSlot,
+} from '@/domain/types';
 
 export const DB_NAME = 'daily-schedule';
-export const DB_VERSION = 3;
+export const DB_VERSION = 4;
 
 export interface ItemTable extends Item {}
 export interface TaskTable extends Task {}
@@ -19,6 +27,7 @@ export interface DayTable extends Day {}
 export interface SelfStatusTable extends DailySelfStatus {}
 export interface TimeSlotTable extends TimeSlot {}
 export interface InspirationTable extends Inspiration {}
+export interface ItemImageTable extends ItemImage {}
 
 /**
  * stores 声明：主键 + 索引。
@@ -28,6 +37,8 @@ export interface InspirationTable extends Inspiration {}
  * 与 `timeSlots`（按 id，附 date / [date+sectionId] / deletedAt 索引用于区间与过滤）。
  * v3 变更：新增 `inspirations` 表（按 id，附 date / deletedAt 索引）。Dexie 要求
  * 每个版本声明**完整** schema，故此处重申全部既有表。
+ * v4 变更：新增 `itemImages` 表（按 id，附 itemId 索引），用于给条目挂图片附件。
+ * 同样重申全部既有表。
  */
 export const STORES = {
   items: '&id, date, sectionId, parentId, [date+sectionId], deletedAt',
@@ -36,6 +47,7 @@ export const STORES = {
   selfStatus: '&date',
   timeSlots: '&id, date, [date+sectionId], deletedAt',
   inspirations: '&id, date, deletedAt',
+  itemImages: '&id, itemId',
 } as const;
 
 export type StoreName = keyof typeof STORES;

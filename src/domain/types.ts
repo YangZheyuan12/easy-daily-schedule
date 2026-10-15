@@ -1,4 +1,10 @@
-import type { Rating, SectionKey, TaskSectionKey } from './enums';
+import type {
+  Rating,
+  SectionKey,
+  TaskSectionKey,
+  TaskKind,
+  RelativeDeadline,
+} from './enums';
 
 
 /**
@@ -60,6 +66,20 @@ export interface Task {
    * 老数据缺该字段，仓储读取时统一归一化为 `'other'`。
    */
   sectionId: TaskSectionKey;
+  /**
+   * 任务种类：每日任务 / 期限任务 / 长时目标。
+   * 老数据缺该字段，仓储读取时统一归一化为 `'daily'`。
+   */
+  kind?: TaskKind;
+  /** 任务描述（长文本，添加时可填，可选） */
+  description?: string;
+  /**
+   * 期限任务的截止日期（YYYY-MM-DD 本地时区）。与 `dueRelative` 二选一。
+   * 仅 `kind === 'deadline'` 时有意义。
+   */
+  dueDate?: string;
+  /** 期限任务的抽象期限（三天内 / 一周内 / 两周内）。与 `dueDate` 二选一 */
+  dueRelative?: RelativeDeadline;
   done: boolean;
   order: number;
   createdAt: number;
@@ -158,6 +178,23 @@ export interface Inspiration {
   updatedAt: number;
   /** 软删时间戳；null 表示未删除 */
   deletedAt: number | null;
+}
+
+/**
+ * 条目图片附件。
+ *
+ * 单独成表存 Blob（不塞进 Item 记录，否则 `listByDate` 会把图片二进制一起捞上来，
+ * 单日几百条记录的加载会瞬间膨胀）。通过 `itemId` 索引反查，渲染时按需加载。
+ * 图片随条目物理删除而清理：`purgeExpiredSoftDeletes` 会清掉「所属条目已不存在」的孤儿附件。
+ */
+export interface ItemImage {
+  id: string;
+  /** 所属条目 id */
+  itemId: string;
+  /** 图片二进制（File 即 Blob 的子类，可直接结构化克隆入库） */
+  blob: Blob;
+  /** 上传时间（用于排序，先传的排在前面） */
+  createdAt: number;
 }
 
 /** 创建条目时的必填输入 */

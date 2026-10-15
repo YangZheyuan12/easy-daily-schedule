@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import clsx from 'clsx';
 import type { DiaryEntry, DiaryGroup } from '@/domain/types';
@@ -10,6 +10,10 @@ import { buildDiaryList } from '@/services/diaryService';
 import { useInspirationStore } from '@/store/useInspirationStore';
 import { useItemStore } from '@/store/useItemStore';
 import { useTimeSlotStore } from '@/store/useTimeSlotStore';
+import { useTodayHiddenStore } from '@/store/useTodayHiddenStore';
+import { useItemImageStore, EMPTY_IMAGES } from '@/store/useItemImageStore';
+import { ImageThumb } from '@/components/item/ImageThumb';
+import { ImageLightbox } from '@/components/item/ImageLightbox';
 import { minToHHMM } from '@/utils/date';
 import { staggerDelay } from '@/utils/motion';
 
@@ -28,7 +32,8 @@ interface DiaryListProps {
  * 串成一条，编号只是展示用的派生值，不写库。
  *
  * 四板块的每一行有两类来源：**本板块的条目**（可勾选、可增删）与
- * **时间轴里归到本板块的时间段**（只读投影，勾选直接写回时间轴那条记录）。
+ * **时间轴里归到本板块的时间段**（投影进来，勾选直接写回时间轴那条记录）。
+ * 投影进来的时间段，在今日视图内可「隐藏」（仅本日视图，不回写时间轴记录）。
  */
 export function DiaryList({ date }: DiaryListProps) {
   const navigate = useNavigate();
@@ -40,6 +45,17 @@ export function DiaryList({ date }: DiaryListProps) {
     () => buildDiaryList(items, inspirations, slots),
     [items, inspirations, slots],
   );
+
+  // 加载当天所有条目的图片附件；key 用「条目 id 串」去重，
+  // 切到别的日期 / 增删条目会触发重新拉取，单纯勾选不会（id 串不变）。
+  const loadImages = useItemImageStore((s) => s.loadForItems);
+  const itemIdsKey = useMemo(() => items.map((item) => item.id).join(','), [items]);
+  useEffect(() => {
+    void loadImages(
+      items.map((item) => item.id),
+      itemIdsKey,
+    );
+  }, [date, itemIdsKey, loadImages, items]);
 
   return (
     <div className="space-y-4">
@@ -75,6 +91,14 @@ interface SectionGroupProps {
 function SectionGroup({ group, date, onNavigate, onOpenTimeline }: SectionGroupProps) {
   const config = SECTION_CONFIG_MAP[group.key as keyof typeof SECTION_CONFIG_MAP];
   const addSibling = useItemStore((s) => s.addSibling);
+  const setHidden = useTodayHiddenStore((s) => s.setHidden);
+  // 订阅 hidden 数组，隐藏状态变化时本组重渲染
+  const hiddenList = useTodayHiddenStore((s) => s.hidden);
+  const isHidden = (slotId: string) => hiddenList.includes(`${date}|${slotId}`);
+
+  // 行内缩略图条点开的全屏大图
+  const [lightboxBlob, setLightboxBlob] = useState<Blob | null>(null);
+
   const [draft, setDraft] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -90,11 +114,22 @@ function SectionGroup({ group, date, onNavigate, onOpenTimeline }: SectionGroupP
   const empty = draft.trim().length === 0;
 
   /*
-    组头计数 = 本板块顶层条目 + 归到本板块的时间段（两者都编号、都算一件「要做的事」）。
-    口径与日历摘要卡 `DaySummary.sections` 一致 —— 后者早就把归类时间段并进板块完成度了，
-    而这里原先只数条目，于是同一天在两处会显示不同的「1/3」和「1/2」。现在对齐。
+    投影进来的时间段如果在本日视图被「隐藏」，就从可见列表里过滤掉。
+    visibleEntries 同时用于渲染与计数，因此计数与展示严格一致。
   */
-  const topEntries = group.entries.filter((e) => e.kind === 'item' || e.kind === 'timeSlot');
+  const visibleEntries = group.entries.filter(
+    (e) => !(e.kind === 'timeSlot' && e.timeSlot && isHidden(e.timeSlot.id)),
+  );
+  /** 本组本日被隐藏的时间段 id（用于「恢复隐藏」入口） */
+  const hiddenIds = group.entries
+    .filter((e) => e.kind === 'timeSlot' && e.timeSlot && isHidden(e.timeSlot.id))
+    .map((e) => e.timeSlot!.id);
+
+  /*
+    组头计数 = 本板块顶层条目 + 归到本板块的时间段（两者都编号、都算一件「要做的事」）。
+    口径与日历摘要卡 `DaySummary.sections` 一致。这里只数**可见**的（隐藏的不计入，也不显示）。
+  */
+  const topEntries = visibleEntries.filter((e) => e.kind === 'item' || e.kind === 'timeSlot');
   const doneCount = topEntries.filter((e) => e.item?.done ?? e.timeSlot?.done ?? false).length;
   const totalCount = topEntries.length;
   const placeholder = config?.placeholder ?? `记录一项${group.name}…`;
@@ -122,24 +157,42 @@ function SectionGroup({ group, date, onNavigate, onOpenTimeline }: SectionGroupP
         </span>
       </button>
 
-      {group.entries.length > 0 && (
+      {visibleEntries.length > 0 && (
         <ul>
-          {group.entries.map((entry, index) => (
+          {visibleEntries.map((entry, index) => (
             <DiaryRow
               key={entry.item?.id ?? entry.inspiration?.id ?? entry.timeSlot?.id}
               entry={entry}
               index={index}
               onNavigate={onNavigate}
               onOpenTimeline={onOpenTimeline}
+              onViewImage={(blob) => setLightboxBlob(blob)}
+              onHide={
+                entry.kind === 'timeSlot' && entry.timeSlot
+                  ? () => setHidden(date, entry.timeSlot!.id, true)
+                  : undefined
+              }
             />
           ))}
         </ul>
       )}
 
+      {/* 本组本日有被隐藏的时间段 → 给一个恢复入口（记录没真删，去时间轴也还在） */}
+      {hiddenIds.length > 0 && (
+        <button
+          type="button"
+          onClick={() => hiddenIds.forEach((id) => setHidden(date, id, false))}
+          className="mt-1.5 press flex items-center gap-1.5 text-caption text-ink-faint"
+        >
+          <Icon name="trash" size={13} className="text-ink-faint" />
+          已在本日隐藏 {hiddenIds.length} 条，点此恢复
+        </button>
+      )}
+
       {/* 内联快速添加：下沉底胶囊行，输入 + 添加（Enter 或点按钮提交） */}
       <div
         className="m-rise mt-2 flex items-center gap-2 h-10 px-3.5 rounded-sm bg-surface-sunken"
-        style={{ animationDelay: staggerDelay(group.entries.length) }}
+        style={{ animationDelay: staggerDelay(visibleEntries.length) }}
       >
         <input
           ref={inputRef}
@@ -173,6 +226,8 @@ function SectionGroup({ group, date, onNavigate, onOpenTimeline }: SectionGroupP
           添加
         </button>
       </div>
+
+      <ImageLightbox blob={lightboxBlob} onClose={() => setLightboxBlob(null)} />
     </section>
   );
 }
@@ -261,6 +316,10 @@ interface DiaryRowProps {
   onNavigate: (sectionId: string) => void;
   /** 时间段行专用：去时间轴页编辑 */
   onOpenTimeline: () => void;
+  /** 条目行专用：行内缩略图条点开全屏大图 */
+  onViewImage: (blob: Blob) => void;
+  /** 时间段行专用：在今日隐藏（不回写时间轴） */
+  onHide?: () => void;
 }
 
 /**
@@ -272,7 +331,14 @@ interface DiaryRowProps {
  * 和「我刚划掉它」这个动作对不上；而且它必须挂在行内 span 上，
  * 挂在撑满整行的按钮上会有一条横贯空白区的长线。
  */
-function DiaryRow({ entry, index, onNavigate, onOpenTimeline }: DiaryRowProps) {
+function DiaryRow({
+  entry,
+  index,
+  onNavigate,
+  onOpenTimeline,
+  onViewImage,
+  onHide,
+}: DiaryRowProps) {
   const toggleDone = useItemStore((s) => s.toggleDone);
   const toggleSlotDone = useTimeSlotStore((s) => s.toggleDone);
   const item = entry.item;
@@ -285,6 +351,8 @@ function DiaryRow({ entry, index, onNavigate, onOpenTimeline }: DiaryRowProps) {
 
     勾选直接写回 `TimeSlot.done`（不复制成条目），所以今日页与时间轴天然一致，
     点行则去时间轴改内容 —— 板块页只有条目树，编辑不到时间段。
+    末尾的「隐藏」按钮：仅从**本日视图**移除这条投影，不碰时间轴原始记录
+    （满足「今日修改不回写时间轴」；时间轴的改动仍会同步到今日）。
   */
   if (entry.kind === 'timeSlot' && slot) {
     return (
@@ -317,6 +385,16 @@ function DiaryRow({ entry, index, onNavigate, onOpenTimeline }: DiaryRowProps) {
             {slot.content || '未命名时间段'}
           </span>
         </button>
+        {onHide && (
+          <button
+            type="button"
+            onClick={onHide}
+            aria-label="在今日隐藏"
+            className="press shrink-0 w-7 h-7 flex items-center justify-center rounded-pill text-ink-faint active:opacity-60"
+          >
+            <Icon name="trash" size={15} />
+          </button>
+        )}
       </li>
     );
   }
@@ -328,22 +406,25 @@ function DiaryRow({ entry, index, onNavigate, onOpenTimeline }: DiaryRowProps) {
   if (entry.kind === 'child') {
     return (
       <li
-        className="m-rise flex items-center gap-2.5 py-1.5"
+        className="m-rise flex flex-col gap-1 py-1.5"
         style={{ paddingLeft: 24 + entry.depth * 16, animationDelay: staggerDelay(index) }}
       >
-        <span className="w-[14px] h-[14px] rounded-pill border border-edge-strong shrink-0" />
-        <button
-          type="button"
-          onClick={() => onNavigate(item.sectionId)}
-          className={clsx(
-            'flex-1 min-w-0 text-left text-body leading-5 truncate',
-            done ? 'text-ink-faint' : 'text-ink-muted',
-          )}
-        >
-          <span className="m-strike" data-done={done}>
-            {item.title || '未命名条目'}
-          </span>
-        </button>
+        <div className="flex items-center gap-2.5">
+          <span className="w-[14px] h-[14px] rounded-pill border border-edge-strong shrink-0" />
+          <button
+            type="button"
+            onClick={() => onNavigate(item.sectionId)}
+            className={clsx(
+              'flex-1 min-w-0 text-left text-body leading-5 truncate',
+              done ? 'text-ink-faint' : 'text-ink-muted',
+            )}
+          >
+            <span className="m-strike" data-done={done}>
+              {item.title || '未命名条目'}
+            </span>
+          </button>
+        </div>
+        <ImageStrip itemId={item.id} indent={0} onViewImage={onViewImage} />
       </li>
     );
   }
@@ -351,31 +432,97 @@ function DiaryRow({ entry, index, onNavigate, onOpenTimeline }: DiaryRowProps) {
   // kind === 'item'：顶层条目，跨组连续编号（编号在前，勾选框随后）
   return (
     <li
-      className="m-rise flex items-center gap-2.5 py-1.5"
+      className="m-rise flex flex-col gap-1 py-1.5"
       style={{ animationDelay: staggerDelay(index) }}
     >
-      <span className="shrink-0 w-5 text-right text-caption text-ink-faint tabular-nums">
-        {entry.displayNo}
-      </span>
-      <Tick
-        done={done}
-        size={16}
-        shape="circle"
-        className="w-4 h-4 tap-expand"
-        onToggle={() => toggleDone(item.id)}
-      />
+      <div className="flex items-center gap-2.5">
+        <span className="shrink-0 w-5 text-right text-caption text-ink-faint tabular-nums">
+          {entry.displayNo}
+        </span>
+        <Tick
+          done={done}
+          size={16}
+          shape="circle"
+          className="w-4 h-4 tap-expand"
+          onToggle={() => toggleDone(item.id)}
+        />
+        <button
+          type="button"
+          onClick={() => onNavigate(item.sectionId)}
+          className={clsx(
+            'flex-1 min-w-0 text-left text-lead leading-6 truncate',
+            done ? 'text-ink-faint' : 'text-ink',
+          )}
+        >
+          <span className="m-strike" data-done={done}>
+            {item.title || '未命名条目'}
+          </span>
+        </button>
+      </div>
+      {/*
+        行内缩略图条：图片与任务条「同时出现」，可折叠。
+        缩进对齐到勾选框那一列（编号 20 + 间距 10 = 30px）。
+      */}
+      <ImageStrip itemId={item.id} indent={30} onViewImage={onViewImage} />
+    </li>
+  );
+}
+
+interface ImageStripProps {
+  itemId: string;
+  /** 左侧缩进 px（对齐勾选框列） */
+  indent: number;
+  onViewImage: (blob: Blob) => void;
+}
+
+/**
+ * 行内图片缩略图条：条目有图片时显示在任务条下方，可整条折叠。
+ * 点缩略图 → 全屏大图；点「收起」→ 折叠成一行「N 张图片」提示，可再展开。
+ *
+ * 这里是**只读预览**：上传 / 删除统一收在条目详情抽屉（板块页点行尾「⋯」），
+ * 今日列表不再放图片入口，避免同一份图片有两个可写入口。
+ */
+function ImageStrip({ itemId, indent, onViewImage }: ImageStripProps) {
+  const images = useItemImageStore((s) => s.byItem[itemId] ?? EMPTY_IMAGES);
+  const [collapsed, setCollapsed] = useState(false);
+
+  if (images.length === 0) return null;
+
+  if (collapsed) {
+    return (
       <button
         type="button"
-        onClick={() => onNavigate(item.sectionId)}
-        className={clsx(
-          'flex-1 min-w-0 text-left text-lead leading-6 truncate',
-          done ? 'text-ink-faint' : 'text-ink',
-        )}
+        onClick={() => setCollapsed(false)}
+        className="press inline-flex items-center gap-1 text-caption text-ink-faint"
+        style={{ paddingLeft: indent }}
       >
-        <span className="m-strike" data-done={done}>
-          {item.title || '未命名条目'}
-        </span>
+        <Icon name="image" size={13} className="shrink-0" />
+        {images.length} 张图片
       </button>
-    </li>
+    );
+  }
+
+  return (
+    <div
+      className="flex items-start gap-2 flex-wrap"
+      style={{ paddingLeft: indent }}
+    >
+      {images.map((image) => (
+        <ImageThumb
+          key={image.id}
+          blob={image.blob}
+          size={52}
+          onClick={() => onViewImage(image.blob)}
+        />
+      ))}
+      <button
+        type="button"
+        onClick={() => setCollapsed(true)}
+        aria-label="收起图片"
+        className="w-7 h-7 flex items-center justify-center rounded-pill text-ink-faint"
+      >
+        <Icon name="chevron-up" size={15} />
+      </button>
+    </div>
   );
 }

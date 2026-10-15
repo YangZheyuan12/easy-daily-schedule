@@ -60,16 +60,16 @@ async function makeV1(): Promise<string> {
   return name;
 }
 
-describe('Dexie v1 → v3 迁移', () => {
-  it('当前 schema 版本号是 3', () => {
-    expect(DB_VERSION).toBe(3);
+describe('Dexie v1 → v4 迁移', () => {
+  it('当前 schema 版本号是 4', () => {
+    expect(DB_VERSION).toBe(4);
   });
 
   it('v1 的三个老表（items / tasks / days）数据全部保留', async () => {
     const db = new AppDatabase(await makeV1());
     await db.open();
 
-    expect(db.verno).toBe(3);
+    expect(db.verno).toBe(4);
 
     const items = await db.items.toArray();
     const tasks = await db.tasks.toArray();
@@ -124,14 +124,15 @@ describe('Dexie v1 → v3 迁移', () => {
     db.close();
   });
 
-  it('全新安装（无 v1 库）直接用 v3 建库，六个表齐全', async () => {
+  it('全新安装（无 v1 库）直接用 v4 建库，七个表齐全', async () => {
     const db = new AppDatabase(`fresh-install-${counter++}`);
     await db.open();
 
-    expect(db.verno).toBe(3);
+    expect(db.verno).toBe(4);
     expect(db.tables.map((table) => table.name).sort()).toEqual([
       'days',
       'inspirations',
+      'itemImages',
       'items',
       'selfStatus',
       'tasks',

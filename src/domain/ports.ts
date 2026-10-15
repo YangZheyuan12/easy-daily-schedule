@@ -1,4 +1,12 @@
-import type { DailySelfStatus, Day, Inspiration, Item, Task, TimeSlot } from './types';
+import type {
+  DailySelfStatus,
+  Day,
+  Inspiration,
+  Item,
+  ItemImage,
+  Task,
+  TimeSlot,
+} from './types';
 import type { SectionKey } from './enums';
 
 /**
@@ -27,6 +35,8 @@ export interface ItemRepository {
   upsertMany(items: Item[]): Promise<void>;
   /** 物理删除（仅用于软删记录到期清理） */
   hardDeleteMany(ids: string[]): Promise<void>;
+  /** 返回 items 表中全部 id（含软删未到期的），用于清理孤儿图片附件 */
+  listAllIds(): Promise<string[]>;
 }
 
 export interface TaskRepository {
@@ -42,6 +52,10 @@ export interface DayRepository {
   /** 确保该日记录存在（惰性创建），返回已有或新建的 Day */
   ensure(date: string): Promise<Day>;
   listAll(): Promise<Day[]>;
+  /** 批量写入（备份导入用） */
+  upsertMany(days: Day[]): Promise<void>;
+  /** 清空整表。仅备份「覆盖导入」使用，日常业务禁止调用 */
+  clearAll(): Promise<void>;
 }
 
 export interface SelfStatusRepository {
@@ -51,6 +65,12 @@ export interface SelfStatusRepository {
   upsert(selfStatus: DailySelfStatus): Promise<void>;
   /** 区间批量拉取（日历月 / 年视图用），走 `date` 索引 */
   listBetween(startDate: string, endDate: string): Promise<DailySelfStatus[]>;
+  /** 全表拉取（备份导出用） */
+  listAll(): Promise<DailySelfStatus[]>;
+  /** 批量写入（备份导入用） */
+  upsertMany(rows: DailySelfStatus[]): Promise<void>;
+  /** 清空整表。仅备份「覆盖导入」使用，日常业务禁止调用 */
+  clearAll(): Promise<void>;
 }
 
 export interface TimeSlotRepository {
@@ -58,6 +78,8 @@ export interface TimeSlotRepository {
   listByDate(date: string): Promise<TimeSlot[]>;
   /** 区间批量拉取（日历月 / 年视图用），走 `date` 索引 */
   listByDateRange(startDate: string, endDate: string): Promise<TimeSlot[]>;
+  /** 全表拉取（备份导出用，含软删，由调用方过滤） */
+  listAll(): Promise<TimeSlot[]>;
   /** 批量写入（新增或更新），必须在单个事务内完成 */
   upsertMany(slots: TimeSlot[]): Promise<void>;
   /** 物理删除（仅用于软删记录到期清理） */
@@ -69,10 +91,34 @@ export interface InspirationRepository {
   listByDate(date: string): Promise<Inspiration[]>;
   /** 区间批量拉取（日历月 / 年视图用），走 `date` 索引 */
   listByDateRange(startDate: string, endDate: string): Promise<Inspiration[]>;
+  /** 全表拉取（备份导出用，含软删，由调用方过滤） */
+  listAll(): Promise<Inspiration[]>;
   /** 批量写入（新增或更新），必须在单个事务内完成 */
   upsertMany(rows: Inspiration[]): Promise<void>;
   /** 物理删除（仅用于软删记录到期清理） */
   hardDeleteMany(ids: string[]): Promise<void>;
+}
+
+/**
+ * 条目图片附件仓储。
+ *
+ * 图片二进制单独成表，通过 `itemId` 反查；条目删除后由 `purgeOrphans` 清理孤儿附件。
+ */
+export interface ItemImageRepository {
+  /** 批量取若干条目挂的图片（按 createdAt 升序），itemIds 为空返回 [] */
+  listByItemIds(itemIds: string[]): Promise<ItemImage[]>;
+  /** 全表拉取（备份导出用） */
+  listAll(): Promise<ItemImage[]>;
+  /** 批量写入（新增或更新），单事务 */
+  putMany(images: ItemImage[]): Promise<void>;
+  /** 删除单张图片 */
+  delete(id: string): Promise<void>;
+  /**
+   * 清理孤儿附件：图片所属的条目记录已不存在时一并删除。
+   * `existingItemIds` 应传入 items 表**全部** id（含软删未到期），
+   * 这样「软删窗口内、还能撤销」的条目图片不会被误删。
+   */
+  purgeOrphans(existingItemIds: Set<string>): Promise<number>;
 }
 
 /** 轻量键值偏好（板块改名 / 折叠态等），一期落在 localStorage */
@@ -89,5 +135,6 @@ export interface Repositories {
   selfStatus: SelfStatusRepository;
   timeSlots: TimeSlotRepository;
   inspirations: InspirationRepository;
+  itemImages: ItemImageRepository;
   settings: SettingsRepository;
 }
