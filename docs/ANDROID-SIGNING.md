@@ -127,6 +127,59 @@ adb shell dumpsys package com.yangzheyuan.dailyschedule | findstr /i "versionCod
 - [ ] `adb install -r <apk>` 在真机上验证数据还在
 - [ ] `git status --short` 确认没有把 keystore / properties 带上车
 
+## CI 配置（GitHub Actions，2026-10-16 补）
+
+**为什么必须有这一节**：`.github/workflows/mobile.yml` 的 Android job 在 GitHub
+runner 上跑，而 keystore 不提交 → runner 上没有 `keystore.properties` →
+debug 包用**每次随机生成**的 debug 钥匙签名。用户从 Actions 下载的包与本地包的
+签名对不上 → 覆盖安装被拒 → 只能卸载 → **IndexedDB 全丢**。
+（2026-10-16 实际踩中：本地包与 CI 包签名不同，用户报告「每次更新都要卸载重装」。）
+
+修法：把**本地同一把钥匙**配成 GitHub Secrets，CI 构建时还原。
+`mobile.yml` 已加好「Restore keystore from secrets」步骤；未配置时 job **直接失败**
+（红叉提醒），不再默默产出随机签名包。
+
+### 配置步骤（一次性）
+
+仓库网页 → **Settings → Secrets and variables → Actions → New repository secret**，
+加这 4 个（名字必须一字不差）：
+
+| Secret 名 | 值 | 怎么来 |
+| --- | --- | --- |
+| `ANDROID_KEYSTORE_BASE64` | keystore 文件的 base64 | 见下方命令 |
+| `ANDROID_KEYSTORE_PASSWORD` | keystore 密码 | 生成 keystore 时设的 |
+| `ANDROID_KEY_ALIAS` | `dailyschedule` | 生成时的 `-alias` |
+| `ANDROID_KEY_PASSWORD` | key 密码 | 生成时设的 |
+
+生成 base64（在仓库根目录的 Git Bash）：
+
+```bash
+base64 -w 0 android/dailyschedule.keystore
+```
+
+（若 `base64` 不支持 `-w`，用 `openssl base64 -A -in android/dailyschedule.keystore`）
+把输出的**一整行**粘进 secret 值里。文件名无所谓，CI 里统一叫 `release.keystore`——
+关键是**同一把钥匙**（同一份 base64 内容）。
+
+### 验证
+
+推送后看 Mobile workflow 的 Android job：
+
+- 「Restore keystore from secrets」步骤变绿；
+- 「Print APK signing certificate」打印出证书 **SHA-256 指纹**，
+  和本地包的指纹一致即签名对齐：
+
+```bash
+keytool -printcert -jarfile android/app/build/outputs/apk/debug/app-debug.apk | grep -i SHA256
+```
+
+手机上已装包的指纹：`adb shell dumpsys package com.yangzheyuan.dailyschedule | grep -i signatures`。
+两个指纹相同 → 覆盖安装可行；不同 → 先走上面的「第一次怎么办」。
+
+> ⚠️ **已经装过旧签名包（含此前 CI 随机签名包）的手机，仍需卸载一次**——
+> 这是签名切换的代价，躲不掉。卸载前务必在 App 里「我的 → 导出备份」，
+> 装新包后「导入备份 → 合并导入」。之后再也不用卸载。
+
 ## 红线
 
 - **不要改 `applicationId`**（= `capacitor.config.ts` 里的 `appId`）。

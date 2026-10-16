@@ -4,6 +4,12 @@ name: Mobile
 #
 # ⚠️ 签名说明（重要，决定了两个 job 的定位差别很大）：
 # - **Android**：出 **debug APK**，能直接装到手机上用，不需要任何账号。这是真正可用的产物。
+#   但 debug 包**默认用 runner 每次随机生成的 debug 钥匙签名** —— 与本地包的签名不同，
+#   用户覆盖安装会被系统拒绝 → 只能卸载 → IndexedDB 全丢（本项目纯本地无同步）。
+#   所以下面的「Restore keystore」步骤从 secrets 还原**本地同一把钥匙**，
+#   让 CI 产物与本地包签名一致。secrets 配置见 docs/ANDROID-SIGNING.md「CI 配置」。
+#   🔴 未配置 secrets 时这个 job 会**直接失败**而不是产出随机签名包 ——
+#      一个装不上、要用户卸载重装的「新版」比没有新版更糟。
 # - **iOS**：这个 job 的定位是**「验证 Xcode 工程能编译」**，不是出安装包。
 #   原因：Apple 不允许未签名 App 装进 iPhone，签名必须要有
 #     ① 一台装了 Xcode 的 Mac（用免费 Apple ID 自签，7 天有效期），或
@@ -42,6 +48,27 @@ jobs:
       - run: npm run build
       - run: npx cap sync android
 
+      # 固定签名：把本地那把钥匙（keystore）从 secrets 还原到 runner 上。
+      # 没有这一步，debug 包会用 runner 随机 debug 钥匙签名，与用户手机上
+      # 本地签名的旧包对不上 → 覆盖安装被拒 → 卸载 → 数据全丢。
+      # 密钥内容只存在于 secrets 与 runner 内存，不落日志（printf 不打印内容）。
+      - name: Restore keystore from secrets
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -z "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "::error::未配置 secrets.ANDROID_KEYSTORE_BASE64 —— 产物将是随机签名，用户必须卸载重装（数据全丢）。配置步骤见 docs/ANDROID-SIGNING.md「CI 配置」"
+            exit 1
+          fi
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > android/app/release.keystore
+          printf 'storeFile=release.keystore\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' \
+            "$ANDROID_KEYSTORE_PASSWORD" "$ANDROID_KEY_ALIAS" "$ANDROID_KEY_PASSWORD" \
+            > android/app/keystore.properties
+          echo "keystore 已还原（内容不打印）"
+
       - name: Build debug APK
         working-directory: android
         run: |
@@ -53,6 +80,15 @@ jobs:
       # 没有现场信息没法远程排错。
       - name: List APK outputs
         run: find android/app/build/outputs -name "*.apk" -print || true
+
+      # 打印签名证书指纹：和手机上已装包的指纹对比，就能**提前**知道这次是
+      # 「覆盖安装（数据保留）」还是「必须卸载（数据全丢）」。
+      # 手机已装包的指纹：adb shell dumpsys package com.yangzheyuan.dailyschedule | grep -i signatures
+      - name: Print APK signing certificate
+        working-directory: android
+        run: |
+          keytool -printcert -jarfile app/build/outputs/apk/debug/app-debug.apk \
+            | grep -iE "SHA256|SHA-256|Owner" || true
 
       # 把 apk 复制成想要的文件名再上传：
       # zip 内部的条目名取决于上传时的**文件路径末尾**，光改 artifact 名没用。
