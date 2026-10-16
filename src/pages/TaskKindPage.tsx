@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import clsx from 'clsx';
 import { Icon, type IconName } from '@/components/ui/Icon';
 import { Tick } from '@/components/ui/Tick';
 import { PageHeader } from '@/components/layout/PageHeader';
@@ -9,6 +10,7 @@ import { useTaskStore } from '@/store/useTaskStore';
 import { compareByOrder } from '@/domain/constants';
 import { RELATIVE_DEADLINE_LABEL } from '@/domain/enums';
 import { formatShortDate } from '@/utils/date';
+import { useKeyboardVisible, KEYBOARD_HIDDEN_CLASS } from '@/hooks/useKeyboardVisible';
 import type { Task } from '@/domain/types';
 import type { TaskKind } from '@/domain/enums';
 
@@ -55,6 +57,9 @@ export function TaskKindPage({ kind }: { kind: Exclude<TaskKind, 'daily'> }) {
   const toggleDone = useTaskStore((s) => s.toggleDone);
   const [composerOpen, setComposerOpen] = useState(false);
   const [editing, setEditing] = useState<Task | null>(null);
+
+  // 键盘弹起 → 底部添加按钮收下去（与 Tab 胶囊同一机制）
+  const keyboardVisible = useKeyboardVisible();
 
   const meta = META[kind];
   const list = tasks
@@ -133,7 +138,15 @@ export function TaskKindPage({ kind }: { kind: Exclude<TaskKind, 'daily'> }) {
       </div>
 
       {/* 底部添加按钮：点它才出现时间 / 描述之类选项 */}
-      <div className="fixed inset-x-0 bottom-[100px] flex justify-center px-4 pointer-events-none">
+      <div
+        className={clsx(
+          'fixed inset-x-0 bottom-[100px] flex justify-center px-4 pointer-events-none',
+          // 键盘弹起时跟着底栏一起收下去：fixed 在 adjustResize 下会被键盘顶上来
+          'transition-opacity duration-150 ease-[var(--m-ease-out)]',
+          keyboardVisible && KEYBOARD_HIDDEN_CLASS,
+        )}
+        aria-hidden={keyboardVisible}
+      >
         <div className="w-full max-w-[430px] pointer-events-auto">
           <button
             type="button"

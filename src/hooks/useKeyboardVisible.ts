@@ -66,3 +66,14 @@ export function useKeyboardVisible(): boolean {
 
   return visible;
 }
+
+/**
+ * 键盘弹起时给「fixed 底部悬浮元素」用的收起 class。
+ *
+ * 覆盖的悬浮物：底部 Tab 胶囊、各页「+ 添加」主按钮、时间轴操作栏、撤销条。
+ * 🔴 位移 160px 要大于「胶囊 70 + 呼吸 16 + 安全区（iPhone 约 34）」，
+ * 否则会露出一截在键盘上方。
+ * 🔴 只用**位移 + 透明度**，不要给位置加 transition：键盘升起动画进行中
+ * 视口已经在压缩，再叠一个位移过渡就是「边飘边收」，用户看到的就是飘移。
+ */
+export const KEYBOARD_HIDDEN_CLASS = 'translate-y-[160px] opacity-0 pointer-events-none';

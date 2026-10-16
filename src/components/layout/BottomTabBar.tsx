@@ -2,7 +2,7 @@ import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import clsx from 'clsx';
 import { Icon, type IconName } from '@/components/ui/Icon';
-import { useKeyboardVisible } from '@/hooks/useKeyboardVisible';
+import { useKeyboardVisible, KEYBOARD_HIDDEN_CLASS } from '@/hooks/useKeyboardVisible';
 
 const TABS = [
   { to: '/today', label: '今日', icon: 'sun' },
@@ -76,9 +76,10 @@ export function BottomTabBar() {
     <nav
       className={clsx(
         'fixed bottom-0 left-0 right-0 z-30 flex justify-center px-5 pb-[calc(16px+env(safe-area-inset-bottom))]',
-        'transition-[transform,opacity] duration-[var(--m-dur-2)] ease-[var(--m-ease-out)]',
-        // 收下去的位移要大于「胶囊 70 + 呼吸 16 + 安全区」，否则会露出一截
-        keyboardVisible && 'translate-y-[150px] opacity-0 pointer-events-none',
+        // 只过渡透明度：位置必须瞬切，键盘升起动画中视口已在压缩，
+        // 再叠位移过渡就是「边飘边收」（详见 KEYBOARD_HIDDEN_CLASS 注释）
+        'transition-opacity duration-150 ease-[var(--m-ease-out)]',
+        keyboardVisible && KEYBOARD_HIDDEN_CLASS,
       )}
       aria-hidden={keyboardVisible}
     >

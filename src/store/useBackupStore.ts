@@ -109,9 +109,11 @@ export const useBackupStore = create<BackupState>((set, get) => ({
       const payload = buildBackupPayload(tables, clock.now());
       const text = serializeBackup(payload);
       const stamp = toDateKey(new Date(payload.exportedAt));
-      saveTextFile(`日程表备份-${stamp}.json`, text);
+      // 落点描述（系统下载目录 / 浏览器下载目录）来自 fileBridge，原样进提示：
+      // 用户抱怨过「不知道导出到哪去了、导入时找不到」（2026-10-16）。
+      const location = saveTextFile(`日程表备份-${stamp}.json`, text);
 
-      const message = `已导出 ${describeSummary(summarizeBackup(payload))}`;
+      const message = `已导出 ${describeSummary(summarizeBackup(payload))}，保存到${location}，文件名「日程表备份-${stamp}.json」`;
       set({ busy: false, lastMessage: message });
       return { ok: true, message };
     } catch (error) {

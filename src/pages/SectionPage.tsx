@@ -1,4 +1,5 @@
 import { Icon } from '@/components/ui/Icon';
+import clsx from 'clsx';
 import { useEffect } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { sectionColor } from '@/domain/constants';
@@ -8,6 +9,7 @@ import { useItemStore } from '@/store/useItemStore';
 import { useUiStore } from '@/store/useUiStore';
 import { useDayStore } from '@/store/useDayStore';
 import { useTreeEditor } from '@/hooks/useTreeEditor';
+import { useKeyboardVisible, KEYBOARD_HIDDEN_CLASS } from '@/hooks/useKeyboardVisible';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { TreeRow } from '@/components/tree/TreeRow';
 import { ItemSheet } from '@/components/item/ItemSheet';
@@ -46,6 +48,9 @@ export function SectionPage() {
   // 副标题的「N项」= 该板块当天的**顶层**条目数（与今日页组头同一口径：
   // 子项是条目内部的分支，不单独计数；时间段只在今日页投影，本页不出现故不计）。
   const topCount = rows.filter((row) => row.item.parentId === null).length;
+
+  // 键盘弹起 → 底部「+ 添加条目」收下去（与 Tab 胶囊同一机制）
+  const keyboardVisible = useKeyboardVisible();
 
   const drawerItem = items.find((item) => item.id === drawerItemId) ?? null;
 
@@ -103,7 +108,15 @@ export function SectionPage() {
       </div>
 
       {/* 底部常驻添加按钮 */}
-      <div className="fixed inset-x-0 bottom-[100px] flex justify-center px-4 pointer-events-none">
+      <div
+        className={clsx(
+          'fixed inset-x-0 bottom-[100px] flex justify-center px-4 pointer-events-none',
+          // 键盘弹起时跟着底栏一起收下去：fixed 在 adjustResize 下会被键盘顶上来
+          'transition-opacity duration-150 ease-[var(--m-ease-out)]',
+          keyboardVisible && KEYBOARD_HIDDEN_CLASS,
+        )}
+        aria-hidden={keyboardVisible}
+      >
         <div className="w-full max-w-[430px] pointer-events-auto">
           <button
             type="button"

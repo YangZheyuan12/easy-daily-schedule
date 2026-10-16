@@ -191,6 +191,12 @@ function BackupCard() {
         </button>
       </div>
 
+      {/* 导入入口说明：用户找不到备份文件时的第一求助位（2026-10-16 反馈） */}
+      <p className="text-caption leading-5 text-ink-faint">
+        导入时在系统文件选择器的「下载」目录里找「日程表备份-日期.json」；
+        导出成功后的提示里也写着保存位置和文件名。
+      </p>
+
       <Sheet open={pending !== null} onClose={() => setPending(null)} title="导入备份">
         <div className="pt-3 space-y-3">
           <p className="text-body leading-6 text-ink-muted">

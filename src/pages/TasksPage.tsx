@@ -1,6 +1,7 @@
 import { Icon } from '@/components/ui/Icon';
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import clsx from 'clsx';
 import { isDailyTask } from '@/domain/enums';
 import { compareByOrder } from '@/domain/constants';
 import { useTaskStore } from '@/store/useTaskStore';
@@ -16,6 +17,7 @@ import { EmptyState } from '@/components/feedback/EmptyState';
 import { computeTaskProgress, toPercent } from '@/services/progressService';
 import { planTaskSync } from '@/services/taskSyncService';
 import { formatShortDate, isToday } from '@/utils/date';
+import { useKeyboardVisible, KEYBOARD_HIDDEN_CLASS } from '@/hooks/useKeyboardVisible';
 
 /**
  * 每日任务页：**单一列表平铺**，支持一键继承昨日未完成，
@@ -42,6 +44,9 @@ export function TasksPage() {
   const [pickingId, setPickingId] = useState<string | null>(null);
   const [syncOpen, setSyncOpen] = useState(false);
   const [syncCount, setSyncCount] = useState(0);
+
+  // 键盘弹起 → 底部「+ 添加任务」收下去（与 Tab 胶囊同一机制）
+  const keyboardVisible = useKeyboardVisible();
 
   /*
     展示顺序**由 `order` 派生**，不是数组位置 —— 与板块树（buildTree 按 order 排子节点）同一套约定。
@@ -200,7 +205,15 @@ export function TasksPage() {
         </div>
       </div>
 
-      <div className="fixed inset-x-0 bottom-[100px] flex justify-center px-4 pointer-events-none">
+      <div
+        className={clsx(
+          'fixed inset-x-0 bottom-[100px] flex justify-center px-4 pointer-events-none',
+          // 键盘弹起时跟着底栏一起收下去：fixed 在 adjustResize 下会被键盘顶上来
+          'transition-opacity duration-150 ease-[var(--m-ease-out)]',
+          keyboardVisible && KEYBOARD_HIDDEN_CLASS,
+        )}
+        aria-hidden={keyboardVisible}
+      >
         <div className="w-full max-w-[430px] pointer-events-auto">
           <button
             type="button"

@@ -24,6 +24,7 @@ import { planSlotSync } from '@/services/slotSyncService';
 import { useTimelineWindowStore } from '@/store/useTimelineWindowStore';
 import { useNowMin } from '@/hooks/useNowMin';
 import { useRecentlyChanged } from '@/hooks/useRecentlyChanged';
+import { useKeyboardVisible, KEYBOARD_HIDDEN_CLASS } from '@/hooks/useKeyboardVisible';
 import { staggerDelay } from '@/utils/motion';
 import {
   formatShortDate,
@@ -55,6 +56,9 @@ export function TimelinePage() {
   const toggleDone = useTimeSlotStore((s) => s.toggleDone);
   const removeSlot = useTimeSlotStore((s) => s.removeSlot);
   const pushToast = useUiStore((s) => s.pushToast);
+
+  // 键盘弹起 → 底部操作栏收下去（与 Tab 胶囊同一机制）
+  const keyboardVisible = useKeyboardVisible();
 
   const rangeSlots = useRangeStore((s) => s.slots);
   const loadRange = useRangeStore((s) => s.loadRange);
@@ -389,8 +393,16 @@ export function TimelinePage() {
       {/*
         主操作固定在 Tab Bar 之上，滚动时始终可达。
         勾选模式下这一格换成「取消 + 同步 N 项」—— 添加时间段此刻不该被误点。
+        键盘弹起时整栏收下去：fixed 在 adjustResize 下会被键盘顶上来。
       */}
-      <div className="fixed inset-x-0 bottom-[100px] flex justify-center px-5 pointer-events-none">
+      <div
+        className={clsx(
+          'fixed inset-x-0 bottom-[100px] flex justify-center px-5 pointer-events-none',
+          'transition-opacity duration-150 ease-[var(--m-ease-out)]',
+          keyboardVisible && KEYBOARD_HIDDEN_CLASS,
+        )}
+        aria-hidden={keyboardVisible}
+      >
         <div className="w-full max-w-[430px] pointer-events-auto flex gap-2">
           {selecting ? (
             <>

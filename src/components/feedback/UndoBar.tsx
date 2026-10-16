@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
+import clsx from 'clsx';
 import { UNDO_WINDOW_MS } from '@/domain/constants';
 import { useItemStore } from '@/store/useItemStore';
 import { useTaskStore } from '@/store/useTaskStore';
+import { useKeyboardVisible, KEYBOARD_HIDDEN_CLASS } from '@/hooks/useKeyboardVisible';
 
 /**
  * 删除撤销条。
@@ -29,6 +31,9 @@ export function UndoBar() {
 
   const [visible, setVisible] = useState(false);
 
+  // 键盘弹起 → 撤销条收下去（与 Tab 胶囊、各页添加按钮同一机制）
+  const keyboardVisible = useKeyboardVisible();
+
   useEffect(() => {
     if (!active) {
       setVisible(false);
@@ -52,7 +57,14 @@ export function UndoBar() {
       两件悬浮物同时挤在底部时，撤销条正好压在「+ 添加」上，按钮会变成点不动的幽灵
       （字号放大后撤销条更高，压得更实）。Tab 胶囊自底向上占 86px，100 也一并让开了它。
     */
-    <div className="fixed inset-x-0 bottom-[100px] z-40 flex justify-center px-4 pointer-events-none">
+    <div
+      className={clsx(
+        'fixed inset-x-0 bottom-[100px] z-40 flex justify-center px-4 pointer-events-none',
+        'transition-opacity duration-150 ease-[var(--m-ease-out)]',
+        keyboardVisible && KEYBOARD_HIDDEN_CLASS,
+      )}
+      aria-hidden={keyboardVisible}
+    >
       <div className="w-full max-w-[430px] pointer-events-auto m-rise">
         <div className="relative overflow-hidden flex items-center gap-3 bg-accent text-accent-fg rounded-full pl-4 pr-2 py-2 shadow-lg">
           <span className="flex-1 text-body truncate">{active.entry.label}</span>

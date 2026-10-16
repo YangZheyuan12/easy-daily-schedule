@@ -10,10 +10,14 @@
  * （Android / iOS 都会唤起系统文件选择器），所以导入这一侧 Web 与原生共用一套代码。
  * 导出侧用 `<a download>`，在桌面浏览器会直接下载，在 App 内 WebView 里
  * 会交给系统下载器 / 「存储」App —— 行为不如 Share 插件优雅，但零新增依赖。
+ *
+ * 🔴 `saveTextFile` 返回**落点描述**而不是 void：用户抱怨过「不知道导出到哪去了」
+ * （2026-10-16），调用方要把这个描述原样放进提示里。
  */
+import { Capacitor } from '@capacitor/core';
 
-/** 把一段文本存成文件交给用户（触发下载 / 系统保存） */
-export function saveTextFile(filename: string, text: string, mime = 'application/json'): void {
+/** 把一段文本存成文件交给用户（触发下载 / 系统保存），返回落点描述文案 */
+export function saveTextFile(filename: string, text: string, mime = 'application/json'): string {
   const blob = new Blob([text], { type: `${mime};charset=utf-8` });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
@@ -25,6 +29,7 @@ export function saveTextFile(filename: string, text: string, mime = 'application
   document.body.removeChild(anchor);
   // 立刻 revoke 会让部分浏览器来不及取数据，放到下一轮事件循环
   setTimeout(() => URL.revokeObjectURL(url), 0);
+  return Capacitor.isNativePlatform() ? '系统下载目录（Download）' : '浏览器下载目录';
 }
 
 /**
