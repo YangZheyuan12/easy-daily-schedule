@@ -2,14 +2,13 @@ name: Mobile
 
 # 出 Android / iOS 产物。默认只在 main 上跑，也可以手动触发（Actions → Mobile → Run workflow）。
 #
-# ⚠️ 签名说明（重要，决定了两个 job 的定位差别很大）：
-# - **Android**：出 **debug APK**，能直接装到手机上用，不需要任何账号。这是真正可用的产物。
-#   但 debug 包**默认用 runner 每次随机生成的 debug 钥匙签名** —— 与本地包的签名不同，
-#   用户覆盖安装会被系统拒绝 → 只能卸载 → IndexedDB 全丢（本项目纯本地无同步）。
-#   所以下面的「Restore keystore」步骤从 secrets 还原**本地同一把钥匙**，
-#   让 CI 产物与本地包签名一致。secrets 配置见 docs/ANDROID-SIGNING.md「CI 配置」。
-#   🔴 未配置 secrets 时这个 job 会**直接失败**而不是产出随机签名包 ——
-#      一个装不上、要用户卸载重装的「新版」比没有新版更糟。
+# ⚠️ 签名说明（重要，决定了 Android job 的两种运行形态）：
+# - **配了签名 secrets**：出 **release APK**，用本地同一把钥匙签名（与本地构建一致），
+#   用户覆盖安装 → 数据保留。secrets 配置见 docs/ANDROID-SIGNING.md「CI 配置」。
+# - **没配 secrets**：只跑「构建验证」——debug 包编出来即证明 Android 工程没坏，
+#   但**不上传产物**，并打 ::warning:: 说明原因。job 保持绿色。
+#   🔴 绝不出「随机签名的发布包」：那包装不上旧版，用户只能卸载重装 →
+#      IndexedDB 全丢（本项目纯本地无同步），比没有新版更糟。要发版就先配 secrets。
 # - **iOS**：这个 job 的定位是**「验证 Xcode 工程能编译」**，不是出安装包。
 #   原因：Apple 不允许未签名 App 装进 iPhone，签名必须要有
 #     ① 一台装了 Xcode 的 Mac（用免费 Apple ID 自签，7 天有效期），或
@@ -48,11 +47,14 @@ jobs:
       - run: npm run build
       - run: npx cap sync android
 
-      # 固定签名：把本地那把钥匙（keystore）从 secrets 还原到 runner 上。
-      # 没有这一步，debug 包会用 runner 随机 debug 钥匙签名，与用户手机上
-      # 本地签名的旧包对不上 → 覆盖安装被拒 → 卸载 → 数据全丢。
+      # 签名探测 + 还原（一步完成，决定本 job 的两种形态）：
+      # - secrets 齐 → 还原本地同一把钥匙，标记 present=true，后面出**签名 release 包**
+      #   （与本地构建同一把钥匙 → 用户覆盖安装不丢数据）
+      # - secrets 缺 → 什么都不还原，标记 present=false，只打警告；
+      #   发布相关步骤全部跳过，仅保留「构建验证」（见下一个步骤）
       # 密钥内容只存在于 secrets 与 runner 内存，不落日志（printf 不打印内容）。
-      - name: Restore keystore from secrets
+      - name: Restore keystore from secrets (optional)
+        id: keystore
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -60,34 +62,51 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           if [ -z "$ANDROID_KEYSTORE_BASE64" ]; then
-            echo "::error::未配置 secrets.ANDROID_KEYSTORE_BASE64 —— 产物将是随机签名，用户必须卸载重装（数据全丢）。配置步骤见 docs/ANDROID-SIGNING.md「CI 配置」"
-            exit 1
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::未配置 secrets.ANDROID_KEYSTORE_BASE64 —— 本次只验证 Android 构建，不发布包。配好 secrets 后本 job 自动产出可覆盖安装的签名包（配置见 docs/ANDROID-SIGNING.md「CI 配置」）"
+            exit 0
           fi
           echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > android/app/release.keystore
           printf 'storeFile=release.keystore\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' \
             "$ANDROID_KEYSTORE_PASSWORD" "$ANDROID_KEY_ALIAS" "$ANDROID_KEY_PASSWORD" \
             > android/app/keystore.properties
+          echo "present=true" >> "$GITHUB_OUTPUT"
           echo "keystore 已还原（内容不打印）"
 
-      - name: Build debug APK
+      # 没配 secrets 时的构建门槛：证明 Android 工程没坏（gradlew 能编出包）。
+      # 产物是 runner 随机 debug 签名，**刻意不上传**——那包装不上旧版，
+      # 用户只能卸载丢数据，所以它只配当「编译通过」的信号，不配当发布物。
+      - name: Build debug APK (build gate only)
+        if: steps.keystore.outputs.present != 'true'
         working-directory: android
         run: |
           chmod +x ./gradlew
           ./gradlew assembleDebug
 
-      # 先打印产物树再打包：Gradle 版本的差异会让 apk 落点（debug / release、
-      # 是否带 splits）对不上预期，硬编码路径一旦错位就只剩一句 "No files were found"，
-      # 没有现场信息没法远程排错。
+      # 签名发布包：keystore.properties 已还原本机同一把钥匙，
+      # release 构建类型用它签名（见 android/app/build.gradle 的 signingConfigs）。
+      - name: Build signed release APK
+        if: steps.keystore.outputs.present == 'true'
+        working-directory: android
+        run: |
+          chmod +x ./gradlew
+          ./gradlew assembleRelease
+
+      # 先打印产物树再打包：Gradle 版本的差异会让 apk 落点对不上预期，
+      # 硬编码路径一旦错位就只剩一句 "No files were found"，没有现场信息没法远程排错。
       - name: List APK outputs
+        if: steps.keystore.outputs.present == 'true'
         run: find android/app/build/outputs -name "*.apk" -print || true
 
       # 打印签名证书指纹：和手机上已装包的指纹对比，就能**提前**知道这次是
       # 「覆盖安装（数据保留）」还是「必须卸载（数据全丢）」。
       # 手机已装包的指纹：adb shell dumpsys package com.yangzheyuan.dailyschedule | grep -i signatures
+      # 2026-10-16 新 keystore 的指纹：SHA256 48:AD:DE:AC:56:E1:BF:32:...:B3:E7:87
       - name: Print APK signing certificate
+        if: steps.keystore.outputs.present == 'true'
         working-directory: android
         run: |
-          keytool -printcert -jarfile app/build/outputs/apk/debug/app-debug.apk \
+          keytool -printcert -jarfile app/build/outputs/apk/release/app-release.apk \
             | grep -iE "SHA256|SHA-256|Owner" || true
 
       # 把 apk 复制成想要的文件名再上传：
@@ -95,9 +114,10 @@ jobs:
       # 落到 android/app/build/distributions/（该目录已在 .gitignore 里，
       # 且是 Gradle 惯例位置），cp -f 保证重跑时覆盖。
       - name: Rename APK for distribution
+        if: steps.keystore.outputs.present == 'true'
         run: |
           mkdir -p android/app/build/distributions
-          cp -f android/app/build/outputs/apk/debug/app-debug.apk \
+          cp -f android/app/build/outputs/apk/release/app-release.apk \
                 android/app/build/distributions/ezschedule-daily.apk
           ls -l android/app/build/distributions
 
@@ -106,6 +126,7 @@ jobs:
       # zip 里的内容则是上一步改好名的 `ezschedule-daily.apk`（单文件上传 = zip 根目录下直接是它）。
       # 注意 v4 要求**同一 run 内 artifact 名唯一**，改名前先确认别的 job 没占用。
       - uses: actions/upload-artifact@v4
+        if: steps.keystore.outputs.present == 'true'
         with:
           name: ezschedule-daily-apk
           path: android/app/build/distributions/ezschedule-daily.apk

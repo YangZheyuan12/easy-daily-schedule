@@ -36,7 +36,9 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         // ⚠️ 每次发版必须递增 versionCode（versionName 只是给人看的字符串）。
         //    低于已装版本会直接装不上：INSTALL_FAILED_VERSION_DOWNGRADE。
-        versionCode 2
+        // 2026-10-16：2 → 3，换用专用 release keystore（android/dailyschedule.keystore）
+        // 签名变更视为新发布线，+1 避免任何降级判定问题。
+        versionCode 3
         versionName "1.1"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {

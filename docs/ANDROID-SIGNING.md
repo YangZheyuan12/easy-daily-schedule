@@ -43,6 +43,11 @@
 
 ### 第 1 步：生成 keystore（只做一次）
 
+> ✅ **已于 2026-10-16 完成**：keystore 在 `android/dailyschedule.keystore`
+> （PKCS12 / RSA 2048 / 有效期 10000 天 / 别名 `dailyschedule`），
+> 密码写在 `android/app/keystore.properties` 里（两个文件都已 gitignore，未提交）。
+> 下面命令留作**丢失后重建**或**换钥匙**时参考——🔴 换钥匙 = 所有用户必须卸载一次。
+
 ```bat
 REM Windows（Git Bash 用正斜杠亦可）
 "%JAVA_HOME%\bin\keytool" -genkeypair -v ^
@@ -58,6 +63,10 @@ REM Windows（Git Bash 用正斜杠亦可）
 > 只能换包名或让用户卸载。
 
 ### 第 2 步：写 `android/app/keystore.properties`
+
+> ✅ **已于 2026-10-16 完成**：文件已存在，内容为
+> `storeFile=../dailyschedule.keystore` + 两个密码 + `keyAlias=dailyschedule`。
+> 密码同时是 GitHub Secrets 的值（见下方「CI 配置」）。
 
 ```
 storeFile=../dailyschedule.keystore
@@ -136,8 +145,15 @@ debug 包用**每次随机生成**的 debug 钥匙签名。用户从 Actions 下
 （2026-10-16 实际踩中：本地包与 CI 包签名不同，用户报告「每次更新都要卸载重装」。）
 
 修法：把**本地同一把钥匙**配成 GitHub Secrets，CI 构建时还原。
-`mobile.yml` 已加好「Restore keystore from secrets」步骤；未配置时 job **直接失败**
-（红叉提醒），不再默默产出随机签名包。
+`mobile.yml` 的「Restore keystore from secrets (optional)」步骤先探测 secrets：
+
+- **配了** → 还原钥匙 → `assembleRelease` 出签名包 → 上传 artifact；
+- **没配** → 只跑 debug 构建验证（证明 Android 工程没坏），**不上传任何产物**，
+  打 `::warning::` 说明原因，job 保持绿色。
+
+绝不再默默产出随机签名包——那正是「每次更新都要卸载丢数据」的根源。
+（2026-10-16 之前的版本是「没配就 job 失败」，太打断人；现在改成
+没配也能绿，但绿得没有发布物，要包必须先配 secrets。）
 
 ### 配置步骤（一次性）
 
@@ -165,12 +181,16 @@ base64 -w 0 android/dailyschedule.keystore
 
 推送后看 Mobile workflow 的 Android job：
 
-- 「Restore keystore from secrets」步骤变绿；
+- 「Restore keystore from secrets (optional)」日志出现 `present=true`；
 - 「Print APK signing certificate」打印出证书 **SHA-256 指纹**，
-  和本地包的指纹一致即签名对齐：
+  和本地包的指纹一致即签名对齐。2026-10-16 新 keystore 的指纹：
+
+```
+SHA256: 48:AD:DE:AC:56:E1:BF:32:C2:7A:2E:6F:4D:92:95:D9:8D:4D:43:A8:95:9B:22:E1:C0:CB:AF:92:39:B3:E7:87
+```
 
 ```bash
-keytool -printcert -jarfile android/app/build/outputs/apk/debug/app-debug.apk | grep -i SHA256
+keytool -printcert -jarfile android/app/build/outputs/apk/release/app-release.apk | grep -i SHA256
 ```
 
 手机上已装包的指纹：`adb shell dumpsys package com.yangzheyuan.dailyschedule | grep -i signatures`。
