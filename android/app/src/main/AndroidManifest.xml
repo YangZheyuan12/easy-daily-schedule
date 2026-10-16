@@ -38,4 +38,12 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+
+    <!--
+        备份导出走 SaveFilePlugin 写公共「下载」目录：API 29+ 用 MediaStore 免权限；
+        只有 API 24-28 需要写公共存储的运行时权限，因此用 maxSdkVersion 限制声明范围。
+    -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
 </manifest>

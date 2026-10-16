@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Sheet, SheetActionButton } from '@/components/ui/Sheet';
 import { Icon } from '@/components/ui/Icon';
 import clsx from 'clsx';
@@ -14,6 +14,12 @@ import type { TaskKind } from '@/domain/enums';
 import { useAutoResizeTextarea } from '@/hooks/useAutoResizeTextarea';
 
 type DueMode = 'date' | RelativeDeadline;
+
+/**
+ * 新增态聚焦标题框的延迟：与 Sheet 入场动画时长（`--m-dur-3` = 280ms）对齐，
+ * 动画基本播完再弹键盘，避开「动画中视口被压缩」的闪烁窗口。
+ */
+const FOCUS_DELAY_MS = 280;
 
 interface TaskKindComposerProps {
   /** 'deadline' 才显示期限选择；'goal' 只有标题 + 描述 */
@@ -46,6 +52,7 @@ export function TaskKindComposer({ kind, task, open, onClose }: TaskKindComposer
   const descRef = useAutoResizeTextarea(desc);
   const [mode, setMode] = useState<DueMode>('date');
   const [dateVal, setDateVal] = useState('');
+  const titleRef = useRef<HTMLInputElement>(null);
 
   // 打开瞬间把表单同步到当前 task（新增则清空）。依赖 open 上升沿，避免编辑中回写表单
   useEffect(() => {
@@ -71,6 +78,21 @@ export function TaskKindComposer({ kind, task, open, onClose }: TaskKindComposer
     }
     // 只在我们重新打开时跑：open 上升沿 + 切到不同的 task
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, task]);
+
+  /*
+    延迟聚焦标题框（新增态）。
+    🔴 不用 `autoFocus` 属性：它会让键盘在抽屉入场动画（m-sheet-up 约 280ms）进行中
+    就弹出，而 Capacitor 的 Keyboard.resize=native（adjustResize）会连布局视口一起
+    压缩 —— fixed inset-0 的抽屉容器在半空中改变高度，配合 useKeyboardAvoid 在键盘
+    弹起过渡帧里写入的瞬时 offset，面板位置就会跳一下，用户看到的就是「闪一下」
+    （2026-10-16 用户报告，仅本抽屉有此问题，因为全项目只有这一处 autoFocus）。
+    等动画基本播完再 focus：键盘弹起时面板已稳定，只剩一次正常的视口压缩。
+  */
+  useEffect(() => {
+    if (!open || task) return;
+    const timer = setTimeout(() => titleRef.current?.focus(), FOCUS_DELAY_MS);
+    return () => clearTimeout(timer);
   }, [open, task]);
 
   const canSave =
@@ -126,6 +148,7 @@ export function TaskKindComposer({ kind, task, open, onClose }: TaskKindComposer
         <div>
           <div className="text-caption text-ink-muted mb-1.5">标题</div>
           <input
+            ref={titleRef}
             value={title}
             onChange={(event) => setTitle(event.target.value)}
             onKeyDown={(event) => {
@@ -137,7 +160,6 @@ export function TaskKindComposer({ kind, task, open, onClose }: TaskKindComposer
             placeholder={isDeadline ? '例如：交课程设计初稿' : '例如：读完《xxx》'}
             className="w-full min-h-tap px-1 text-lead outline-none bg-transparent text-ink"
             enterKeyHint="done"
-            autoFocus
           />
         </div>
 

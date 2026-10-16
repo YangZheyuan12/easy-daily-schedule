@@ -193,8 +193,8 @@ function BackupCard() {
 
       {/* 导入入口说明：用户找不到备份文件时的第一求助位（2026-10-16 反馈） */}
       <p className="text-caption leading-5 text-ink-faint">
-        导入时在系统文件选择器的「下载」目录里找「日程表备份-日期.json」；
-        导出成功后的提示里也写着保存位置和文件名。
+        导出的备份写在手机的「下载」目录里 —— App 内看不到，请用系统「文件管理」App 查看；
+        导入时在文件选择器的「下载」里选「日程表备份-日期.json」即可。
       </p>
 
       <Sheet open={pending !== null} onClose={() => setPending(null)} title="导入备份">
