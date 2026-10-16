@@ -2764,9 +2764,60 @@ UI（`TimelinePage`）：顶部右侧「同步到今日」按钮 → 勾选模�
 - `MePage` 备份卡在导入按钮下加一行说明：去文件选择器的「下载」目录找
   「日程表备份-日期.json」。
 
-全量：`tsc` ✓、`check:layers` **194 文件** ✓、`vitest` **1138 用例 / 60 文件** ✓、
-`build` 460.13KB ✓。（本轮无新测试用例：键盘避让是视觉/交互层、CI 与提示是配置/文案层，
-靠真机验证；负向验证不适用于无断言新增的场景。）
+### 9-L 弹窗闪烁修复 + 备份导出真正落地（2026-10-16 第九轮）
+
+#### 9-L.1 期限/目标添加弹窗「闪一下」
+
+用户反馈：「期限任务」「长时目标」点进去后，添加弹窗会闪一下。排查确认与导航栏无关
+（`BottomTabBar` 本来就是 `fixed bottom-0 z-30`，且被抽屉 z-40 盖住），根因是三层时序叠加：
+
+1. `TaskKindComposer` 的标题框有 `autoFocus`（**全项目唯一一处**，与「只有这两个弹窗闪」
+   的用户观察吻合）→ 键盘在 Sheet 入场动画（`m-sheet-up` 280ms）进行中就弹出；
+2. Capacitor `Keyboard.resize = 'native'`（Android `adjustResize`）连**布局视口**一起压缩 →
+   `fixed inset-0` 的抽屉容器在半空中改变高度；
+3. `useKeyboardAvoid` 把 `innerHeight - vv.height - vv.offsetTop` 写成 CSS 变量
+   `--keyboard-offset`，键盘弹起动画中两个高度值变化不同步，过渡帧产出瞬时小偏移 →
+   抽屉的 `paddingBottom` / `maxHeight` 跟着跳。
+
+修法（两处，都是「让变化一次完成、不要在半空中跳」）：
+
+- `TaskKindComposer`：`autoFocus` 属性移除，改为挂载后延迟 `FOCUS_DELAY_MS = 280`
+  （与 `--m-dur-3` 对齐）再 `focus()`，**仅新增态**（编辑态不抢焦点）；
+- `useKeyboardAvoid`：offset 加 `OFFSET_THRESHOLD = 120` 阈值（与 `useKeyboardVisible`
+  的 `KEYBOARD_THRESHOLD` 同源），小于阈值的瞬时抖动一律写 0px；真键盘（远超阈值）避让不变。
+
+#### 9-L.2 备份导出在真机「找不到文件」—— `<a download>` 根本不落地
+
+§9-K.3 只加了「落点提示文案」，用户反馈仍然找不到 —— 因为提示是假的：
+**Capacitor WebView 没有注册 `DownloadListener`，`<a download>`（Blob URL）点击后
+什么都不会发生**，文件从未写入磁盘。Filesystem 插件的公共目录也走不通
+（官方文档：`Directory.ExternalStorage` Android 11+ 不可访问；`Directory.Documents`
+Android 11+ 只能访问 App 自建文件）。
+
+修法：自写最小本地插件，用 MediaStore 直写公共「下载」目录：
+
+- `android/app/src/main/java/com/yangzheyuan/dailyschedule/SaveFilePlugin.java`：
+  `@CapacitorPlugin(name = "SaveFile")` + `saveText({ filename, text, mime })`。
+  API 29+ 走 `MediaStore.Downloads`（`IS_PENDING` 期间写流再置 0 发布，**免运行时权限**，
+  文件管理 App 立即可见）；API 24-28 走 File 直写 + manifest 的
+  `WRITE_EXTERNAL_STORAGE maxSdkVersion="28"`。写坏时删除半成品文件，不在用户目录留垃圾。
+- `MainActivity.onCreate` 里 `registerPlugin(SaveFilePlugin.class)`
+  （cap sync 不覆盖 MainActivity，本地插件安全）；
+- `src/platform/saveFilePlugin.ts`：`registerPlugin<SaveFilePlugin>('SaveFile')` 封装；
+- `fileBridge.saveTextFile` 改为 **async**：`Capacitor.getPlatform() === 'android'`
+  走插件、返回「系统『下载』目录（用文件管理 App 就能看到）」；Web / iOS 维持
+  `<a download>`（iOS 侧载本身受限，后续再接 Share）。原生写入失败**向上抛**，
+  由 store 变成失败 toast，不假装成功；
+- `useBackupStore.exportBackup` 的调用改为 `await`；`MePage` 备份卡的说明改为
+  「App 内看不到，请用系统『文件管理』App 查看」——用户最大的困惑就是在 App 里找。
+
+⚠️ 本项改动**必须重新出 APK 才生效**（改了原生代码）；iOS 导出行为暂未变。
+
+全量：`tsc` ✓、`check:layers` **198 文件** ✓、`vitest` **1151 用例 / 63 文件**
+（与 `find src -name "*.test.ts"` 核对一致）✓、`build` 460.45KB ✓。
+新增测试 13 条（`useKeyboardAvoid` 阈值 5、`fileBridge` 平台分支 4、`TaskKindComposer`
+延迟聚焦 4），负向验证：去掉阈值 → 抖动用例红；恢复 `autoFocus` → 3 条聚焦用例红；
+fileBridge 退回 `<a download>` → 3 条 Android 用例红。
 
 ---
 
