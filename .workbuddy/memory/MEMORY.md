@@ -63,5 +63,12 @@ items/tasks/days/selfStatus/timeSlots/inspirations/itemImages，每个 `version(
 远端 github.com/YangZheyuan12/easy-daily-schedule（公开）。git 必须用 `/d/apps/Git/cmd/git.exe`；
 🔴 push 报 502 / SSL unexpected eof 时：**沙箱外（dangerouslyDisableSandbox）+ 清空代理变量**
 `https_proxy= http_proxy= HTTPS_PROXY= HTTP_PROXY= git push origin main` 才通（沙箱内代理必挂、
-直连必 reset；fetch 间歇可用但不可依赖）。curl 不通 ≠ git 不通。
+直连必 reset；fetch 间歇可用但不可依赖；偶发 SIGTERM 无输出=重试即可）。curl 不通 ≠ git 不通。
 命令：`npm run verify`（layers+typecheck+test+build）/ `npm test` / `npm run test:strict`。
+
+## Android 签名（2026-10-16 建成）
+专用 keystore=`android/dailyschedule.keystore`（RSA2048/10000天/别名 dailyschedule/密码在
+`android/app/keystore.properties`，两文件均 gitignore 未提交）。debug/release 共用它 → 本地构建
+签名即固定。versionCode 已 2→3。CI：mobile.yml 探测式——配了 4 个 secrets
+（ANDROID_KEYSTORE_BASE64/_PASSWORD、KEY_ALIAS、KEY_PASSWORD）才出签名 release 包并上传；
+没配只跑 debug 构建验证、不上传产物、job 绿。🔴 用户手机旧签名包升级仍需卸载一次（先备份）。
