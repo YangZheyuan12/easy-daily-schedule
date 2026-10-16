@@ -2720,6 +2720,54 @@ UI（`TimelinePage`）：顶部右侧「同步到今日」按钮 → 勾选模�
 负向验证：把组头口径改成含子项 → 「子项不计入」红；副标题退回纯日期 → 3 条全红。
 全量：`tsc` ✓、`check:layers` **194 文件** ✓、`vitest` **1138 用例 / 60 文件** ✓、`build` 459.51KB ✓。
 
+### 9-K 键盘避让统一 + CI 签名修复 + 备份落点提示（2026-10-16 第八轮）
+
+#### 9-K.1 键盘弹起时，所有底部悬浮元素一起收下去
+
+用户反馈「导航栏和添加任务仍然会随键盘浮起而飘移」。根因有两层：
+
+1. `Keyboard.resize = 'native'`（Android `adjustResize`）会压缩**布局视口**，
+   `fixed bottom-0 / bottom-[100px]` 并不钉在屏幕底，而是浮到键盘上方；
+2. 只有 `BottomTabBar` 接了 `useKeyboardVisible`，其余五处 fixed 悬浮物全裸奔。
+
+修法：`useKeyboardVisible.ts` 导出共用 class `KEYBOARD_HIDDEN_CLASS`
+（`translate-y-[160px] opacity-0 pointer-events-none`），接入全部六处：
+`BottomTabBar`、`SectionPage` / `TasksPage` / `TaskKindPage` 的「+ 添加」、
+`TimelinePage` 底部操作栏、`UndoBar`。
+
+🔴 **只过渡透明度、位置瞬切**：键盘升起动画进行中视口已在压缩，再叠一个
+位移 transition 就是「边飘边收」——用户看到的就是飘移。这是从
+`transition-[transform,opacity] 250ms` 改成 `transition-opacity 150ms` 的原因。
+
+#### 9-K.2 CI 产物签名不一致 → 用户每次更新都要卸载（数据全丢）
+
+根因：`mobile.yml` 在 GitHub runner 上打 debug APK，而 `keystore.properties`
+不提交 → runner 上没有 → 用**每次随机生成**的 debug 钥匙签名；用户手机上装的
+是本地固定签名的包 → 签名不同 → 系统拒绝覆盖安装 → 只能卸载 → IndexedDB 全丢。
+（本地 debug/release 共用一把钥匙的机制 `build.gradle` 早就配好了，缺的只是 CI。）
+
+修法（`mobile.yml`）：构建前从 **GitHub Secrets** 还原 keystore
+（`ANDROID_KEYSTORE_BASE64` 等 4 个，配置步骤见 `docs/ANDROID-SIGNING.md`
+「CI 配置」一节）；**未配置 secrets 时 job 直接失败**，不再默默产出随机签名包；
+构建后打印 APK 证书 SHA-256 指纹，供与手机已装包指纹比对、提前判断能否覆盖安装。
+
+⚠️ 已装过旧签名包（含此前 CI 随机签名包）的手机，升级到新签名包**仍需卸载一次**
+（签名切换的代价，躲不掉）：卸载前在 App 里导出备份，装新包后合并导入。之后不再需要卸载。
+
+#### 9-K.3 备份导出落点提示
+
+用户反馈「不知道导出到哪里去了，导入时也找不到」。修法：
+
+- `fileBridge.saveTextFile` 从 `void` 改为**返回落点描述**（原生 = 系统下载目录
+  （Download），Web = 浏览器下载目录，按 `Capacitor.isNativePlatform()` 区分）；
+- `useBackupStore.exportBackup` 的提示语改为「已导出 X，保存到{落点}，文件名「…」」；
+- `MePage` 备份卡在导入按钮下加一行说明：去文件选择器的「下载」目录找
+  「日程表备份-日期.json」。
+
+全量：`tsc` ✓、`check:layers` **194 文件** ✓、`vitest` **1138 用例 / 60 文件** ✓、
+`build` 460.13KB ✓。（本轮无新测试用例：键盘避让是视觉/交互层、CI 与提示是配置/文案层，
+靠真机验证；负向验证不适用于无断言新增的场景。）
+
 ---
 
 ## 十、待明确事项（需拍板，附推荐默认）
