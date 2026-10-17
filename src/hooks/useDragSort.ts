@@ -40,8 +40,8 @@ const EDGE_PX = 72;
 const EDGE_SPEED_PX = 10;
 /** 松手后卡片归位的时长（JS 与 CSS 各写一份 —— CSS 变量读不回来） */
 const SETTLE_MS = 180;
-/** 让位过渡 */
-const SHIFT_TRANSITION = 'transform 200ms cubic-bezier(0.22, 1, 0.36, 1)';
+/** 让位过渡（拖拽中让位行的平滑让位：短而干脆，既见动效又不「追赶」跟手卡） */
+const SHIFT_TRANSITION = 'transform 120ms cubic-bezier(0.22, 1, 0.36, 1)';
 /**
  * 目标判定的**滞回带**：被拖卡片中心必须越过相邻中心这么多像素，才允许
  * `to` 再多 / 再少一格。没有它，手指在两根卡片的交界处轻微抖动就会让 `to`
@@ -521,14 +521,14 @@ export function useDragSort({ ids, onReorder }: DragOptions): DragSortResult {
       }
       if (drag) {
         /*
-          🔴 让位行**拖拽期间不做 transition**（即时跟手），只做 transform 位移。
-          之前给 200ms 缓动，让位行会「追赶」被拖卡（被拖卡是跟手实时 0 延迟），
-          两者帧错位 → 手指移动时其它行一抽一抽地「向上闪」。即时位移让所有行与
-          被拖卡严格同帧，拖拽过程零抖动；松手后的 FLIP 动画再负责收尾的平滑。
+          让位行用短过渡（120ms）平滑让位，而不是 none —— 这样「被挤开」的卡片
+          有可见的让位动效（上移/下移是滑过去，而非瞬间出现消失）。
+          之前用 200ms 太长、又试过 none 太硬；120ms 是「有动效且不追不上跟手卡」
+          的平衡点。松手首帧仍由 justReleased 冻结，避免重排时二次过渡。
         */
         return {
           transform: `translateY(${shiftOf(index, drag.from, drag.to, metrics.current?.activeHeight ?? 0)}px)`,
-          transition: 'none',
+          transition: SHIFT_TRANSITION,
           position: 'relative',
         };
       }
