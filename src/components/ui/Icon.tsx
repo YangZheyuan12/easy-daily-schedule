@@ -34,7 +34,19 @@ export type IconName =
   | 'image'
   | 'dot'
   /** 拖拽手柄：两列三点（排查 / 长按拖动排序用） */
-  | 'grip';
+  | 'grip'
+  /** 放大 */
+  | 'zoom-in'
+  /** 缩小 */
+  | 'zoom-out'
+  /** 顺时针旋转 90° */
+  | 'rotate-cw'
+  /** 逆时针旋转 90° */
+  | 'rotate-ccw'
+  /** 裁剪 */
+  | 'crop'
+  /** 重置（刷新箭头） */
+  | 'reset';
 
 interface IconProps {
   name: IconName;
@@ -169,6 +181,45 @@ const STROKE: Record<Exclude<IconName, 'heart' | 'star' | 'dot' | 'grip'>, React
       <rect x="3.4" y="4.6" width="17.2" height="14.8" rx="2.2" />
       <circle cx="8.6" cy="9.4" r="1.7" />
       <path d="M4.8 17.4 9.2 12.6l3 2.8 2.2-2 4.6 4.2" />
+    </>
+  ),
+  'zoom-in': (
+    <>
+      <circle cx="10.5" cy="10.5" r="6.5" />
+      <path d="M15.3 15.3 20.5 20.5" />
+      <path d="M10.5 7.5v6" />
+      <path d="M7.5 10.5h6" />
+    </>
+  ),
+  'zoom-out': (
+    <>
+      <circle cx="10.5" cy="10.5" r="6.5" />
+      <path d="M15.3 15.3 20.5 20.5" />
+      <path d="M7.5 10.5h6" />
+    </>
+  ),
+  'rotate-cw': (
+    <>
+      <path d="M20.5 12a8.5 8.5 0 1 1-2.49-6.01" />
+      <path d="M20.5 3.5V9h-5.5" />
+    </>
+  ),
+  'rotate-ccw': (
+    <>
+      <path d="M3.5 12a8.5 8.5 0 1 0 2.49-6.01" />
+      <path d="M3.5 3.5V9h5.5" />
+    </>
+  ),
+  crop: (
+    <>
+      <path d="M8 2v14a2 2 0 0 0 2 2h14" />
+      <path d="M2 8h14a2 2 0 0 1 2 2v14" />
+    </>
+  ),
+  reset: (
+    <>
+      <path d="M20.5 12a8.5 8.5 0 1 1-2.49-6.01" />
+      <path d="M20.5 3.5V9h-5.5" />
     </>
   ),
 };

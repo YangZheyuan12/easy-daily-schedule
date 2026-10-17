@@ -18,7 +18,7 @@ export interface ItemImageState {
    */
   loadForItems: (itemIds: string[], key: string) => Promise<void>;
   /** 给某条目新增若干图片（自动过滤非图片文件），乐观更新本地后落库 */
-  add: (itemId: string, files: File[]) => Promise<void>;
+  add: (itemId: string, blobs: Blob[]) => Promise<void>;
   /** 删除单张图片（本地 + 落库） */
   remove: (imageId: string, itemId: string) => Promise<void>;
 }
@@ -44,9 +44,9 @@ export const useItemImageStore = create<ItemImageState>((set, get) => ({
     }
   },
 
-  async add(itemId, files) {
+  async add(itemId, blobs) {
     const now = clock.now();
-    const created: ItemImage[] = files
+    const created: ItemImage[] = blobs
       .filter((file) => file.type.startsWith('image/'))
       .map((file) => ({ id: newId('img'), itemId, blob: file, createdAt: now }));
     if (created.length === 0) return;

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { Icon } from '@/components/ui/Icon';
 import { ImageThumb } from './ImageThumb';
 import { ImageLightbox } from './ImageLightbox';
+import { ImageEditor } from './ImageEditor';
 import { useItemImageStore, EMPTY_IMAGES } from '@/store/useItemImageStore';
 import type { ItemImage } from '@/domain/types';
 
@@ -29,6 +30,15 @@ export function ItemImageSection({ itemId }: ItemImageSectionProps) {
   const [lightboxBlob, setLightboxBlob] = useState<Blob | null>(null);
 
   /*
+    编辑器队列：用户一次可多选若干张图。逐张进入 ImageEditor 调整，
+    每确认一张就收集其编辑结果（Blob），全部处理完后再统一 addImages 落库。
+    中途对某张点「取消」= 跳过这张（不收集），继续下一张。
+  */
+  const [queue, setQueue] = useState<Blob[]>([]);
+  const [editIndex, setEditIndex] = useState(-1);
+  const [editedBlobs, setEditedBlobs] = useState<Blob[]>([]);
+
+  /*
     抽屉切到另一条条目时重新拉取。key 用条目 id —— 与今日列表「按天批量拉」
     是两个不同作用域，共用 loadedKey 时会互相判为重击：抽屉打开时今日列表已卸载，
     回到今日时列表重挂载又会因为 key 变了一次重新拉，自愈。
@@ -37,13 +47,50 @@ export function ItemImageSection({ itemId }: ItemImageSectionProps) {
     void loadImages([itemId], itemId);
   }, [itemId, loadImages]);
 
-  const handleFiles = async (event: ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(event.target.files ?? []);
+  const handleFiles = (event: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? []).filter((file) =>
+      file.type.startsWith('image/'),
+    );
     // 清空，保证选同一张也能再次触发 change
     event.target.value = '';
     if (files.length === 0) return;
-    await addImages(itemId, files);
+    setEditedBlobs([]);
+    setQueue(files);
+    setEditIndex(0);
   };
+
+  const finishEditing = async (finalBlobs: Blob[]) => {
+    if (finalBlobs.length > 0) {
+      await addImages(itemId, finalBlobs);
+    }
+    setQueue([]);
+    setEditIndex(-1);
+    setEditedBlobs([]);
+  };
+
+  // 取消当前这张 → 跳过，进入下一张（或收尾）
+  const handleEditorCancel = () => {
+    const next = editIndex + 1;
+    if (next >= queue.length) {
+      void finishEditing(editedBlobs);
+    } else {
+      setEditIndex(next);
+    }
+  };
+
+  // 确认当前这张 → 收集结果，进入下一张（或收尾）
+  const handleEditorConfirm = (blob: Blob) => {
+    const nextBlobs = [...editedBlobs, blob];
+    setEditedBlobs(nextBlobs);
+    const next = editIndex + 1;
+    if (next >= queue.length) {
+      void finishEditing(nextBlobs);
+    } else {
+      setEditIndex(next);
+    }
+  };
+
+  const currentEdit = editIndex >= 0 && editIndex < queue.length ? queue[editIndex] : null;
 
   return (
     <div className="py-3 border-t border-surface-line">
@@ -84,6 +131,14 @@ export function ItemImageSection({ itemId }: ItemImageSectionProps) {
       />
 
       <ImageLightbox blob={lightboxBlob} onClose={() => setLightboxBlob(null)} />
+
+      {currentEdit && (
+        <ImageEditor
+          blob={currentEdit}
+          onCancel={handleEditorCancel}
+          onConfirm={handleEditorConfirm}
+        />
+      )}
     </div>
   );
 }
