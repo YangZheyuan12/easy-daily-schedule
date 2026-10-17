@@ -287,6 +287,11 @@ export function useDragSort({ ids, onReorder }: DragOptions): DragSortResult {
         这里没有 cancel / commitStyles / 重排竞态 —— 重排是同步先发生的，动画只负责
         把视觉位置补回平滑，中途不可能出现「一条消失 / 重叠」。
       */
+      const startOffset = -(settleDy - state.dy);
+      // 先同步把被拖卡「钉」在旧视觉偏移（settling 状态立刻生效），这样 onReorder
+      // 重排 DOM 时它不会在新槽以 transform:none 露一帧（App 端 WebView 帧率低，
+      // 双 rAF 延迟启动动画会把这个「露馅」放大成可见瞬跳 = 闪一下）。
+      setSettling({ id: state.activeId, dy: startOffset });
       updateDrag(null);
       setJustReleased(true);
       onReorderRef.current(state.from, state.to);
@@ -295,39 +300,33 @@ export function useDragSort({ ids, onReorder }: DragOptions): DragSortResult {
       const el = elements.current.get(state.activeId) ?? null;
       if (el && typeof el.animate === 'function') {
         /*
-          FLIP 的「先记录旧位 → 重排 → 从旧位滑到新位」要在重排真正落进 DOM 之后才准。
-          React 状态更新是批处理的（事件回调返回后才 commit），所以这里要等两帧：
-          第一帧让 React commit 重排，第二帧元素已在目标槽、transform 已归 none，
-          这时从 startOffset 滑到 0 才是「旧位 → 新位」。
+          单 rAF 即可：这一帧里 React 已 commit 重排（被拖卡在新槽、inline transform
+          仍是 settling 的 startOffset），此刻同帧把它过渡到 0，中间不再有「就位帧」。
+          相比双 rAF，省掉了一帧的延迟，消除 App 端 WebView 的瞬跳。
         */
-        const startOffset = -(settleDy - state.dy);
         requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            const current = elements.current.get(state.activeId);
-            if (!current || typeof current.animate !== 'function') return;
-            const anim = current.animate(
-              [
-                { transform: `translateY(${startOffset}px)` },
-                { transform: 'translateY(0px)' },
-              ],
-              { duration: SETTLE_MS, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' },
-            );
-            settleAnim.current = anim;
-            anim.onfinish = () => {
-              settleAnim.current = null;
-            };
-            anim.oncancel = () => {
-              settleAnim.current = null;
-            };
-          });
+          const current = elements.current.get(state.activeId);
+          if (!current || typeof current.animate !== 'function') return;
+          const anim = current.animate(
+            [
+              { transform: `translateY(${startOffset}px)` },
+              { transform: 'translateY(0px)' },
+            ],
+            { duration: SETTLE_MS, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' },
+          );
+          settleAnim.current = anim;
+          setSettling(null);
+          anim.onfinish = () => {
+            settleAnim.current = null;
+          };
+          anim.oncancel = () => {
+            settleAnim.current = null;
+          };
         });
         return;
       }
 
       // 兜底：无 WAAPI 时，用 CSS transition 从 FLIP 起点滑到 0
-      const startOffset = -(settleDy - state.dy);
-      setSettling({ id: state.activeId, dy: startOffset });
-      // 下一帧把 transform 归 0，触发 transition 滑过去（两段渲染才能启动过渡）
       requestAnimationFrame(() => setSettling(null));
     },
     [releasePointer, updateDrag],
@@ -493,13 +492,14 @@ export function useDragSort({ ids, onReorder }: DragOptions): DragSortResult {
     (id: string, index: number): CSSProperties => {
       if (settling && settling.id === id) {
         /*
-          CSS transition 兜底归位（FLIP）：先把它钉在旧视觉偏移，下一帧过渡到 0。
-          这里「先钉住再放行」靠 React 的两段渲染 + transition 完成；无 WAAPI 的
-          环境（如 jsdom 测试）走这条，生产浏览器走 WAAPI 分支。
+          松手后「钉住」被拖卡的旧视觉偏移：让 React 重排时它不在新槽以 none 露一帧。
+          这里 transition 必须是 none —— transform 随后由 WAAPI 动画接手驱动（无 WAAPI
+          的兜底环境则靠下一帧 setSettling(null) 触发 CSS transition）。若此处再带 CSS
+          transition，会和 WAAPI 对同一 transform 双写，回到「松手闪一下」的老毛病。
         */
         return {
           transform: `translateY(${settling.dy}px)`,
-          transition: `transform ${SETTLE_MS}ms cubic-bezier(0.22, 1, 0.36, 1)`,
+          transition: 'none',
           zIndex: 20,
           position: 'relative',
         };
