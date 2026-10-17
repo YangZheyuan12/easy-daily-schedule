@@ -132,3 +132,30 @@ describe('computeTargetIndex — 拖中后段条目（from>0，防乱跳）', ()
     expect(computeTargetIndex(tops, heights, 4, 70, 3)).toBe(1); // 过 125、75 两条中心
   });
 });
+
+describe('computeTargetIndex — sensitivity 判定提前量（少移动即可换位）', () => {
+  // 5 行等高 50：top 0/50/100/150/200，中心 25/75/125/175/225
+  const tops = [0, 50, 100, 150, 200];
+  const heights = [50, 50, 50, 50, 50];
+
+  it('向下拖：sensitivity=20 时，中心未到下一行中心(175)也能换到下一格', () => {
+    // 拖第 2 行（中心 125）往下移动 40px → 中心 165：无 sensitivity 时 165 < 175+6=181，
+    // 不换（仍 2）；有 sensitivity 时 probe=185 >= 181 → 换到 3（少移动约 20px 即可）
+    expect(computeTargetIndex(tops, heights, 2, 165, 2, 20)).toBe(3);
+    expect(computeTargetIndex(tops, heights, 2, 165, 2, 0)).toBe(2);
+  });
+
+  it('向上拖：sensitivity=20 时，中心未退到上一行中心(75)也能换上一格', () => {
+    // 拖第 2 行（中心 125）向上移到中心 85：无 sensitivity 时 85 > 75-6=69，不换（仍 2）；
+    // 有 sensitivity 时 probe=65 <= 69 → 换到 1（少移动约 20px 即可）
+    expect(computeTargetIndex(tops, heights, 2, 85, 2, 20)).toBe(1);
+    expect(computeTargetIndex(tops, heights, 2, 85, 2, 0)).toBe(2);
+  });
+
+  it('sensitivity=0 与原「中心对中心」行为完全一致', () => {
+    // 拖第 2 行到中心 160：无 sensitivity 时 175-6=169 未过 → 仍 2
+    expect(computeTargetIndex(tops, heights, 2, 160, 2, 0)).toBe(2);
+    // 到中心 180：过 175+6=181? 180<181 → 仍 2；到 185 过 → 3
+    expect(computeTargetIndex(tops, heights, 2, 185, 2, 0)).toBe(3);
+  });
+});

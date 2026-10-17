@@ -48,6 +48,12 @@ const SHIFT_TRANSITION = 'transform 120ms cubic-bezier(0.22, 1, 0.36, 1)';
  * 在 N 与 N+1 之间反复横跳 —— 这正是「拖动时其他卡片乱动」的元凶。
  */
 const TARGET_HYSTERESIS_PX = 6;
+/**
+ * 换位**判定灵敏度**：被拖卡中心在比较时向移动方向「预移」这么多像素，
+ * 相当于把每个目标行的中心判定线提前（少移动一点就能触发换位）。
+ * 调大 → 更灵敏（更早换位）；0 → 与原「中心对中心」一致。
+ */
+const SENSITIVITY_PX = 20;
 
 interface DragOptions {
   /** 当前参与排序的 id 序列（必须是**渲染顺序**） */
@@ -133,12 +139,19 @@ export function computeTargetIndex(
   from: number,
   draggedCenter: number,
   prevTo: number,
+  sensitivity = 0,
 ): number {
+  // 判定提前量：被拖卡中心相对 from 行中心往哪边偏，就把中心往那边「预移」sensitivity
+  // 像素 —— 相当于把目标行的中心判定线提前，少移动一点就能触发换位。
+  const fromCenter = (tops[from] ?? 0) + (heights[from] ?? 0) / 2;
+  const dir = draggedCenter > fromCenter ? 1 : draggedCenter < fromCenter ? -1 : 0;
+  const probe = draggedCenter + dir * sensitivity;
+
   let raw = 0;
   for (let i = 0; i < tops.length; i += 1) {
     if (i === from) continue;
     const center = (tops[i] ?? 0) + (heights[i] ?? 0) / 2;
-    if (center < draggedCenter) raw += 1;
+    if (center < probe) raw += 1;
   }
   if (raw === prevTo) return raw;
   const diff = raw - prevTo;
@@ -157,8 +170,8 @@ export function computeTargetIndex(
   const boundaryCenter = (tops[boundary] ?? 0) + (heights[boundary] ?? 0) / 2;
   const crossed =
     step > 0
-      ? draggedCenter >= boundaryCenter + TARGET_HYSTERESIS_PX
-      : draggedCenter <= boundaryCenter - TARGET_HYSTERESIS_PX;
+      ? probe >= boundaryCenter + TARGET_HYSTERESIS_PX
+      : probe <= boundaryCenter - TARGET_HYSTERESIS_PX;
   return crossed ? raw : prevTo;
 }
 
@@ -211,7 +224,7 @@ export function useDragSort({ ids, onReorder }: DragOptions): DragSortResult {
    */
   const targetIndexOf = useCallback(
     (snapshot: Metrics, from: number, draggedCenter: number, prevTo: number) =>
-      computeTargetIndex(snapshot.tops, snapshot.heights, from, draggedCenter, prevTo),
+      computeTargetIndex(snapshot.tops, snapshot.heights, from, draggedCenter, prevTo, SENSITIVITY_PX),
     [],
   );
 
