@@ -44,8 +44,9 @@ interface WeekTimetableProps {
  * - **窗口固定，不随数据收窄**。收窄会让同一门课上周在第 3 行、这周在第 5 行，
  *   而课程表的价值恰恰是跨周可比；且跨度小时块会更挤，文字互相压住。
  *   窗口本身（起止、间隔）则交给用户自定义，默认 06:00–24:00 / 2 小时。
- * - **分割线画在内容之上**（DOM 里排在时间块之后 + `pointer-events-none`）。
- *   网格是这一屏的骨架，块再密也不该把骨架吃掉；线只有 1px，压在块上不影响读字。
+ * - **只保留横向分割线、且画在内容之下**（先渲染 = 最底层）。竖线已按需求删除；
+ *   横线若画在块之上会被色块遮住，故改最底层 —— 块的**不透明底色**盖住它，
+ *   只在块与块的空隙里透出来。网格仍是骨架，但绝不遮挡事件色块。
  * - **列宽平均分配、不横向滚动**。一周要能一眼看完，横向滚动会让「周三下午很满」
  *   这种整体判断失效。左侧时间轴刻意收窄（只留数字、整体左贴卡片边），把横向空间
  *   尽量让给七列；块内文字**按时间块高度自动换行、末尾省略（…）**而非单行硬截断 ——
@@ -148,6 +149,20 @@ export function WeekTimetable({
             )),
           )}
 
+          {/*
+            横向分割线画在内容之下（先渲染 = 处于最底层）：时间块的不透明底色会盖住它，
+            只在块与块的空隙里透出来 —— 网格是骨架，但绝不能遮住事件色块。
+            pointer-events-none 保证它不挡住块与空格的点击。
+          */}
+          {ticks.map((tick) => (
+            <span
+              key={`h-${tick}`}
+              aria-hidden
+              className="absolute inset-x-0 h-px bg-surface-line pointer-events-none"
+              style={{ top: `${percentOf(tick)}%` }}
+            />
+          ))}
+
           {/* 时间块 */}
           {cells.map((cell) => {
             const config = cell.slot.sectionId
@@ -202,27 +217,6 @@ export function WeekTimetable({
               </button>
             );
           })}
-
-          {/*
-            分割线最后画（= 压在内容之上）：网格是骨架，不该被时间块吃掉。
-            pointer-events-none 保证它不挡住块与空格的点击。
-          */}
-          {ticks.map((tick) => (
-            <span
-              key={`h-${tick}`}
-              aria-hidden
-              className="absolute inset-x-0 h-px bg-surface-line pointer-events-none"
-              style={{ top: `${percentOf(tick)}%` }}
-            />
-          ))}
-          {weekDays.slice(1).map((dateKey, index) => (
-            <span
-              key={`v-${dateKey}`}
-              aria-hidden
-              className="absolute top-0 bottom-0 w-px bg-surface-line pointer-events-none"
-              style={{ left: `${((index + 1) / 7) * 100}%` }}
-            />
-          ))}
         </div>
       </div>
     </div>

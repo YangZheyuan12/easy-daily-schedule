@@ -118,9 +118,14 @@ export function settleDyOf(heights: number[], from: number, to: number): number 
 /**
  * 被拖卡片中心落在哪里 → 它应该插到第几个位置（数组下标）。
  *
- * 按「中心」比较天然兼容行高不一致的列表。最后一段是**滞回**：`to` 一旦落定，
- * 必须被拖卡片中心明显越过相邻中心（见 `TARGET_HYSTERESIS_PX`）才允许再变一格，
- * 否则维持 `prevTo` —— 这把「手指在交界点轻微抖动会让其他卡片反复横跳」直接掐死。
+ * 目标下标 = 被拖卡片中心「之上」还有多少个**其它**行（不含被拖行本身）。
+ * 这个计数天然等于插入下标，且**与 `from` 在哪无关** —— 拖第一项还是拖中间项
+ * 都按同一套几何，行高不一致也成立。之前那个「`from ±`」式写法在 `from > 0` 时
+ * 会让下标一上来就跳到 0（中后段条目拖一下就乱窜），就是「拖动乱动」的元凶。
+ *
+ * 最后一段是**滞回**：`to` 一旦落定，必须被拖卡片中心明显越过相邻中心
+ * （见 `TARGET_HYSTERESIS_PX`）才允许再变一格，否则维持 `prevTo` ——
+ * 这把「手指在交界点轻微抖动会让其他卡片反复横跳」直接掐死。
  */
 export function computeTargetIndex(
   tops: number[],
@@ -129,11 +134,11 @@ export function computeTargetIndex(
   draggedCenter: number,
   prevTo: number,
 ): number {
-  let raw = from;
+  let raw = 0;
   for (let i = 0; i < tops.length; i += 1) {
     if (i === from) continue;
     const center = (tops[i] ?? 0) + (heights[i] ?? 0) / 2;
-    if (center < draggedCenter) raw += i < from ? -1 : 1;
+    if (center < draggedCenter) raw += 1;
   }
   if (raw === prevTo) return raw;
   const diff = raw - prevTo;

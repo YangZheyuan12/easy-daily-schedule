@@ -103,3 +103,32 @@ describe('computeTargetIndex — 目标下标 + 滞回（防交界抖动）', ()
     expect(computeTargetIndex(t, h, 0, 100, 0)).toBe(1);
   });
 });
+
+describe('computeTargetIndex — 拖中后段条目（from>0，防乱跳）', () => {
+  // 5 行等高 50：top 0/50/100/150/200，中心 25/75/125/175/225
+  const tops = [0, 50, 100, 150, 200];
+  const heights = [50, 50, 50, 50, 50];
+
+  it('拖第 2 行时静止下标仍是 2，不会一上手就跳到 0', () => {
+    expect(computeTargetIndex(tops, heights, 2, 125, 2)).toBe(2);
+  });
+
+  it('往下拖：过第 3 行中心落 3，过第 4 行中心落 4（滞回仍在）', () => {
+    expect(computeTargetIndex(tops, heights, 2, 180, 2)).toBe(2); // 未过 175+6
+    expect(computeTargetIndex(tops, heights, 2, 185, 2)).toBe(3);
+    expect(computeTargetIndex(tops, heights, 2, 190, 3)).toBe(3); // 未满下一条滞回
+    expect(computeTargetIndex(tops, heights, 2, 235, 3)).toBe(4); // 过 225+6
+  });
+
+  it('往上拖：过第 1 行中心落 1，拖到顶落 0', () => {
+    expect(computeTargetIndex(tops, heights, 2, 80, 2)).toBe(2); // 未过 75-6
+    expect(computeTargetIndex(tops, heights, 2, 65, 2)).toBe(1);
+    expect(computeTargetIndex(tops, heights, 2, 10, 1)).toBe(0); // 最顶
+  });
+
+  it('拖最后一行（from=4）往上拖 → 下标按中心判定递减', () => {
+    expect(computeTargetIndex(tops, heights, 4, 180, 4)).toBe(4); // 未过 175-6
+    expect(computeTargetIndex(tops, heights, 4, 165, 4)).toBe(3);
+    expect(computeTargetIndex(tops, heights, 4, 70, 3)).toBe(1); // 过 125、75 两条中心
+  });
+});
