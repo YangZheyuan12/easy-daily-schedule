@@ -168,8 +168,8 @@ export function useDragSort({ ids, onReorder }: DragOptions): DragSortResult {
   /** state 的 ref 镜像：全局指针回调读它，避免闭包拿到过期的 from / to */
   const dragRef = useRef<DragState | null>(null);
   const [drag, setDrag] = useState<DragState | null>(null);
-  /** 归位动画中的那一帧（DOM 顺序还没变，只把卡片滑进让出来的坑里） */
-  const [settling, setSettling] = useState<{ id: string; dy: number } | null>(null);
+  /** 归位动画中（WAAPI 驱动 transform；DOM 顺序还没变，只把卡片滑进让出来的坑里） */
+  const [settling, setSettling] = useState<{ id: string } | null>(null);
   /**
    * 归位动画结束、数据真正重排的那一帧：被拖卡片的 DOM 槽位瞬间变化，但它的 transform
    * 还停在归位值上。若此时让 CSS transition 从「归位值 → 0」动画，卡片会被误推回旧槽位
@@ -290,7 +290,7 @@ export function useDragSort({ ids, onReorder }: DragOptions): DragSortResult {
       */
       const el = elements.current.get(state.activeId) ?? null;
       if (el && typeof el.animate === 'function') {
-        setSettling({ id: state.activeId, dy: settleDy });
+        setSettling({ id: state.activeId });
         const anim = el.animate(
           [
             { transform: `translateY(${state.dy}px)` },
@@ -300,9 +300,18 @@ export function useDragSort({ ids, onReorder }: DragOptions): DragSortResult {
         );
         settleAnim.current = anim;
         const commitNow = () => {
-          // 取消 WAAPI 的 forwards 填充，把控制权交回 inline style；此刻已重排到目标槽，
-          // 用 justSettled 瞬切 transform 到 0（视觉零位移），消除重排那一帧的回弹闪烁
           settleAnim.current = null;
+          /*
+            用 commitStyles() 把 WAAPI 的终态（translateY(settleDy)）**烘焙进 inline style**，
+            再取消动画 —— 这样取消后元素仍停在目标位，不会瞬间弹回旧槽。紧接着 onReorder
+            把 DOM 槽位换到目标位（此刻 inline transform 已是目标偏移），再用 justSettled
+            在重排那一帧瞬切 transform 到 none（视觉零位移）→ 无缝收尾，全程无闪烁。
+          */
+          try {
+            anim.commitStyles();
+          } catch {
+            /* 旧浏览器无 commitStyles，忽略 —— 退回 fill:forwards 行为 */
+          }
           anim.cancel();
           setSettling(null);
           setJustSettled(state.activeId);
@@ -318,7 +327,7 @@ export function useDragSort({ ids, onReorder }: DragOptions): DragSortResult {
       }
 
       // 兜底：拿不到元素 / 不支持 WAAPI 时，沿用 CSS transition 归位
-      setSettling({ id: state.activeId, dy: settleDy });
+      setSettling({ id: state.activeId });
       settleTimer.current = window.setTimeout(() => {
         settleTimer.current = null;
         setSettling(null);
@@ -494,12 +503,12 @@ export function useDragSort({ ids, onReorder }: DragOptions): DragSortResult {
         return { transition: 'none', transform: 'none', position: 'relative' };
       }
       if (settling && settling.id === id) {
-        return {
-          transform: `translateY(${settling.dy}px)`,
-          transition: `transform ${SETTLE_MS}ms cubic-bezier(0.32, 0.72, 0, 1)`,
-          zIndex: 20,
-          position: 'relative',
-        };
+        /*
+          🔴 归位期间不给 inline transform：WAAPI（el.animate）已经在同一元素上驱动
+          transform，inline transform 会盖过动画（属性同源、inline 优先），二者抢着写
+          导致松手/结束时卡片跳变 = 闪烁。这里只抬 zIndex、把 transform 完全交给 WAAPI。
+        */
+        return { zIndex: 20, position: 'relative', transition: 'none' };
       }
       if (drag && drag.activeId === id) {
         return {
