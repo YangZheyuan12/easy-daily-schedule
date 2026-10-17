@@ -37,6 +37,14 @@ export interface BackupImage {
   dataUrl: string;
 }
 
+/** 任务图片（与 BackupImage 分开，因为归属键不同） */
+export interface BackupTaskImage {
+  id: string;
+  taskId: string;
+  createdAt: number;
+  dataUrl: string;
+}
+
 export interface BackupTables {
   items: Item[];
   tasks: Task[];
@@ -46,6 +54,11 @@ export interface BackupTables {
   inspirations: Inspiration[];
   /** 可选：未勾选「含图片」时为空数组 */
   images: BackupImage[];
+  /**
+   * 可选：任务图片。**后加的字段**（旧版本备份里没有）——所以这里必须是可选的，
+   * 解析时缺了按空数组兜底，老备份照样能导进来。
+   */
+  taskImages?: BackupTaskImage[];
 }
 
 export interface BackupPayload {
@@ -63,6 +76,8 @@ export interface BackupSummary {
   days: number;
   selfStatus: number;
   images: number;
+  /** 任务图片张数（条目图片之外的另一张表） */
+  taskImages: number;
 }
 
 export type ParseResult =
@@ -100,6 +115,7 @@ export function summarizeBackup(payload: BackupPayload): BackupSummary {
     days: t.days.length,
     selfStatus: t.selfStatus.length,
     images: t.images.length,
+    taskImages: t.taskImages?.length ?? 0,
   };
 }
 
@@ -110,7 +126,9 @@ export function describeSummary(summary: BackupSummary): string {
   if (summary.tasks > 0) parts.push(`${summary.tasks} 条任务`);
   if (summary.timeSlots > 0) parts.push(`${summary.timeSlots} 个时间段`);
   if (summary.inspirations > 0) parts.push(`${summary.inspirations} 条灵感`);
-  if (summary.images > 0) parts.push(`${summary.images} 张图片`);
+  if (summary.images + summary.taskImages > 0) {
+    parts.push(`${summary.images + summary.taskImages} 张图片`);
+  }
   if (parts.length === 0) return '没有可备份的数据';
   return parts.join('、');
 }
@@ -151,7 +169,7 @@ export function parseBackup(text: string): ParseResult {
     return { ok: false, error: '备份文件缺少数据段' };
   }
 
-  // 每张表都必须是数组；缺省的表按空数组处理（老版本备份可能没有 images）
+  // 每张表都必须是数组；缺省的表按空数组处理（老版本备份可能没有 images / taskImages）
   const names: (keyof BackupTables)[] = [
     'items',
     'tasks',
@@ -160,6 +178,7 @@ export function parseBackup(text: string): ParseResult {
     'timeSlots',
     'inspirations',
     'images',
+    'taskImages',
   ];
   for (const name of names) {
     const value = tables[name];
@@ -176,6 +195,7 @@ export function parseBackup(text: string): ParseResult {
     timeSlots: Array.isArray(tables.timeSlots) ? tables.timeSlots : [],
     inspirations: Array.isArray(tables.inspirations) ? tables.inspirations : [],
     images: Array.isArray(tables.images) ? tables.images : [],
+    taskImages: Array.isArray(tables.taskImages) ? tables.taskImages : [],
   };
 
   // exportedAt 缺失时兜底为 0，不影响导入（只是摘要里显示不出来）

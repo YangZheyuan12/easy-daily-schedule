@@ -60,16 +60,44 @@ async function makeV1(): Promise<string> {
   return name;
 }
 
-describe('Dexie v1 → v4 迁移', () => {
-  it('当前 schema 版本号是 4', () => {
-    expect(DB_VERSION).toBe(4);
+/**
+ * 造一个 **v4 库**（缺 `taskImages`，但已有 `itemImages`）—— 这是绝大多数老用户
+ * 升级时的真实处境。任务图片是 v5 新增的，迁移必须能把老 Picture 完整留下来。
+ */
+async function makeV4(): Promise<string> {
+  const name = `migration-test-v4-${counter++}`;
+  const v4 = new Dexie(name);
+  v4.version(1).stores(V1_STORES);
+  v4.version(4).stores({
+    items: '&id, date, sectionId, parentId, [date+sectionId], deletedAt',
+    tasks: '&id, date, deletedAt, inheritedFrom',
+    days: '&date',
+    selfStatus: '&date',
+    timeSlots: '&id, date, [date+sectionId], deletedAt',
+    inspirations: '&id, date, deletedAt',
+    itemImages: '&id, itemId',
+  });
+  await v4.open();
+  await v4.table('itemImages').put({
+    id: 'img1',
+    itemId: 'i1',
+    blob: new Blob(['fake']),
+    createdAt: 1,
+  });
+  v4.close();
+  return name;
+}
+
+describe('Dexie v1 → v5 迁移', () => {
+  it('当前 schema 版本号是 5', () => {
+    expect(DB_VERSION).toBe(5);
   });
 
   it('v1 的三个老表（items / tasks / days）数据全部保留', async () => {
     const db = new AppDatabase(await makeV1());
     await db.open();
 
-    expect(db.verno).toBe(4);
+    expect(db.verno).toBe(5);
 
     const items = await db.items.toArray();
     const tasks = await db.tasks.toArray();
@@ -124,21 +152,49 @@ describe('Dexie v1 → v4 迁移', () => {
     db.close();
   });
 
-  it('全新安装（无 v1 库）直接用 v4 建库，七个表齐全', async () => {
+  it('全新安装（无老库）直接用当前版本建库，八张表齐全', async () => {
     const db = new AppDatabase(`fresh-install-${counter++}`);
     await db.open();
 
-    expect(db.verno).toBe(4);
+    expect(db.verno).toBe(5);
     expect(db.tables.map((table) => table.name).sort()).toEqual([
       'days',
       'inspirations',
       'itemImages',
       'items',
       'selfStatus',
+      'taskImages',
       'tasks',
       'timeSlots',
     ]);
     expect(await db.items.count()).toBe(0);
+
+    db.close();
+  });
+
+  /*
+    老用户升级：v4 → v5 只多了 `taskImages` 一张表，已有的条目图片**必须原样保留**。
+    这类回归一旦发生是不可逆的（图片没了就没了），所以单独钉一条用例。
+  */
+  it('v4 → v5：新增 taskImages 表，且老版 itemImages 里的图片一条不少', async () => {
+    const db = new AppDatabase(await makeV4());
+    await db.open();
+
+    expect(db.verno).toBe(5);
+    expect(db.tables.map((table) => table.name)).toContain('taskImages');
+
+    const images = await db.itemImages.toArray();
+    expect(images).toHaveLength(1);
+    expect(images[0]?.id).toBe('img1');
+
+    // 新表要能真正读写
+    await db.taskImages.put({
+      id: 'timg1',
+      taskId: 't1',
+      blob: new Blob(['fake']),
+      createdAt: 2,
+    });
+    expect(await db.taskImages.count()).toBe(1);
 
     db.close();
   });

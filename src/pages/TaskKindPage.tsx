@@ -1,12 +1,15 @@
-import { useState } from 'react';
+import { useMemo, useState, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import clsx from 'clsx';
 import { Icon, type IconName } from '@/components/ui/Icon';
-import { Tick } from '@/components/ui/Tick';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { EmptyState } from '@/components/feedback/EmptyState';
 import { TaskKindComposer } from '@/components/task/TaskKindComposer';
+import { TaskKindRow } from '@/components/task/TaskKindRow';
+import { TaskImageSection } from '@/components/task/TaskImageSection';
+import { useDragSort } from '@/hooks/useDragSort';
 import { useTaskStore } from '@/store/useTaskStore';
+import { useTaskImageStore } from '@/store/useTaskImageStore';
 import { compareByOrder } from '@/domain/constants';
 import { RELATIVE_DEADLINE_LABEL } from '@/domain/enums';
 import { formatShortDate } from '@/utils/date';
@@ -48,13 +51,19 @@ function deadlineText(task: Task): string {
 /**
  * 期限任务 / 长时目标的**专属列表页**（对应首页那两张只读卡片的「进入编辑」入口）。
  *
- * 布局与任务首页同构：可滚动列表 + 底部「添加」按钮；点添加才出现选择项（时间 / 描述等），
- * 点任意一行进入该条的编辑抽屉。首页卡片只是它的只读预览，真正的增删改都在这里。
+ * 现在是**直接在列表里改**：标题与描述点了就能输入（与任务页同一套行宽与对齐），
+ * 期限日期、删除、图片这些低频动作收在右侧「⋯」打开的抽屉里。
+ * 早先「点任意一行就弹抽屉」的做法被用户否掉了 —— 只想改两个字也要等一个底部面板升起来、
+ * 改完再等它滑下去，来回比直接改多两步。
+ *
+ * 顺序支持拖拽，规则与任务页一致（写 `order` 字段，不做软件上的数组搬运）。
  */
 export function TaskKindPage({ kind }: { kind: Exclude<TaskKind, 'daily'> }) {
   const navigate = useNavigate();
   const tasks = useTaskStore((s) => s.tasks);
-  const toggleDone = useTaskStore((s) => s.toggleDone);
+  const reorderIds = useTaskStore((s) => s.reorderIds);
+  const loadTaskImages = useTaskImageStore((s) => s.loadForTasks);
+
   const [composerOpen, setComposerOpen] = useState(false);
   const [editing, setEditing] = useState<Task | null>(null);
 
@@ -62,18 +71,44 @@ export function TaskKindPage({ kind }: { kind: Exclude<TaskKind, 'daily'> }) {
   const keyboardVisible = useKeyboardVisible();
 
   const meta = META[kind];
-  const list = tasks
-    .filter((t) => t.kind === kind && t.deletedAt === null)
-    .sort(compareByOrder);
+  const list = useMemo(
+    () => tasks.filter((t) => t.kind === kind && t.deletedAt === null).sort(compareByOrder),
+    [tasks, kind],
+  );
+
+  /*
+    图片按整页批量预载：逐行去查会让 N 条任务产生 N 次索引查询，
+    而这 N 条多半挂不到几张图。key 用「种类 + 全部 id」——切页或增删就能重新拉。
+  */
+  const imageKey = `${kind}:${list.map((t) => t.id).join(',')}`;
+  useEffect(() => {
+    void loadTaskImages(
+      list.map((t) => t.id),
+      imageKey,
+    );
+  }, [imageKey, list, loadTaskImages]);
 
   const openAdd = () => {
     setEditing(null);
     setComposerOpen(true);
   };
-  const openEdit = (task: Task) => {
+  const openEdit = useCallback((task: Task) => {
     setEditing(task);
     setComposerOpen(true);
-  };
+  }, []);
+
+  const listIds = useMemo(() => list.map((t) => t.id), [list]);
+  const handleReorder = useCallback(
+    (from: number, to: number) => {
+      const next = [...listIds];
+      const [moved] = next.splice(from, 1);
+      if (moved === undefined) return;
+      next.splice(to, 0, moved);
+      reorderIds(next);
+    },
+    [listIds, reorderIds],
+  );
+  const drag = useDragSort({ ids: listIds, onReorder: handleReorder });
 
   return (
     <div className="flex flex-col min-h-full">
@@ -89,48 +124,20 @@ export function TaskKindPage({ kind }: { kind: Exclude<TaskKind, 'daily'> }) {
         ) : (
           /* 概念稿 C4：同一张纸卡，行与行之间不画线 */
           <div className="bg-surface rounded-card shadow-card p-1.5">
-            {list.map((task) => (
+            {list.map((task, index) => (
               <div
                 key={task.id}
-                role="button"
-                tabIndex={0}
-                onClick={() => openEdit(task)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' || event.key === ' ') {
-                    event.preventDefault();
-                    openEdit(task);
-                  }
-                }}
-                className="flex items-start min-h-tap py-0.5 cursor-pointer"
+                ref={drag.registerItem(task.id)}
+                style={drag.itemStyle(task.id, index)}
               >
-                <span
-                  className="min-w-[38px] min-h-tap flex items-center shrink-0"
-                  onClick={(event) => event.stopPropagation()}
-                >
-                  <Tick
-                    done={task.done}
-                    size={20}
-                    shape="square"
-                    onToggle={() => toggleDone(task.id)}
-                  />
-                </span>
-                <div className="flex-1 min-w-0 pt-1.5">
-                  <div
-                    className={
-                      task.done ? 'text-lead text-ink-faint' : 'text-lead text-ink'
-                    }
-                  >
-                    {task.content}
-                  </div>
-                  {kind === 'deadline' && (
-                    <div className="-mt-0.5 mb-0.5 text-caption text-ink-faint">
-                      {deadlineText(task)}
-                    </div>
-                  )}
-                  {task.description && (
-                    <div className="text-caption text-ink-faint">{task.description}</div>
-                  )}
-                </div>
+                <TaskKindRow
+                  task={task}
+                  kind={kind}
+                  dueLabel={kind === 'deadline' ? deadlineText(task) : undefined}
+                  dragging={drag.activeId === task.id}
+                  handleProps={drag.handleProps(task.id, index)}
+                  onOpenSheet={() => openEdit(task)}
+                />
               </div>
             ))}
           </div>
@@ -163,7 +170,10 @@ export function TaskKindPage({ kind }: { kind: Exclude<TaskKind, 'daily'> }) {
         task={editing}
         open={composerOpen}
         onClose={() => setComposerOpen(false)}
-      />
+      >
+        {/* 图片只给**已存在**的任务配（新建时还没有 id，图没地方挂） */}
+        {editing && <TaskImageSection taskId={editing.id} />}
+      </TaskKindComposer>
     </div>
   );
 }

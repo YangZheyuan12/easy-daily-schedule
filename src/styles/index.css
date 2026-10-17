@@ -198,6 +198,35 @@
     font-family: inherit;
   }
 
+  /*
+    日期 / 时间类原生控件**必须**保留 UA 外观，不能被上面的 `appearance-none` 打到。
+
+    这些控件的日期字段与日历指示图标住在 UA shadow DOM 里，依赖原生 appearance 绘制；
+    一旦 `appearance: none`，Chromium / WebKit 就只画出我们自己给的边框，中间**一整条空白**
+    —— 用户看到的就是「期限任务的日期选择是一条空白」（2026-10-17）。
+    这里按类型把它加回来，日期选择器才有东西可点。
+  */
+  input[type='date'],
+  input[type='time'],
+  input[type='datetime-local'],
+  input[type='month'],
+  input[type='week'] {
+    -webkit-appearance: auto;
+    appearance: auto;
+  }
+
+  /*
+    日历指示图标默认跟随按钮色（深色主题下几乎看不见），显式给墨色 + 跟随主题的重音色，
+    并放大点击区 —— 它是这个控件最主要的点击目标。
+  */
+  input[type='date']::-webkit-calendar-picker-indicator,
+  input[type='time']::-webkit-calendar-picker-indicator,
+  input[type='datetime-local']::-webkit-calendar-picker-indicator {
+    opacity: 0.7;
+    cursor: pointer;
+    padding: 4px;
+  }
+
   textarea {
     resize: none;
   }

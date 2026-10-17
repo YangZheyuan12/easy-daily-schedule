@@ -2,7 +2,7 @@
 
 ## 定位与选型（2026-10 快照）
 移动端优先 H5（Vite5+React18+TS+Tailwind3），Capacitor 8 套壳，HashRouter。5 Tab：今日/时间轴/任务/日历/我的。
-纯前端无后端，数据全存 IndexedDB（Dexie4 v4 七表，`version(n)` 必须声明完整 schema）。Zustand4.5。
+纯前端无后端，数据全存 IndexedDB（Dexie4 v5 八表，`version(n)` 必须声明完整 schema）。Zustand4.5。
 ID nanoid；日期用自写 `utils/date.ts`。
 
 ## 架构红线（CRITICAL）
@@ -28,6 +28,18 @@ ID nanoid；日期用自写 `utils/date.ts`。
   SelfStatusCard/SectionRow/ImageStrip/ReminderBanner 都走它；刷新重置。
 - order 步长 1000；撤销 5s；软删 7 天清理。
 
+## 任务页 / 时间轴（2026-10-17 功能）
+- 🔴 每日任务列表**行尾拖拽手柄**（自写 `hooks/useDragSort`，零依赖 pointer events）上下重排 →
+  落盘 `reorderIds` 重写 order（步长1000）；其余行同步让位动画，抬起层抬 z-index。
+- 🔴 期限任务/长时目标**不再弹窗**：点进去行内直接改标题+描述（textarea 行内编辑，与今日页同思路）；
+  右侧「⋯」才开 `TaskKindComposer` 抽屉（期限日期/删除/图片等低频动作收在里面）。ticks 与文字垂直居中。
+- 任务支持图片：`TaskImage` 独立 `taskImages` 表（taskId 索引，区别于 itemImages 的 itemId），
+  `useTaskImageStore`+`IndexedDbTaskImageRepository`；抽屉上传 + 列表缩略图；备份纳入 `BackupTaskImage`。
+- 期限日期选择空白根因：`index.css` 全局 `input{appearance-none}` 擦掉 date 外观 → 给 date input
+  单独回 `appearance:auto` + 预填今天（避免选不了日期就保存不了）。
+- 时间轴切日期排版乱：`DateNavigator` 中间宽度稳定（箭头不位移）；`loadDate` 先清 slots 避免跨日期残留；
+  切日期不再逐行错峰重播动效。
+
 ## 浮层 / 导航
 - 「回到今天」：今日/时间轴非今天 → 胶囊变「回到今天」。
 - 🔴 `ui/Popover.tsx` 传 `anchorRef` 才不遮挡：portal 到 body+fixed+z-[55]、scroll 捕获跟随、放不下上翻；
@@ -45,6 +57,9 @@ ID nanoid；日期用自写 `utils/date.ts`。
 - 🔴 **Capacitor WebView 无 DownloadListener → `<a download>`（Blob URL）不落地**；备份导出走本地插件
   `SaveFilePlugin`：API 29+ MediaStore.Downloads 写公共「下载」目录免权限；API 24-28 File 直写+manifest maxSdk=28。
   Filesystem 公共目录 Android 11+ 不可用（别试）。
+- 🔴 导出=「先存下载目录 + 再弹系统分享面板」两步：插件 `shareText` 用 FileProvider 取 content Uri 起
+  `ACTION_SEND` 选器（微信/QQ/网盘都出现），**不用** @capacitor/share（它只认 file:// 且要额外配置）。
+  文件名必须回填 MediaStore 真实名（重名会被系统改「xxx (1)」），否则提示与落盘对不上。
 - 备份 R-047（合并/覆盖，纯本地删了找不回）；课表 R-049 复制粘贴+`platform/textCodec`（GBK 兜底）。
 
 ## 验收教训

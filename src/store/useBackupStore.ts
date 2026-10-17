@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { ItemImage } from '@/domain/types';
+import type { ItemImage, TaskImage } from '@/domain/types';
 import { clock, repos } from './bootstrap';
 import {
   buildBackupPayload,
@@ -9,9 +9,10 @@ import {
   describeSummary,
   filterAlive,
   type BackupImage,
+  type BackupTaskImage,
   type BackupTables,
 } from '@/services/backupService';
-import { saveTextFile, pickTextFile } from '@/platform/fileBridge';
+import { saveTextFile, shareTextFile, pickTextFile } from '@/platform/fileBridge';
 import { blobToDataUrl, dataUrlToBlob } from '@/platform/imageCodec';
 import { useItemStore } from './useItemStore';
 import { useTaskStore } from './useTaskStore';
@@ -65,16 +66,29 @@ export const useBackupStore = create<BackupState>((set, get) => ({
     const includeImages = get().includeImages;
     set({ busy: true, lastMessage: '' });
     try {
-      const [itemsRaw, tasksRaw, days, selfStatus, slotsRaw, inspirationsRaw, imagesRaw] =
-        await Promise.all([
-          repos.items.listAll(),
-          repos.tasks.listAll(),
-          repos.days.listAll(),
-          repos.selfStatus.listAll(),
-          repos.timeSlots.listAll(),
-          repos.inspirations.listAll(),
-          includeImages ? repos.itemImages.listAll() : Promise.resolve<ItemImage[]>([]),
-        ]);
+      const [
+        itemsRaw,
+        tasksRaw,
+        days,
+        selfStatus,
+        slotsRaw,
+        inspirationsRaw,
+        imagesRaw,
+        taskImagesRaw,
+      ] = await Promise.all([
+        repos.items.listAll(),
+        repos.tasks.listAll(),
+        repos.days.listAll(),
+        repos.selfStatus.listAll(),
+        repos.timeSlots.listAll(),
+        repos.inspirations.listAll(),
+        includeImages ? repos.itemImages.listAll() : Promise.resolve<ItemImage[]>([]),
+        includeImages ? repos.taskImages.listAll() : Promise.resolve<TaskImage[]>([]),
+      ]);
+
+      const aliveTaskIds = new Set(
+        tasksRaw.filter((task) => task.deletedAt === null).map((task) => task.id),
+      );
 
       const tables: BackupTables = {
         items: filterAlive(itemsRaw),
@@ -84,6 +98,7 @@ export const useBackupStore = create<BackupState>((set, get) => ({
         timeSlots: filterAlive(slotsRaw),
         inspirations: filterAlive(inspirationsRaw),
         images: [],
+        taskImages: [],
       };
 
       // 图片：只带「仍然活着的条目」挂着的附件，避免把已删条目的图也背出去
@@ -106,14 +121,48 @@ export const useBackupStore = create<BackupState>((set, get) => ({
         tables.images = converted;
       }
 
+      // 任务图片同上口径：只带还活着的任务挂的图
+      if (includeImages && taskImagesRaw.length > 0) {
+        const converted: BackupTaskImage[] = [];
+        for (const image of taskImagesRaw) {
+          if (!aliveTaskIds.has(image.taskId)) continue;
+          try {
+            converted.push({
+              id: image.id,
+              taskId: image.taskId,
+              createdAt: image.createdAt,
+              dataUrl: await blobToDataUrl(image.blob),
+            });
+          } catch {
+            // 同上：单张失败不影响整份
+          }
+        }
+        tables.taskImages = converted;
+      }
+
       const payload = buildBackupPayload(tables, clock.now());
       const text = serializeBackup(payload);
       const stamp = toDateKey(new Date(payload.exportedAt));
-      // 落点描述（系统下载目录 / 浏览器下载目录）来自 fileBridge，原样进提示：
-      // 用户抱怨过「不知道导出到哪去了、导入时找不到」（2026-10-16）。
-      const location = await saveTextFile(`日程表备份-${stamp}.json`, text);
+      const filename = `日程表备份-${stamp}.json`;
 
-      const message = `已导出 ${describeSummary(summarizeBackup(payload))}，保存到${location}，文件名「日程表备份-${stamp}.json」`;
+      /*
+        两步是一次性交付，不是一个走了另一个就不走：
+        ① 先把文件**长期留存**一份到系统「下载」目录（这是唯一的本地生命线）；
+        ② 再弹系统分享面板，让用户当场就能发给微信 / QQ / 存进网盘。
+        只发不存：分享窗口一关，这份文件就只剩聊天记录里的副本了；
+        只存不发：用户又要在文件管理 App 里翻半天（2026-10-17 的原话是「找不到」）。
+      */
+      const saved = await saveTextFile(filename, text);
+      const shared = await shareTextFile(filename, text);
+
+      /*
+        提示里的文件名必须是**真实**的那个（可能被 MediaStore 改名成「xxx (1).json」）——
+        否则用户照着提示里的名字去找，手机里根本没这个文件。
+      */
+      const realName = saved.name || filename;
+      const message = shared.shared
+        ? `已导出 ${describeSummary(summarizeBackup(payload))}，可选择微信 / QQ / 网盘发送；原件已存到${saved.location}，文件名「${realName}」`
+        : `已导出 ${describeSummary(summarizeBackup(payload))}，保存到${saved.location}，文件名「${realName}」`;
       set({ busy: false, lastMessage: message });
       return { ok: true, message };
     } catch (error) {
@@ -166,6 +215,22 @@ export const useBackupStore = create<BackupState>((set, get) => ({
         if (restored.length > 0) await repos.itemImages.putMany(restored);
       }
 
+      // 任务图片（新版本备份才有；老备份这里自然是空数组）
+      if (t.taskImages && t.taskImages.length > 0) {
+        const restored: TaskImage[] = [];
+        for (const image of t.taskImages) {
+          const blob = dataUrlToBlob(image.dataUrl);
+          if (!blob) continue;
+          restored.push({
+            id: image.id,
+            taskId: image.taskId,
+            blob,
+            createdAt: image.createdAt,
+          });
+        }
+        if (restored.length > 0) await repos.taskImages.putMany(restored);
+      }
+
       // 内存里的 store 重新读一次库，否则界面还停留在导入前的状态
       await refreshStores();
 
@@ -182,12 +247,13 @@ export const useBackupStore = create<BackupState>((set, get) => ({
 
 /** 覆盖导入：把当前库清干净（含软删记录，它们本来也不该留在「回到某时刻」的结果里） */
 async function clearEverything(): Promise<void> {
-  const [items, tasks, slots, inspirations, images] = await Promise.all([
+  const [items, tasks, slots, inspirations, images, taskImages] = await Promise.all([
     repos.items.listAll(),
     repos.tasks.listAll(),
     repos.timeSlots.listAll(),
     repos.inspirations.listAll(),
     repos.itemImages.listAll(),
+    repos.taskImages.listAll(),
   ]);
 
   await Promise.all([
@@ -199,9 +265,12 @@ async function clearEverything(): Promise<void> {
     repos.selfStatus.clearAll(),
   ]);
 
-  // itemImages 没有批量删除接口，逐张删（图片数量级远小于条目，可接受）
+  // 图片没有批量删除接口，逐张删（图片数量级远小于条目，可接受）
   for (const image of images) {
     await repos.itemImages.delete(image.id);
+  }
+  for (const image of taskImages) {
+    await repos.taskImages.delete(image.id);
   }
 }
 

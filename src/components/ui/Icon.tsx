@@ -32,7 +32,9 @@ export type IconName =
   | 'undo'
   | 'sync'
   | 'image'
-  | 'dot';
+  | 'dot'
+  /** 拖拽手柄：两列三点（排查 / 长按拖动排序用） */
+  | 'grip';
 
 interface IconProps {
   name: IconName;
@@ -44,7 +46,7 @@ interface IconProps {
   strokeWidth?: number;
 }
 
-const STROKE: Record<Exclude<IconName, 'heart' | 'star' | 'dot'>, ReactNode> = {
+const STROKE: Record<Exclude<IconName, 'heart' | 'star' | 'dot' | 'grip'>, ReactNode> = {
   home: (
     <>
       <path d="M3 10.6 12 3.4l9 7.2" />
@@ -183,6 +185,24 @@ export function Icon({ name, size = 20, className, filled = false, strokeWidth =
     return (
       <svg width={size} height={size} viewBox="0 0 24 24" className={className} aria-hidden="true">
         <circle cx="12" cy="12" r="4" fill="currentColor" />
+      </svg>
+    );
+  }
+
+  /*
+    拖拽手柄：两列各三个点。
+    不用「短线 + 圆头描边」的写法 —— 零长度子路径在部分 WebView 上根本不画，
+    实心圆才是各端都稳的画法。
+  */
+  if (name === 'grip') {
+    return (
+      <svg width={size} height={size} viewBox="0 0 24 24" className={className} aria-hidden="true">
+        {[7, 12, 17].map((cy) => (
+          <g key={cy}>
+            <circle cx={9.5} cy={cy} r={1.4} fill="currentColor" />
+            <circle cx={14.5} cy={cy} r={1.4} fill="currentColor" />
+          </g>
+        ))}
       </svg>
     );
   }

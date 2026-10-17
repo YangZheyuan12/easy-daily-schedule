@@ -161,7 +161,7 @@ describe('DateNavigator — 传 onDateClick（TimelinePage 的用法）', () => 
 describe('DateNavigator — 视图切换模式（TodayPage / TimelinePage）', () => {
   const base = { onPrev: vi.fn(), onNext: vi.fn() };
 
-  it('天视图且看的不是今天 → 右上角直接是「回到今天」，点它即回今天', () => {
+  it('天视图且看的不是今天 → 右上角直接是「回到今天」入口，点它即回今天', () => {
     const onToday = vi.fn();
     const container = mount(
       createElement(DateNavigator, {
@@ -176,9 +176,41 @@ describe('DateNavigator — 视图切换模式（TodayPage / TimelinePage）', (
 
     const pill = container.querySelector<HTMLButtonElement>('[data-testid="back-to-today"]');
     expect(pill).toBeTruthy();
-    expect(pill!.textContent).toBe('回到今天');
+    /*
+      胶囊里的可见文案是「今天」（配 ↺ 图标）—— 这一行的横向预算是死的，
+      四个字会把日期挤成省略号（2026-10-17「切日期排版乱」的同一处修复）。
+      语义完整版本在 aria-label 与浮层里那一行，这里顺手把两者都钉住。
+    */
+    expect(pill!.textContent).toBe('今天');
+    expect(pill!.getAttribute('aria-label')).toBe('回到今天');
     click(pill!);
     expect(onToday).toHaveBeenCalledTimes(1);
+  });
+
+  /*
+    「日期排版会随着日期变宽 / 变窄而抖」的回归防线（2026-10-17）。
+    左侧整块 flex-1 + 中间日期槽再 flex-1 ⇒ 两个箭头的横向位置只由容器宽度决定，
+    与当天是「9 日」还是「10 日」无关；日期本身保留 nowrap + truncate，
+    窄屏上宁可出省略号也不把导航栏撑破。
+  */
+  it('切日期不会再带动整行重排：左块与日期槽都吃满弹性剩余空间', () => {
+    const container = mount(
+      createElement(DateNavigator, {
+        ...base,
+        date: todayKey(),
+        onToday: vi.fn(),
+        onDateClick: vi.fn(),
+        viewMode: 'day',
+        onViewModeChange: vi.fn(),
+      }),
+    );
+
+    const left = container.firstElementChild?.firstElementChild as HTMLElement;
+    expect(left.className).toContain('flex-1');
+
+    const dateSlot = left.children[1] as HTMLElement;
+    expect(dateSlot.className).toContain('flex-1');
+    expect(container.querySelector('[aria-label="后一天"]')?.className).toContain('shrink-0');
   });
 
   it('天视图且就是今天 → 右上角回到「当日」切换胶囊，不显示「回到今天」', () => {

@@ -1,5 +1,5 @@
 import { Icon } from '@/components/ui/Icon';
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import clsx from 'clsx';
 import { isDailyTask } from '@/domain/enums';
@@ -10,6 +10,7 @@ import { useDayStore } from '@/store/useDayStore';
 import { useUiStore } from '@/store/useUiStore';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { TaskRow } from '@/components/task/TaskRow';
+import { useDragSort } from '@/hooks/useDragSort';
 import { DeadlineCard } from '@/components/task/DeadlineCard';
 import { GoalCard } from '@/components/task/GoalCard';
 import { ConfirmSheet } from '@/components/ui/ConfirmSheet';
@@ -37,6 +38,7 @@ export function TasksPage() {
   const add = useTaskStore((s) => s.add);
   const setSection = useTaskStore((s) => s.setSection);
   const inherit = useTaskStore((s) => s.inheritFromYesterday);
+  const reorderIds = useTaskStore((s) => s.reorderIds);
   const pushToast = useUiStore((s) => s.pushToast);
 
   const [focusId, setFocusId] = useState<string | null>(null);
@@ -61,6 +63,24 @@ export function TasksPage() {
     [tasks],
   );
   const progress = useMemo(() => computeTaskProgress(dailyAlive), [dailyAlive]);
+
+  /*
+    拖拽排序。
+    气泡归一地落在 `order` 字段上 —— 与「继承」「同步」共用同一套坐标系，
+    所以拖完 hydrate 一次再由 order 派生渲染顺序，不用手工搬运数组。
+  */
+  const dailyIds = useMemo(() => dailyAlive.map((t) => t.id), [dailyAlive]);
+  const handleReorder = useCallback(
+    (from: number, to: number) => {
+      const next = [...dailyIds];
+      const [moved] = next.splice(from, 1);
+      if (moved === undefined) return;
+      next.splice(to, 0, moved);
+      reorderIds(next);
+    },
+    [dailyIds, reorderIds],
+  );
+  const drag = useDragSort({ ids: dailyIds, onReorder: handleReorder });
 
   const handleInherit = async () => {
     const { created, skipped } = await inherit(date);
@@ -174,26 +194,35 @@ export function TasksPage() {
             }
           />
         ) : (
-          /* 概念稿 C4：所有任务装在同一张纸卡里，行与行之间不画线 */
+          /* 概念稿 C4：所有任务装在同一张纸卡里，行与行之间不画线。
+             每行外面这层 div 是拖拽的承载体：transform 由 useDragSort 下发，
+             被拖起的 card 抬 z-index，其余行同步让位。 */
           <div className="bg-surface rounded-card shadow-card p-1.5">
-            {dailyAlive.map((task) => (
-              <TaskRow
+            {dailyAlive.map((task, index) => (
+              <div
                 key={task.id}
-                task={task}
-                focused={focusId === task.id}
-                picking={pickingId === task.id}
-                onFocus={() => setFocusId(task.id)}
-                onEnter={() => {
-                  const id = add(date, '');
-                  if (id) setFocusId(id);
-                }}
-                onOpenPicker={() => setPickingId(task.id)}
-                onPickSection={(key) => {
-                  setSection(task.id, key);
-                  setPickingId(null);
-                }}
-                onClosePicker={() => setPickingId(null)}
-              />
+                ref={drag.registerItem(task.id)}
+                style={drag.itemStyle(task.id, index)}
+              >
+                <TaskRow
+                  task={task}
+                  focused={focusId === task.id}
+                  picking={pickingId === task.id}
+                  dragging={drag.activeId === task.id}
+                  handleProps={drag.handleProps(task.id, index)}
+                  onFocus={() => setFocusId(task.id)}
+                  onEnter={() => {
+                    const id = add(date, '');
+                    if (id) setFocusId(id);
+                  }}
+                  onOpenPicker={() => setPickingId(task.id)}
+                  onPickSection={(key) => {
+                    setSection(task.id, key);
+                    setPickingId(null);
+                  }}
+                  onClosePicker={() => setPickingId(null)}
+                />
+              </div>
             ))}
           </div>
         )}

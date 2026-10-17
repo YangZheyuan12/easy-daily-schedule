@@ -228,6 +228,23 @@ export interface ItemImage {
   createdAt: number;
 }
 
+/**
+ * 任务图片附件（期限任务 / 长时目标 / 每日任务共用）。
+ *
+ * 与 `ItemImage` 同构但**必须是独立的一张表**：图片的归属键是 taskId 而不是 itemId，
+ * 强行复用 itemImages 会让「孤儿清理」失去依据（`purgeOrphans` 按 items 表判定存活，
+ * 任务图会被当成孤儿删掉）。干净的数据模型省下的永远是 debug 的时间。
+ */
+export interface TaskImage {
+  id: string;
+  /** 所属任务 id */
+  taskId: string;
+  /** 图片二进制 */
+  blob: Blob;
+  /** 上传时间（用于排序，先传的排在前面） */
+  createdAt: number;
+}
+
 /** 创建条目时的必填输入 */
 export type ItemDraft = Pick<Item, 'date' | 'sectionId' | 'parentId' | 'title'>;
 

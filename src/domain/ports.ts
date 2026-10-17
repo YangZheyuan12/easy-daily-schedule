@@ -5,6 +5,7 @@ import type {
   Item,
   ItemImage,
   Task,
+  TaskImage,
   TimeSlot,
 } from './types';
 import type { SectionKey } from './enums';
@@ -121,6 +122,20 @@ export interface ItemImageRepository {
   purgeOrphans(existingItemIds: Set<string>): Promise<number>;
 }
 
+/** 任务图片附件仓储（与条目图片同构，但归属键是 taskId，故独立一张表） */
+export interface TaskImageRepository {
+  /** 批量取若干任务挂的图片（按 createdAt 升序），taskIds 为空返回 [] */
+  listByTaskIds(taskIds: string[]): Promise<TaskImage[]>;
+  /** 全表拉取（备份导出用） */
+  listAll(): Promise<TaskImage[]>;
+  /** 批量写入（新增或更新），单事务 */
+  putMany(images: TaskImage[]): Promise<void>;
+  /** 删除单张图片 */
+  delete(id: string): Promise<void>;
+  /** 清理孤儿附件：`existingTaskIds` 传 tasks 表**全部** id（含软删未到期） */
+  purgeOrphans(existingTaskIds: Set<string>): Promise<number>;
+}
+
 /** 轻量键值偏好（板块改名 / 折叠态等），一期落在 localStorage */
 export interface SettingsRepository {
   get<T>(key: string, fallback: T): Promise<T>;
@@ -136,5 +151,6 @@ export interface Repositories {
   timeSlots: TimeSlotRepository;
   inspirations: InspirationRepository;
   itemImages: ItemImageRepository;
+  taskImages: TaskImageRepository;
   settings: SettingsRepository;
 }

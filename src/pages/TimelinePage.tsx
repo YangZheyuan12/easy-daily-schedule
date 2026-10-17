@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import clsx from 'clsx';
 import { sectionColor, sectionTint } from '@/domain/constants';
@@ -99,8 +99,13 @@ export function TimelinePage() {
   const nowMin = useNowMin();
 
   const weekDays = useMemo(() => weekKeys(date), [date]);
-  /** 真实的「今天」（用于周视图里高亮今天那一列） */
-  const todayDateKey = useMemo(() => todayKey(), []);
+  /*
+    真实的「今天」（用于周视图里高亮今天那一列）。
+    🔴 不能用空依赖数组的 useMemo —— 那样它算一次就永不过期，跨零点后周视图会
+    高亮错一天（App 挂在后台一整夜再切回来就是这种情况）。取一次日期键开销极小，
+    每次渲染重算即可。
+  */
+  const todayDateKey = todayKey();
 
   // 时间轴周视图的时间窗（起始 / 结束 / 分割线间隔）来自用户设置，默认 06:00–24:00 / 2 小时
   const windowSettings = useTimelineWindowStore((s) => s.settings);
@@ -119,6 +124,19 @@ export function TimelinePage() {
   const visibleSlots = slots.filter((slot) => slot.deletedAt === null);
   // 已到计划时间且未完成的（用于行高亮；看非今天时 nowMin 无意义，高亮自然不触发）
   const dueIds = new Set(listDueSlots(visibleSlots, nowMin).map((slot) => slot.id));
+
+  /*
+    逐行错峰的入场动画**只在首次进入这一页时播**。
+    切日期后所有行的 key（slot.id）都会变、整列表重挂，若照样按 index 给
+    animationDelay，就会看到「下面的行先各自错开 10px 再慢慢归位」——这正是用户
+    描述的「切到别的日期，排版就乱」（2026-10-17）。首屏保留错峰（那是刻意的呼吸感），
+    之后换日期一律统一延迟，整 list 一起淡上来，看着就是「换了一天」而不是「重排了」。
+  */
+  const staggerRef = useRef(true);
+  useEffect(() => {
+    staggerRef.current = false;
+  }, []);
+  const rowDelay = (index: number) => (staggerRef.current ? staggerDelay(index) : undefined);
 
   const openAdd = (startMin: number = EMPTY_FORM.startMin) => {
     setForm({ ...EMPTY_FORM, startMin });
@@ -296,7 +314,7 @@ export function TimelinePage() {
                 <li
                   key={slot.id}
                   className="m-rise flex gap-2.5"
-                  style={{ animationDelay: staggerDelay(index) }}
+                  style={{ animationDelay: rowDelay(index) }}
                 >
                   {/* 勾选模式的勾选框：行首多出的一列（退出勾选后整列消失，不错位） */}
                   {selecting && (

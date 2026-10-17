@@ -6,6 +6,7 @@ import type {
   Item,
   ItemImage,
   Task,
+  TaskImage,
   TimeSlot,
 } from '@/domain/types';
 import { DB_NAME, DB_VERSION, STORES } from './schema';
@@ -24,6 +25,7 @@ export class AppDatabase extends Dexie {
   timeSlots!: EntityTable<TimeSlot, 'id'>;
   inspirations!: EntityTable<Inspiration, 'id'>;
   itemImages!: EntityTable<ItemImage, 'id'>;
+  taskImages!: EntityTable<TaskImage, 'id'>;
 
   constructor(name: string = DB_NAME) {
     super(name);

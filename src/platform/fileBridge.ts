@@ -8,32 +8,89 @@
  *
  * 关于原生壳：Capacitor 的 WebView 里 `<input type="file">` 是**可用的**
  * （Android / iOS 都会唤起系统文件选择器），所以导入这一侧 Web 与原生共用一套代码。
- * 导出侧分平台：
- * - **Android**：走本地插件 `SaveFilePlugin`（MediaStore 写公共「下载」目录）。
- *   🔴 不能用 `<a download>` —— Capacitor WebView 没有注册 DownloadListener，
- *   Blob URL 点了不会落地；也不能用 Filesystem 插件的公共目录（Android 11+
- *   scoped storage 见 `saveFilePlugin.ts` 注释）。真机用户就是因此「导出成功
- *   却找不到文件」（2026-10-16）。
- * - **Web / iOS**：`<a download>`。iOS WKWebView 同样不保证落地，侧载本身
- *   受苹果限制，此处维持旧行为，后续如需 iOS 备份再接 Share 插件。
+ * 导出侧现在有**两个出口**：
+ * - `saveTextFile`：写进本机长期存储（Android 走本地插件 `SaveFilePlugin` 的
+ *   MediaStore.Downloads）。🔴 不能用 `<a download>` —— Capacitor WebView 没有注册
+ *   DownloadListener，Blob URL 点了不会落地；也不能用 Filesystem 插件的公共目录
+ *   （Android 11+ scoped storage）。真机用户「导出成功却找不到文件」的根因就在这一步。
+ * - `shareTextFile`：**直接把文件递出去** —— 弹系统分享面板，微信 / QQ / 邮件 /
+ *   各家网盘都在里面。用户抱怨「在手机里找不到导出到哪」（2026-10-17）的答案不是
+ *   再写一段说明告诉他去哪个文件夹，而是让他压根不用去找。
+ * - Web / iOS：没有原生插件，退回 `<a download>`（iOS WKWebView 不保证落地，
+ *   侧载本身受苹果限制；有 navigator.canShare 时先走系统分享）。
  *
- * 🔴 `saveTextFile` 返回**落点描述**而不是 void：用户抱怨过「不知道导出到哪去了」
- * （2026-10-16），调用方要把这个描述原样放进提示里。
+ * 🔴 `saveTextFile` 返回**落点描述 + 真实文件名**而不是 void：用户抱怨过
+ * 「不知道导出到哪去了」（2026-10-16 / 10-17 反复出现），调用方要把它们放进提示里。
  */
 import { Capacitor } from '@capacitor/core';
 import { SaveFile } from './saveFilePlugin';
 
-/** 把一段文本存成文件交给用户（触发下载 / 系统保存），返回落点描述文案 */
+/** 一次导出的结果描述 */
+export interface SaveResult {
+  /** 落点描述文案（给用户看的） */
+  location: string;
+  /** 手机里实际的文件名（可能被系统自动改名） */
+  name: string;
+}
+
+/** 把一段文本存成本地文件，返回落点与真实文件名 */
 export async function saveTextFile(
   filename: string,
   text: string,
   mime = 'application/json',
-): Promise<string> {
+): Promise<SaveResult> {
   if (Capacitor.getPlatform() === 'android') {
-    await SaveFile.saveText({ filename, text, mime });
-    return '系统「下载」目录（用文件管理 App 就能看到）';
+    const outcome = await SaveFile.saveText({ filename, text, mime });
+    return { location: '系统「下载」目录（用文件管理 App 就能看到）', name: outcome.name };
+  }
+  return downloadViaAnchor(filename, text, mime);
+}
+
+/**
+ * 弹出系统分享面板把文件递出去（微信 / QQ / 网盘…）。
+ *
+ * 返回值里的 `shared` 说明这一步到底有没有真弹出去 —— 网页端没有原生面板，
+ * 只能退化成下载，调用方据此把提示写成「已分享」还是「已下载」。
+ */
+export async function shareTextFile(
+  filename: string,
+  text: string,
+  mime = 'application/json',
+): Promise<{ shared: boolean; result: SaveResult }> {
+  if (Capacitor.getPlatform() === 'android') {
+    try {
+      const outcome = await SaveFile.shareText({ filename, text, mime });
+      return {
+        shared: true,
+        result: { location: '系统分享面板（微信 / QQ / 网盘）', name: outcome.name },
+      };
+    } catch {
+      // 分享失败（没有可接收文件的应用等）不能让整次导出崩掉 —— 退回写本地
+      return { shared: false, result: await saveTextFile(filename, text, mime) };
+    }
   }
 
+  // Web：能用系统分享就用（Safari / Chrome 桌面端部分支持），否则下载
+  if (typeof navigator !== 'undefined' && typeof File !== 'undefined') {
+    try {
+      const file = new File([text], filename, { type: `${mime};charset=utf-8` });
+      const nav = navigator as Navigator & {
+        canShare?: (data: ShareData) => boolean;
+        share?: (data: ShareData) => Promise<void>;
+      };
+      if (nav.canShare?.({ files: [file] })) {
+        await nav.share?.({ files: [file], title: filename });
+        return { shared: true, result: { location: '系统分享面板', name: filename } };
+      }
+    } catch {
+      // 用户取消或浏览器不支持：都退回下载
+    }
+  }
+  return { shared: false, result: await downloadViaAnchor(filename, text, mime) };
+}
+
+/** 浏览器下载（`<a download>`） */
+function downloadViaAnchor(filename: string, text: string, mime: string): SaveResult {
   const blob = new Blob([text], { type: `${mime};charset=utf-8` });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
@@ -45,7 +102,7 @@ export async function saveTextFile(
   document.body.removeChild(anchor);
   // 立刻 revoke 会让部分浏览器来不及取数据，放到下一轮事件循环
   setTimeout(() => URL.revokeObjectURL(url), 0);
-  return '浏览器下载目录';
+  return { location: '浏览器下载目录', name: filename };
 }
 
 /**

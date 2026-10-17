@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Sheet, SheetActionButton } from '@/components/ui/Sheet';
 import { Icon } from '@/components/ui/Icon';
 import clsx from 'clsx';
@@ -12,6 +12,7 @@ import {
 import type { Task } from '@/domain/types';
 import type { TaskKind } from '@/domain/enums';
 import { useAutoResizeTextarea } from '@/hooks/useAutoResizeTextarea';
+import { todayKey } from '@/utils/date';
 
 type DueMode = 'date' | RelativeDeadline;
 
@@ -28,6 +29,11 @@ interface TaskKindComposerProps {
   task: Task | null;
   open: boolean;
   onClose: () => void;
+  /**
+   * 可选：追加段（如编辑态的图片附件区）。
+   * 只在**编辑**时才有意义 —— 新任务此刻还没有 id，图片挂不上去。
+   */
+  children?: ReactNode;
 }
 
 /**
@@ -38,7 +44,13 @@ interface TaskKindComposerProps {
  * - 新增与编辑共用同一套字段：标题、描述、（仅期限任务）期限（具体日期 / 三天内 / 一周内 / 两周内）。
  * - 编辑态底部多一个「删除」入口。
  */
-export function TaskKindComposer({ kind, task, open, onClose }: TaskKindComposerProps) {
+export function TaskKindComposer({
+  kind,
+  task,
+  open,
+  onClose,
+  children,
+}: TaskKindComposerProps) {
   const addDeadline = useTaskStore((s) => s.addDeadline);
   const addGoal = useTaskStore((s) => s.addGoal);
   const setContent = useTaskStore((s) => s.setContent);
@@ -57,6 +69,14 @@ export function TaskKindComposer({ kind, task, open, onClose }: TaskKindComposer
   // 打开瞬间把表单同步到当前 task（新增则清空）。依赖 open 上升沿，避免编辑中回写表单
   useEffect(() => {
     if (!open) return;
+    /*
+      期限日期一律**先填上今天**再让用户改（而不是留空）。
+      留空时控件显示成空白占位，加上曾经被全局 `appearance-none` 抹掉 UA 外观
+      （见 styles/index.css 的 date input 例外），用户看到的就是「一条空白」；
+      更糟的是空日期会让「添加」按钮一直禁用，看上去像坏了。
+      给一个有值的起点，需要改时点一下就是今天所在的月份。
+    */
+    const today = todayKey();
     if (task) {
       setTitle(task.content);
       setDesc(task.description ?? '');
@@ -65,16 +85,16 @@ export function TaskKindComposer({ kind, task, open, onClose }: TaskKindComposer
         setDateVal(task.dueDate);
       } else if (task.dueRelative) {
         setMode(task.dueRelative);
-        setDateVal('');
+        setDateVal(today);
       } else {
         setMode('date');
-        setDateVal('');
+        setDateVal(today);
       }
     } else {
       setTitle('');
       setDesc('');
       setMode('date');
-      setDateVal('');
+      setDateVal(today);
     }
     // 只在我们重新打开时跑：open 上升沿 + 切到不同的 task
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -197,11 +217,18 @@ export function TaskKindComposer({ kind, task, open, onClose }: TaskKindComposer
               ))}
             </div>
             {mode === 'date' && (
+              /*
+                原生日期控件负责弹出系统日历（两条手指操作：点中间的字段区或右侧指示图标）。
+                它必须看起来像一个**可以点的输入框**：有下沉底色、有明确边框、有足够高的点击区。
+                样式上刻意保留 UA 外观（`styles/index.css` 里对 `[type=date]` 做了 appearance 例外）——
+                一旦写成 appearance:none，这个控件在 Android / iOS WebView 上就是一条空白。
+              */
               <input
                 type="date"
                 value={dateVal}
                 onChange={(event) => setDateVal(event.target.value)}
-                className="mt-2 w-full min-h-[34px] px-1 text-caption outline-none bg-transparent text-ink rounded-pill border border-edge-strong"
+                aria-label="截止日期"
+                className="mt-2 w-full min-h-[38px] px-3 rounded-sm text-body tabular-nums outline-none text-ink bg-surface-sunken border border-edge-strong"
               />
             )}
           </div>
@@ -219,6 +246,8 @@ export function TaskKindComposer({ kind, task, open, onClose }: TaskKindComposer
             className="w-full min-h-tap py-2 px-1 text-body leading-6 outline-none bg-transparent text-ink-faint resize-none"
           />
         </div>
+
+        {children}
 
         {/* 编辑态：删除入口 */}
         {task && (

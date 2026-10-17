@@ -15,11 +15,12 @@ import type {
   Item,
   ItemImage,
   Task,
+  TaskImage,
   TimeSlot,
 } from '@/domain/types';
 
 export const DB_NAME = 'daily-schedule';
-export const DB_VERSION = 4;
+export const DB_VERSION = 5;
 
 export interface ItemTable extends Item {}
 export interface TaskTable extends Task {}
@@ -28,6 +29,7 @@ export interface SelfStatusTable extends DailySelfStatus {}
 export interface TimeSlotTable extends TimeSlot {}
 export interface InspirationTable extends Inspiration {}
 export interface ItemImageTable extends ItemImage {}
+export interface TaskImageTable extends TaskImage {}
 
 /**
  * stores 声明：主键 + 索引。
@@ -38,7 +40,8 @@ export interface ItemImageTable extends ItemImage {}
  * v3 变更：新增 `inspirations` 表（按 id，附 date / deletedAt 索引）。Dexie 要求
  * 每个版本声明**完整** schema，故此处重申全部既有表。
  * v4 变更：新增 `itemImages` 表（按 id，附 itemId 索引），用于给条目挂图片附件。
- * 同样重申全部既有表。
+ * v5 变更：新增 `taskImages` 表（按 id，附 taskId 索引），给任务也挂上图片附件
+ * （期限任务 / 长时目标同样要能配图）。同样重申全部既有表。
  */
 export const STORES = {
   items: '&id, date, sectionId, parentId, [date+sectionId], deletedAt',
@@ -48,6 +51,7 @@ export const STORES = {
   timeSlots: '&id, date, [date+sectionId], deletedAt',
   inspirations: '&id, date, deletedAt',
   itemImages: '&id, itemId',
+  taskImages: '&id, taskId',
 } as const;
 
 export type StoreName = keyof typeof STORES;

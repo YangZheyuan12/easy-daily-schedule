@@ -54,7 +54,15 @@ export const useTimeSlotStore = create<TimeSlotState>((set, get) => {
     loading: false,
 
     async loadDate(date) {
-      set({ loading: true, date });
+      /*
+        🔴 换日期要**立刻**把旧数据撤掉，不能等到查询回来才替换。
+        原来这里只改 `date` / `loading`，`slots` 保留上一天的内容 —— 于是存在一段
+        「头部已经是新日期、列表还在渲染旧日期」的窗口：数据到位后又是一次全量重排，
+        用户看到的就是「切一下日期，下面的行先乱、再归位」（2026-10-17）。
+        首次进入（上一版 date 为空字符串）不清，避免开局闪一下空态。
+      */
+      const switched = get().date !== '' && get().date !== date;
+      set({ loading: true, date, slots: switched ? [] : get().slots });
       try {
         const slots = await repos.timeSlots.listByDate(date);
         set({ slots: sortSlots(slots), loading: false });

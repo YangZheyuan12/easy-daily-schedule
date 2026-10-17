@@ -103,12 +103,20 @@ export function DateNavigator({
   const centerText = centerLabel ?? formatDateLabel(date);
 
   return (
-    <div className="flex items-center justify-between px-5 pt-[calc(8px+env(safe-area-inset-top))] pb-1">
-      <div className="flex items-center -ml-2 min-w-0">
+    <div className="flex items-center justify-between gap-1 px-5 pt-[calc(8px+env(safe-area-inset-top))] pb-1">
+      {/*
+        🔴 左侧这一组吃掉**除右侧胶囊外的全部宽度**（`flex-1`），中间日期槽再 `flex-1`。
+        原来中间那一格是按内容自适应的：日期文案宽度会随「9 日 → 10 日」「9 月 → 10 月」
+        变化（少一个数字就窄 13px），于是每翻一天，左右两个箭头都会跟着左右挪一下 ——
+        这就是用户说的「切到别的日期，日期排版就会乱」（2026-10-17）。
+        现在箭头的横向位置只由容器宽度决定，与当天是几月几号无关。
+        文案本身保留 `truncate`：万一遇上特别窄的屏幕，宁可省略号也不要撑破导航栏。
+      */}
+      <div className="flex items-center -ml-2 min-w-0 flex-1">
         <button
           type="button"
           onClick={onPrev}
-          className="press min-w-tap min-h-tap flex items-center justify-center text-ink-soft"
+          className="press shrink-0 min-w-tap min-h-tap flex items-center justify-center text-ink-soft"
           aria-label={mode === 'week' ? '上一周' : '前一天'}
         >
           <Icon name="chevron-left" size={20} />
@@ -117,11 +125,7 @@ export function DateNavigator({
         <button
           type="button"
           onClick={onDateClick ?? onToday}
-          className={clsx(
-            'min-h-tap px-1 flex items-center active:opacity-60',
-            // 仅在带副标题 / 长范围文案时才允许收缩，保证无副标题时 class 与旧版逐字一致
-            (hasSubtitle || hasCenterLabel) && 'min-w-0',
-          )}
+          className="press flex-1 min-w-0 min-h-tap px-1 flex items-center justify-start active:opacity-60"
           aria-label={clickable ? '点击选择日期' : today ? '今天是' + formatDateLabel(date) : '回到今天'}
         >
           {/* key=date：换日期时重挂，让方向动画重放（同一个 DOM 节点上不会重播已播完的动画） */}
@@ -129,11 +133,13 @@ export function DateNavigator({
             <span
               key={centerText}
               className={clsx(
-                'flex flex-col items-start min-w-0',
+                'flex flex-col items-start min-w-0 max-w-full',
                 direction === 0 ? 'm-fade' : direction > 0 ? 'm-slide-right' : 'm-slide-left',
               )}
             >
-              <span className="text-title font-semibold text-ink tracking-tight">{centerText}</span>
+              <span className="text-title font-semibold text-ink tracking-tight truncate max-w-full">
+                {centerText}
+              </span>
               {/* 副标题：与主日期同处一个动画块，切日期时一起滑入 / 滑出 */}
               <span className="text-caption text-ink-faint truncate max-w-[42vw]">{subtitleText}</span>
             </span>
@@ -142,7 +148,7 @@ export function DateNavigator({
             <span
               key={centerText}
               className={clsx(
-                'text-heading font-semibold text-ink tracking-tight whitespace-nowrap',
+                'text-heading font-semibold text-ink tracking-tight whitespace-nowrap truncate max-w-full',
                 direction === 0 ? 'm-fade' : direction > 0 ? 'm-slide-right' : 'm-slide-left',
               )}
             >
@@ -152,7 +158,7 @@ export function DateNavigator({
             <span
               key={centerText}
               className={clsx(
-                'text-title font-semibold text-ink tracking-tight',
+                'text-title font-semibold text-ink tracking-tight whitespace-nowrap truncate max-w-full',
                 direction === 0 ? 'm-fade' : direction > 0 ? 'm-slide-right' : 'm-slide-left',
               )}
             >
@@ -164,7 +170,7 @@ export function DateNavigator({
         <button
           type="button"
           onClick={onNext}
-          className="press min-w-tap min-h-tap flex items-center justify-center text-ink-soft"
+          className="press shrink-0 min-w-tap min-h-tap flex items-center justify-center text-ink-soft"
           aria-label={mode === 'week' ? '下一周' : '后一天'}
         >
           <Icon name="chevron-right" size={20} />
@@ -176,20 +182,26 @@ export function DateNavigator({
           天视图 + 看的不是今天 → 右上角直接是「回到今天」。
           这时用户下一步几乎必然是回今天，把它藏进菜单等于逼人多点一次；
           重音实色是因为它此刻就是这一屏的主操作。
+
+          🔴 文案写成「今天」而不是「回到今天」：导航条这一行的横向预算是死的
+          （‹ › 各 44px + 日期最多约 152px），360px 宽的机器上四个字会把日期挤到
+          只剩省略号 —— 反过来才是「排版乱」。回到今天的语义由 ↺ 图标表达，
+          无障碍名与浮层里那一行仍然写完整的「回到今天」。
         */
         showBackToToday ? (
           <button
             type="button"
             onClick={onToday}
-            className="press shrink-0 min-h-[34px] px-3.5 rounded-pill bg-accent text-meta text-accent-fg shadow-glow inline-flex items-center gap-1"
+            className="press shrink-0 min-h-[34px] px-3.5 rounded-pill bg-accent text-meta text-accent-fg shadow-glow inline-flex items-center gap-1 whitespace-nowrap"
             aria-label="回到今天"
+            title="回到今天"
             data-testid="back-to-today"
           >
             <Icon name="undo" size={13} />
-            回到今天
+            今天
           </button>
         ) : (
-          <div className="relative">
+          <div className="relative shrink-0">
             <button
               type="button"
               onClick={() => setSwitchOpen(true)}
@@ -264,9 +276,7 @@ export function DateNavigator({
         <button
           type="button"
           onClick={onToday}
-          className={clsx(
-            'press shrink-0 min-h-[34px] px-3.5 rounded-pill bg-surface-sunken text-meta text-ink-faint',
-          )}
+          className="press shrink-0 min-h-[34px] px-3.5 rounded-pill bg-surface-sunken text-meta text-ink-faint inline-flex items-center whitespace-nowrap"
           aria-label="回到今天"
         >
           今天

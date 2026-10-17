@@ -2,6 +2,7 @@ import { Icon } from '@/components/ui/Icon';
 import { Tick } from '@/components/ui/Tick';
 import { useEffect, useRef, useState } from 'react';
 import clsx from 'clsx';
+import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react';
 import type { Task } from '@/domain/types';
 import type { TaskSectionKey } from '@/domain/enums';
 import { OTHER_KEY } from '@/domain/enums';
@@ -21,6 +22,14 @@ interface TaskRowProps {
   onOpenPicker: () => void;
   onPickSection: (key: TaskSectionKey) => void;
   onClosePicker: () => void;
+  /**
+   * 拖拽手柄（不传则整行不可拖）。
+   * 由页面级的 `useDragSort` 统一下发：同屏只能有一个拖拽会话，
+   * 各行自己拖自己的话，「哪张卡抬起来了」就会彻底失控。
+   */
+  handleProps?: { onPointerDown: (event: ReactPointerEvent) => void; style: CSSProperties };
+  /** 本行此刻正被手指拖着（= 抬起的那一层） */
+  dragging?: boolean;
 }
 
 /** 退场动效时长：与 `.m-row-exit` 的 `--m-dur-3` 对齐（JS 读不到 CSS 变量） */
@@ -43,6 +52,8 @@ export function TaskRow({
   onOpenPicker,
   onPickSection,
   onClosePicker,
+  handleProps,
+  dragging = false,
 }: TaskRowProps) {
   const setContent = useTaskStore((s) => s.setContent);
   const setDescription = useTaskStore((s) => s.setDescription);
@@ -101,7 +112,14 @@ export function TaskRow({
   const showMeta = focused || (task.description?.length ?? 0) > 0 || !ungrouped;
 
   return (
-    <div className={clsx('m-row-exit', leaving && 'is-leaving')}>
+    <div
+      className={clsx(
+        'm-row-exit rounded-card',
+        leaving && 'is-leaving',
+        // 拖起来的那一层：脱离纸面 + 抱一点光 —— 「这张卡此刻不在列表里，在手上」
+        dragging && 'bg-surface shadow-card ring-1 ring-accent/30',
+      )}
+    >
       <div className="flex flex-col">
         <div className="flex items-center min-h-tap">
           <Tick
@@ -139,6 +157,23 @@ export function TaskRow({
             data-done={task.done}
             enterKeyHint="enter"
           />
+
+          {/*
+            拖拽手柄。放在删除按钮左边、始终可见（不像删除那样只在聚焦时出现）——
+            顺序是列表的固有属性，「能不能拖」必须一眼看得见，而不是先聚焦才出现。
+            35px 宽刚好是一根手指落下的最小横向余量，再窄就会误点到删除键。
+          */}
+          {handleProps && (
+            <button
+              type="button"
+              onPointerDown={handleProps.onPointerDown}
+              style={handleProps.style}
+              aria-label={`拖动排序：${task.content || '这条任务'}`}
+              className="press shrink-0 w-[35px] min-h-tap flex items-center justify-center text-ink-faint"
+            >
+              <Icon name="grip" size={16} />
+            </button>
+          )}
 
           {/* 删除仅在聚焦该行时出现，避免静态排版被工具按钮打散 */}
           <button

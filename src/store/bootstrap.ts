@@ -79,6 +79,9 @@ export async function purgeExpiredSoftDeletes(): Promise<void> {
     // 传 items 表**全部** id（含软删未到期），保证「还能撤销」的条目图片不被误删。
     const existingItemIds = new Set(await repos.items.listAllIds());
     await repos.itemImages.purgeOrphans(existingItemIds);
+    // 任务图片按 tasks 表判定存活（两张表互不干涉，不能混用同一个 id 集合）
+    const existingTaskIds = new Set((await repos.tasks.listAll()).map((t) => t.id));
+    await repos.taskImages.purgeOrphans(existingTaskIds);
   } catch (error) {
     // 清理失败不影响启动，静默即可
     emitError(error);

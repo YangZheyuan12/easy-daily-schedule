@@ -50,6 +50,14 @@ interface TaskState {
   setDue: (id: string, due: { dueDate?: string; relative?: RelativeDeadline }) => void;
   toggleDone: (id: string) => void;
   move: (id: string, direction: -1 | 1) => void;
+  /**
+   * 拖拽排序：按**传入的 id 序列**重写 `order`。
+   *
+   * `ids` 必须是同一个作用域内的完整序列（任务页传「全部存活的每日任务」，
+   * 期限页传「全部存活的期限任务」）—— 序号统一归位到 `(i+1) * ORDER_STEP`，
+   * 与 `move()` 生成的刻度同一套坐标系，两者混用不会打架。
+   */
+  reorderIds: (ids: string[]) => void;
   remove: (id: string) => void;
   undo: () => void;
   dismissUndo: () => void;
@@ -236,6 +244,21 @@ export const useTaskStore = create<TaskState>((set, get) => {
         return order === undefined || order === t.order ? t : { ...t, order, updatedAt: now };
       });
       commit(tasks, reordered.map((t) => t.id), true);
+    },
+
+    /*
+      拖拽排序的落盘。与 `move()` 的唯一区别是它由调用方给出**最终序列**
+      这里只负责把它翻译成 `order` 刻度写回去。
+    */
+    reorderIds(ids) {
+      if (ids.length < 2) return;
+      const now = clock.now();
+      const orderById = new Map(ids.map((id, i) => [id, (i + 1) * ORDER_STEP]));
+      const tasks = get().tasks.map((t) => {
+        const order = orderById.get(t.id);
+        return order === undefined || order === t.order ? t : { ...t, order, updatedAt: now };
+      });
+      commit(tasks, ids, true);
     },
 
     remove(id) {

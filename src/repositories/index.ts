@@ -9,6 +9,7 @@ import {
 import { IndexedDbTimeSlotRepository } from './IndexedDbTimeSlotRepository';
 import { IndexedDbInspirationRepository } from './IndexedDbInspirationRepository';
 import { IndexedDbItemImageRepository } from './IndexedDbItemImageRepository';
+import { IndexedDbTaskImageRepository } from './IndexedDbTaskImageRepository';
 import { LocalSettingsRepository } from './LocalSettingsRepository';
 
 export { db };
@@ -21,6 +22,7 @@ export {
 export { IndexedDbTimeSlotRepository } from './IndexedDbTimeSlotRepository';
 export { IndexedDbInspirationRepository } from './IndexedDbInspirationRepository';
 export { IndexedDbItemImageRepository } from './IndexedDbItemImageRepository';
+export { IndexedDbTaskImageRepository } from './IndexedDbTaskImageRepository';
 export { LocalSettingsRepository, MemorySettingsRepository } from './LocalSettingsRepository';
 
 /**
@@ -38,6 +40,7 @@ export function createRepositories(): Repositories {
     timeSlots: new IndexedDbTimeSlotRepository(db),
     inspirations: new IndexedDbInspirationRepository(db),
     itemImages: new IndexedDbItemImageRepository(db),
+    taskImages: new IndexedDbTaskImageRepository(db),
     settings: new LocalSettingsRepository(),
   };
 }
