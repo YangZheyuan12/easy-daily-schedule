@@ -173,6 +173,12 @@ export function useDragSort({ ids, onReorder }: DragOptions): DragSortResult {
    * itemStyle 据此下发 `translateY`，下一帧再过渡到 0。
    */
   const [settling, setSettling] = useState<{ id: string; dy: number } | null>(null);
+  /**
+   * 松手重排后的首帧：让所有行 `transition: none`，避免让位行在「transform 归零 +
+   * DOM 重排」同 commit 里，从拖拽期的 none 切到 200ms 再触发一次多余的向下过渡
+   * （这正是「向上闪动」的另一半）。下一帧清除，恢复正常的 transition。
+   */
+  const [justReleased, setJustReleased] = useState(false);
 
   const pointerId = useRef<number | null>(null);
   const startInfo = useRef<{ id: string; index: number; x: number; y: number } | null>(null);
@@ -282,7 +288,9 @@ export function useDragSort({ ids, onReorder }: DragOptions): DragSortResult {
         把视觉位置补回平滑，中途不可能出现「一条消失 / 重叠」。
       */
       updateDrag(null);
+      setJustReleased(true);
       onReorderRef.current(state.from, state.to);
+      requestAnimationFrame(() => setJustReleased(false));
 
       const el = elements.current.get(state.activeId) ?? null;
       if (el && typeof el.animate === 'function') {
@@ -512,15 +520,25 @@ export function useDragSort({ ids, onReorder }: DragOptions): DragSortResult {
         };
       }
       if (drag) {
+        /*
+          🔴 让位行**拖拽期间不做 transition**（即时跟手），只做 transform 位移。
+          之前给 200ms 缓动，让位行会「追赶」被拖卡（被拖卡是跟手实时 0 延迟），
+          两者帧错位 → 手指移动时其它行一抽一抽地「向上闪」。即时位移让所有行与
+          被拖卡严格同帧，拖拽过程零抖动；松手后的 FLIP 动画再负责收尾的平滑。
+        */
         return {
           transform: `translateY(${shiftOf(index, drag.from, drag.to, metrics.current?.activeHeight ?? 0)}px)`,
-          transition: SHIFT_TRANSITION,
+          transition: 'none',
           position: 'relative',
         };
       }
-      return { transition: SHIFT_TRANSITION, position: 'relative' };
+      return {
+        // 松手首帧冻结 transition：让位行 transform 归零与 DOM 重排同帧完成，不再二次过渡
+        transition: justReleased ? 'none' : SHIFT_TRANSITION,
+        position: 'relative',
+      };
     },
-    [drag, settling],
+    [drag, settling, justReleased],
   );
 
   return { activeId: drag?.activeId ?? null, registerItem, handleProps, itemStyle };
