@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { Icon } from '@/components/ui/Icon';
 import { ImageThumb } from '@/components/item/ImageThumb';
 import { ImageLightbox } from '@/components/item/ImageLightbox';
+import { ImageEditor } from '@/components/item/ImageEditor';
 import { useTaskImageStore, EMPTY_TASK_IMAGES } from '@/store/useTaskImageStore';
 import type { TaskImage } from '@/domain/types';
 
@@ -24,10 +25,18 @@ export function TaskImageSection({ taskId }: TaskImageSectionProps) {
   const images = useTaskImageStore((s) => s.byTask[taskId] ?? EMPTY_TASK_IMAGES);
   const addImages = useTaskImageStore((s) => s.add);
   const removeImage = useTaskImageStore((s) => s.remove);
+  const replaceImage = useTaskImageStore((s) => s.replace);
   const loadImages = useTaskImageStore((s) => s.loadOne);
 
   const fileRef = useRef<HTMLInputElement>(null);
-  const [lightboxBlob, setLightboxBlob] = useState<Blob | null>(null);
+  // 用 id 而非 blob 记录当前看大图的图片：replace 后能从 store 取到新 blob 自动刷新
+  const [lightboxId, setLightboxId] = useState<string | null>(null);
+  // 重新编辑（裁剪 / 旋转后覆盖写回）正在处理的图片 id
+  const [editingId, setEditingId] = useState<string | null>(null);
+
+  const lightboxImage = lightboxId ? images.find((img) => img.id === lightboxId) ?? null : null;
+  const lightboxBlob = lightboxImage?.blob ?? null;
+  const editingImage = editingId ? images.find((img) => img.id === editingId) ?? null : null;
 
   // 抽屉切到另一条任务时重新拉取（taskId 变了就必须重读）
   useEffect(() => {
@@ -53,7 +62,7 @@ export function TaskImageSection({ taskId }: TaskImageSectionProps) {
             blob={image.blob}
             size={72}
             showDelete
-            onClick={() => setLightboxBlob(image.blob)}
+            onClick={() => setLightboxId(image.id)}
             onDelete={() => removeImage(image.id, taskId)}
           />
         ))}
@@ -80,7 +89,26 @@ export function TaskImageSection({ taskId }: TaskImageSectionProps) {
         onChange={handleFiles}
       />
 
-      <ImageLightbox blob={lightboxBlob} onClose={() => setLightboxBlob(null)} />
+      <ImageLightbox
+        blob={lightboxBlob}
+        onClose={() => setLightboxId(null)}
+        editable
+        onEdit={() => {
+          setEditingId(lightboxId);
+          setLightboxId(null);
+        }}
+      />
+
+      {editingImage && (
+        <ImageEditor
+          blob={editingImage.blob}
+          onCancel={() => setEditingId(null)}
+          onConfirm={async (edited: Blob) => {
+            if (editingId) await replaceImage(editingId, taskId, edited);
+            setEditingId(null);
+          }}
+        />
+      )}
     </div>
   );
 }

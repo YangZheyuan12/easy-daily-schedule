@@ -46,7 +46,9 @@ export type IconName =
   /** 裁剪 */
   | 'crop'
   /** 重置（刷新箭头） */
-  | 'reset';
+  | 'reset'
+  /** 编辑（铅笔） */
+  | 'edit';
 
 interface IconProps {
   name: IconName;
@@ -220,6 +222,12 @@ const STROKE: Record<Exclude<IconName, 'heart' | 'star' | 'dot' | 'grip'>, React
     <>
       <path d="M20.5 12a8.5 8.5 0 1 1-2.49-6.01" />
       <path d="M20.5 3.5V9h-5.5" />
+    </>
+  ),
+  edit: (
+    <>
+      <path d="M4 20h4L19 9l-4-4L4 16v4Z" />
+      <path d="M14.5 5.5l4 4" />
     </>
   ),
 };

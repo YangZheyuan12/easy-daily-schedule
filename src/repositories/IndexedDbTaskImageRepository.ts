@@ -52,6 +52,15 @@ export class IndexedDbTaskImageRepository implements TaskImageRepository {
     }
   }
 
+  async replace(id: string, blob: Blob): Promise<void> {
+    try {
+      // 主键即 id；只改 blob，createdAt / taskId 等字段原样保留
+      await this.db.taskImages.update(id, { blob });
+    } catch (error) {
+      throw new StorageError('更新任务图片失败', error);
+    }
+  }
+
   async purgeOrphans(existingTaskIds: Set<string>): Promise<number> {
     try {
       const all = await this.db.taskImages.toArray();

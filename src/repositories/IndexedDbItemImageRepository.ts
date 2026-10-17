@@ -51,6 +51,15 @@ export class IndexedDbItemImageRepository implements ItemImageRepository {
     }
   }
 
+  async replace(id: string, blob: Blob): Promise<void> {
+    try {
+      // 主键即 id；只改 blob，createdAt / itemId 等字段原样保留
+      await this.db.itemImages.update(id, { blob });
+    } catch (error) {
+      throw new StorageError('更新条目图片失败', error);
+    }
+  }
+
   async purgeOrphans(existingItemIds: Set<string>): Promise<number> {
     try {
       const all = await this.db.itemImages.toArray();

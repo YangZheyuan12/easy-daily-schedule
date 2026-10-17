@@ -114,6 +114,8 @@ export interface ItemImageRepository {
   putMany(images: ItemImage[]): Promise<void>;
   /** 删除单张图片 */
   delete(id: string): Promise<void>;
+  /** 覆盖写入单张图片的二进制（保留 id 与 createdAt，仅替换 blob）。用于上传后重新编辑 */
+  replace: (id: string, blob: Blob) => Promise<void>;
   /**
    * 清理孤儿附件：图片所属的条目记录已不存在时一并删除。
    * `existingItemIds` 应传入 items 表**全部** id（含软删未到期），
@@ -132,6 +134,8 @@ export interface TaskImageRepository {
   putMany(images: TaskImage[]): Promise<void>;
   /** 删除单张图片 */
   delete(id: string): Promise<void>;
+  /** 覆盖写入单张图片的二进制（保留 id 与 createdAt，仅替换 blob）。用于上传后重新编辑 */
+  replace: (id: string, blob: Blob) => Promise<void>;
   /** 清理孤儿附件：`existingTaskIds` 传 tasks 表**全部** id（含软删未到期） */
   purgeOrphans(existingTaskIds: Set<string>): Promise<number>;
 }

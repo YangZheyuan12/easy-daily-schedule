@@ -27,7 +27,16 @@ export function ItemImageSection({ itemId }: ItemImageSectionProps) {
   const loadImages = useItemImageStore((s) => s.loadForItems);
 
   const fileRef = useRef<HTMLInputElement>(null);
-  const [lightboxBlob, setLightboxBlob] = useState<Blob | null>(null);
+  // 用 id 而非 blob 记录当前看大图的图片：replace 后能从 store 取到新 blob 自动刷新
+  const [lightboxId, setLightboxId] = useState<string | null>(null);
+  // 重新编辑（裁剪 / 旋转后覆盖写回）正在处理的图片 id
+  const [editingId, setEditingId] = useState<string | null>(null);
+
+  const replaceImage = useItemImageStore((s) => s.replace);
+
+  const lightboxImage = lightboxId ? images.find((img) => img.id === lightboxId) ?? null : null;
+  const lightboxBlob = lightboxImage?.blob ?? null;
+  const editingImage = editingId ? images.find((img) => img.id === editingId) ?? null : null;
 
   /*
     编辑器队列：用户一次可多选若干张图。逐张进入 ImageEditor 调整，
@@ -103,7 +112,7 @@ export function ItemImageSection({ itemId }: ItemImageSectionProps) {
             blob={image.blob}
             size={72}
             showDelete
-            onClick={() => setLightboxBlob(image.blob)}
+            onClick={() => setLightboxId(image.id)}
             onDelete={() => removeImage(image.id, itemId)}
           />
         ))}
@@ -130,13 +139,32 @@ export function ItemImageSection({ itemId }: ItemImageSectionProps) {
         onChange={handleFiles}
       />
 
-      <ImageLightbox blob={lightboxBlob} onClose={() => setLightboxBlob(null)} />
+      <ImageLightbox
+        blob={lightboxBlob}
+        onClose={() => setLightboxId(null)}
+        editable
+        onEdit={() => {
+          setEditingId(lightboxId);
+          setLightboxId(null);
+        }}
+      />
 
       {currentEdit && (
         <ImageEditor
           blob={currentEdit}
           onCancel={handleEditorCancel}
           onConfirm={handleEditorConfirm}
+        />
+      )}
+
+      {editingImage && (
+        <ImageEditor
+          blob={editingImage.blob}
+          onCancel={() => setEditingId(null)}
+          onConfirm={async (edited: Blob) => {
+            if (editingId) await replaceImage(editingId, itemId, edited);
+            setEditingId(null);
+          }}
         />
       )}
     </div>

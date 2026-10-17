@@ -44,4 +44,26 @@ describe('useItemImageStore', () => {
     await useItemImageStore.getState().loadForItems(['it1'], 'dateA');
     expect(useItemImageStore.getState().loadedKey).toBe('dateA');
   });
+
+  it('replace 仅覆盖 blob，保留 id 与 createdAt', async () => {
+    await useItemImageStore.getState().add('it1', [makeImageFile()]);
+    const original = useItemImageStore.getState().byItem['it1'][0];
+    const id = original.id;
+    const createdAt = original.createdAt;
+
+    const edited = new File([new Uint8Array([9, 9, 9, 9])], 'edited.png', { type: 'image/png' });
+    await useItemImageStore.getState().replace(id, 'it1', edited);
+
+    const after = useItemImageStore.getState().byItem['it1'][0];
+    expect(after.id).toBe(id);
+    expect(after.createdAt).toBe(createdAt);
+    expect(after.blob).toBe(edited);
+
+    // 落库：重新加载后仍是同一 id、新 blob（IndexedDB 结构化克隆，按内容而非引用比较）
+    await useItemImageStore.getState().loadForItems(['it1'], 'k3');
+    const reloaded = useItemImageStore.getState().byItem['it1'][0];
+    expect(reloaded.id).toBe(id);
+    expect(reloaded.blob.size).toBe(edited.size);
+    expect(reloaded.blob.type).toBe(edited.type);
+  });
 });

@@ -23,6 +23,8 @@ export interface TaskImageState {
   add: (taskId: string, files: File[]) => Promise<void>;
   /** 删除单张图片（本地 + 落库） */
   remove: (imageId: string, taskId: string) => Promise<void>;
+  /** 覆盖单张图片的二进制（保留 id 与 createdAt），乐观更新本地后落库 */
+  replace: (imageId: string, taskId: string, blob: Blob) => Promise<void>;
 }
 
 export const useTaskImageStore = create<TaskImageState>((set, get) => ({
@@ -71,6 +73,17 @@ export const useTaskImageStore = create<TaskImageState>((set, get) => ({
     await repos.taskImages.delete(imageId);
     const prev = get().byTask[taskId] ?? [];
     set({ byTask: { ...get().byTask, [taskId]: prev.filter((image) => image.id !== imageId) } });
+  },
+
+  async replace(imageId, taskId, blob) {
+    await repos.taskImages.replace(imageId, blob);
+    const prev = get().byTask[taskId] ?? [];
+    set({
+      byTask: {
+        ...get().byTask,
+        [taskId]: prev.map((image) => (image.id === imageId ? { ...image, blob } : image)),
+      },
+    });
   },
 }));
 

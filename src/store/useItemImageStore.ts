@@ -21,6 +21,8 @@ export interface ItemImageState {
   add: (itemId: string, blobs: Blob[]) => Promise<void>;
   /** 删除单张图片（本地 + 落库） */
   remove: (imageId: string, itemId: string) => Promise<void>;
+  /** 覆盖单张图片的二进制（保留 id 与 createdAt），乐观更新本地后落库 */
+  replace: (imageId: string, itemId: string, blob: Blob) => Promise<void>;
 }
 
 export const useItemImageStore = create<ItemImageState>((set, get) => ({
@@ -61,6 +63,17 @@ export const useItemImageStore = create<ItemImageState>((set, get) => ({
     const prev = get().byItem[itemId] ?? [];
     set({
       byItem: { ...get().byItem, [itemId]: prev.filter((image) => image.id !== imageId) },
+    });
+  },
+
+  async replace(imageId, itemId, blob) {
+    await repos.itemImages.replace(imageId, blob);
+    const prev = get().byItem[itemId] ?? [];
+    set({
+      byItem: {
+        ...get().byItem,
+        [itemId]: prev.map((image) => (image.id === imageId ? { ...image, blob } : image)),
+      },
     });
   },
 }));
