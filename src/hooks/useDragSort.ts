@@ -170,6 +170,13 @@ export function useDragSort({ ids, onReorder }: DragOptions): DragSortResult {
   const [drag, setDrag] = useState<DragState | null>(null);
   /** 归位动画中的那一帧（DOM 顺序还没变，只把卡片滑进让出来的坑里） */
   const [settling, setSettling] = useState<{ id: string; dy: number } | null>(null);
+  /**
+   * 归位动画结束、数据真正重排的那一帧：被拖卡片的 DOM 槽位瞬间变化，但它的 transform
+   * 还停在归位值上。若此时让 CSS transition 从「归位值 → 0」动画，卡片会被误推回旧槽位
+   * 再滑回来 = 一次闪烁。这里用 `justSettled` 标一帧 `transition: none`，让 transform
+   * 瞬切到 0（视觉上已停在目标槽，零位移），下一帧再恢复，闪烁即消。
+   */
+  const [justSettled, setJustSettled] = useState<string | null>(null);
 
   const pointerId = useRef<number | null>(null);
   const startInfo = useRef<{ id: string; index: number; x: number; y: number } | null>(null);
@@ -280,8 +287,12 @@ export function useDragSort({ ids, onReorder }: DragOptions): DragSortResult {
       });
       settleTimer.current = window.setTimeout(() => {
         settleTimer.current = null;
+        // 数据真正重排的这一帧：把被拖卡标成 justSettled，瞬切 transform 到 0（已在目标槽，
+        // 视觉零位移），避免「归位值被 CSS transition 推回旧槽再滑回」的闪烁
         setSettling(null);
+        setJustSettled(state.activeId);
         onReorderRef.current(state.from, state.to);
+        requestAnimationFrame(() => setJustSettled(null));
       }, SETTLE_MS);
     },
     [releasePointer, updateDrag],
@@ -445,6 +456,10 @@ export function useDragSort({ ids, onReorder }: DragOptions): DragSortResult {
 
   const itemStyle = useCallback(
     (id: string, index: number): CSSProperties => {
+      // 数据重排的那一帧：瞬切到 0，消除「归位值被 transition 推回旧槽」的闪烁
+      if (justSettled && justSettled === id) {
+        return { transition: 'none', transform: 'none', position: 'relative' };
+      }
       if (settling && settling.id === id) {
         return {
           transform: `translateY(${settling.dy}px)`,
@@ -456,7 +471,14 @@ export function useDragSort({ ids, onReorder }: DragOptions): DragSortResult {
       if (drag && drag.activeId === id) {
         return {
           transform: `translateY(${drag.dy}px)`,
-          transition: 'none',
+          /*
+            🔴 用「已定义但 0ms」的 transition，而不是 `none`。
+            松手进入归位动画时要从 `none` 切到 `180ms` —— 部分浏览器在「同一帧把
+            transition 从 none 改成有值 + 改 transform」时不会启动过渡，结果卡片瞬间
+            从手指位置跳到目标位 = 松手「闪一下」。0ms 是一个「已生效的过渡」，
+            切到 180ms 时一定能平滑启动，且 0ms 本身跟手零延迟。
+          */
+          transition: 'transform 0ms',
           zIndex: 30,
           position: 'relative',
         };
@@ -470,7 +492,7 @@ export function useDragSort({ ids, onReorder }: DragOptions): DragSortResult {
       }
       return { transition: SHIFT_TRANSITION, position: 'relative' };
     },
-    [drag, settling],
+    [drag, settling, justSettled],
   );
 
   return { activeId: drag?.activeId ?? null, registerItem, handleProps, itemStyle };

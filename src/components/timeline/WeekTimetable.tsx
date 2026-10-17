@@ -152,13 +152,13 @@ export function WeekTimetable({
           {/*
             横向分割线画在内容之下（先渲染 = 处于最底层）：时间块的不透明底色会盖住它，
             只在块与块的空隙里透出来 —— 网格是骨架，但绝不能遮住事件色块。
-            pointer-events-none 保证它不挡住块与空格的点击。
+            用 border-t + border-dashed 渲染成点划线；pointer-events-none 不挡点击。
           */}
           {ticks.map((tick) => (
             <span
               key={`h-${tick}`}
               aria-hidden
-              className="absolute inset-x-0 h-px bg-surface-line pointer-events-none"
+              className="absolute inset-x-0 border-t border-dashed border-surface-line pointer-events-none"
               style={{ top: `${percentOf(tick)}%` }}
             />
           ))}
