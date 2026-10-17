@@ -1,9 +1,14 @@
 name: Mobile
 
-# 出 Android / iOS 产物。默认只在 main 上跑，也可以手动触发（Actions → Mobile → Run workflow）。
+# 出 Android / iOS 产物。
 #
-# ⚠️ 签名说明（重要，决定了 Android job 的两种运行形态）：
-# - **配了签名 secrets**：出 **release APK**，用本地同一把钥匙签名（与本地构建一致），
+# 🔴 发布策略（2026-10-17 起改为**手动发布**）：
+# - **push 到 main**：只跑**构建验证**（证明工程没坏），**绝不发布 Release**。
+# - **手动触发**（Actions → Mobile → Run workflow）：配了签名 secrets 时才构建签名包，
+#   并**发布到 GitHub Release**（固定 tag `latest`，App 端「检查更新」靠它拿到最新版）。
+#
+# ⚠️ 签名说明（重要，决定了 Android job 的运行形态）：
+# - **配了签名 secrets**：能出 **release APK**，用本地同一把钥匙签名（与本地构建一致），
 #   用户覆盖安装 → 数据保留。secrets 配置见 docs/ANDROID-SIGNING.md「CI 配置」。
 # - **没配 secrets**：只跑「构建验证」——debug 包编出来即证明 Android 工程没坏，
 #   但**不上传产物**，并打 ::warning:: 说明原因。job 保持绿色。
@@ -136,20 +141,34 @@ jobs:
           path: android/app/build/distributions/ezschedule-daily.apk
           retention-days: 30
 
-      # 自动发布到 GitHub Release：每个 push 到 main 的签名包，都挂到一个固定 tag 上。
-      # - tag 固定为 `latest`（同名 tag 每次 force 覆盖），配合 release 名也是 `latest`，
-      #   于是你永远能用一个稳定链接下载最新 APK：
+      # 读取 versionName（android/app/build.gradle 是版本号的唯一来源），
+      # 写进 Release body 的 `version:` 行 —— App 端「检查更新」靠这一行解析最新版本号。
+      - name: Read versionName
+        id: version
+        if: github.event_name == 'workflow_dispatch' && steps.keystore.outputs.present == 'true'
+        run: |
+          VERSION="$(sed -nE 's/^[[:space:]]*versionName[[:space:]]+"([^"]+)"/\1/p' android/app/build.gradle | head -n1)"
+          echo "name=$VERSION" >> "$GITHUB_OUTPUT"
+
+      # 手动发布到 GitHub Release（仅 workflow_dispatch 且配了签名 secrets 时）：
+      # - tag 固定为 `latest`（同名 tag 每次 force 覆盖），于是永远能用一个稳定链接
+      #   下载最新 APK：
       #     https://github.com/YangZheyuan12/easy-daily-schedule/releases/latest
       # - 用官方 softprops/action-gh-release@v2（比手写 gh release 更稳）：
       #   它自动 force 覆盖同名 tag、自动处理 GITHUB_TOKEN 权限。
+      # - body 首行固定 `version: <versionName>`，App 端据此解析版本号并做新旧比对。
       # - 只发布 APK 单文件，手机浏览器点开即可下载安装（仍需在手机上允许「未知来源」）。
       - name: Publish APK to GitHub Release
-        if: steps.keystore.outputs.present == 'true'
+        if: github.event_name == 'workflow_dispatch' && steps.keystore.outputs.present == 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest
           name: latest
-          body: "自动构建的签名 APK（versionCode 4 / versionName 1.2）。覆盖安装保留数据。"
+          body: |
+            version: ${{ steps.version.outputs.name }}
+
+            手动发布的签名 APK（versionName ${{ steps.version.outputs.name }}）。
+            覆盖安装保留数据，下载下方 APK 安装即可。
           files: android/app/build/distributions/ezschedule-daily.apk
 
   ios:

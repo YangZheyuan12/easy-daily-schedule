@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Icon } from '@/components/ui/Icon';
 import clsx from 'clsx';
 import { PageHeader } from '@/components/layout/PageHeader';
@@ -11,6 +11,9 @@ import { useTimelineWindowStore } from '@/store/useTimelineWindowStore';
 import { useUiStore } from '@/store/useUiStore';
 import { useBackupStore } from '@/store/useBackupStore';
 import { parseBackup, summarizeBackup, describeSummary } from '@/services/backupService';
+import { evaluateUpdate } from '@/services/updateService';
+import { getCurrentVersion } from '@/platform/appInfo';
+import { fetchLatestRelease, openExternalUrl } from '@/platform/updateBridge';
 import { formatShortDate, toDateKey } from '@/utils/date';
 
 /** 我的（P1，当前为占位 + 版本信息） */
@@ -91,13 +94,108 @@ export function MePage() {
         </CollapsibleCard>
 
         <CollapsibleCard title="关于" expandKey="me:about">
-          {/* 只留一句：这页是设置页，用户来这里是找开关，不是来读产品介绍的 */}
-          <p className="text-body leading-6 text-ink-muted">
-            一款移动端优先的日程与完成情况记录工具。
-          </p>
-          <p className="mt-2 text-caption text-ink-faint">v0.1.0 · MVP</p>
+          <AboutCard />
         </CollapsibleCard>
       </div>
+    </div>
+  );
+}
+
+/**
+ * 「关于」卡：显示运行时读到的真实版本号，并提供「检查更新」。
+ *
+ * 版本号不写死在 UI 里：原生端来自 `App.getInfo().version`（versionName），
+ * Web 端是 `appInfo.ts` 里的兜底常量。检查更新分两层：
+ * ① `platform/updateBridge.fetchLatestRelease()` 拉 GitHub 最新 Release（fetch 在 platform 层）；
+ * ② `services/updateService.evaluateUpdate()` 做纯解析 + 版本比对（零浏览器 API）。
+ * 有新版弹 Sheet 提供「去下载」，没新版 / 拿不到版本号就 toast「已是最新」。
+ */
+function AboutCard() {
+  const pushToast = useUiStore((s) => s.pushToast);
+  const [version, setVersion] = useState<string | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [update, setUpdate] = useState<{ version: string; url: string } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void getCurrentVersion().then((value) => {
+      if (!cancelled) setVersion(value);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleCheck = async () => {
+    if (checking) return;
+    setChecking(true);
+    try {
+      const current = await getCurrentVersion();
+      const release = await fetchLatestRelease();
+      if (!release) {
+        pushToast('检查更新失败，请稍后再试', 'error');
+        return;
+      }
+      const result = evaluateUpdate(release.body, release.tagName, current);
+      if (result.hasUpdate && result.latestVersion) {
+        setUpdate({ version: result.latestVersion, url: release.htmlUrl });
+      } else {
+        pushToast('已是最新版本');
+      }
+    } catch {
+      pushToast('检查更新失败，请稍后再试', 'error');
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  const handleDownload = () => {
+    if (update?.url) openExternalUrl(update.url);
+    setUpdate(null);
+  };
+
+  return (
+    <div className="space-y-3">
+      {/* 只留一句：这页是设置页，用户来这里是找开关，不是来读产品介绍的 */}
+      <p className="text-body leading-6 text-ink-muted">
+        一款移动端优先的日程与完成情况记录工具。
+      </p>
+
+      <div className="flex items-center justify-between min-h-[38px]">
+        <span className="text-body text-ink">当前版本</span>
+        <span className="text-caption text-ink-faint">v{version ?? '…'}</span>
+      </div>
+
+      <button
+        type="button"
+        onClick={() => void handleCheck()}
+        disabled={checking}
+        className="press w-full min-h-[42px] rounded-card border border-surface-line text-lead text-ink disabled:opacity-50"
+      >
+        {checking ? '检查中…' : '检查更新'}
+      </button>
+
+      <Sheet open={update !== null} onClose={() => setUpdate(null)} title="发现新版本">
+        <div className="pt-3 space-y-3">
+          <p className="text-body leading-6 text-ink-muted">
+            最新版本 v{update?.version}，建议升级以获取新功能与修复。
+          </p>
+          <button
+            type="button"
+            onClick={handleDownload}
+            className="press w-full min-h-tap rounded-card bg-accent text-lead text-accent-fg"
+          >
+            去下载
+          </button>
+          <button
+            type="button"
+            onClick={() => setUpdate(null)}
+            className="press w-full min-h-tap rounded-card text-body text-ink-faint"
+          >
+            稍后再说
+          </button>
+        </div>
+      </Sheet>
     </div>
   );
 }
