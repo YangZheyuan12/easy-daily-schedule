@@ -132,6 +132,30 @@ jobs:
           path: android/app/build/distributions/ezschedule-daily.apk
           retention-days: 30
 
+      # 自动发布到 GitHub Release：每个 push 到 main 的签名包，都挂到一个固定 tag 上。
+      # - tag 固定为 `latest`（同名 tag 每次 force 覆盖），配合 release 名也是 `latest`，
+      #   于是你永远能用一个稳定链接下载最新 APK：
+      #     https://github.com/YangZheyuan12/easy-daily-schedule/releases/latest
+      # - 用 `gh release` 而非第三方 action：先 delete 旧 tag/release 再 create，
+      #   避免「tag 已存在」报错；delete 用 `|| true` 容忍首次运行（还没有这个 release）。
+      # - 只发布 APK 单文件，手机浏览器点开即可下载安装（仍需在手机上允许「未知来源」）。
+      - name: Publish APK to GitHub Release
+        if: steps.keystore.outputs.present == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          APK=android/app/build/distributions/ezschedule-daily.apk
+          # 先清掉可能存在的旧 latest（首次运行没有，用 || true 兜住）
+          gh release delete latest --yes 2>/dev/null || true
+          git push origin :refs/tags/latest 2>/dev/null || true
+          # 建同名 release（会自动打 tag）并上传 APK
+          gh release create latest "$APK" \
+            --title "latest" \
+            --notes "自动构建的签名 APK（versionCode 4 / versionName 1.2）。覆盖安装保留数据。" \
+            --target main
+          echo "下载链接: https://github.com/YangZheyuan12/easy-daily-schedule/releases/latest"
+
   ios:
     # Capacitor 8 要求 Xcode 26+，所以必须是 macos-26（macos-15 默认只有 Xcode 16）。
     # 如果你的组织还没开放 macos-26 runner，把这里改回 macos-15 并在 xcodebuild 前
