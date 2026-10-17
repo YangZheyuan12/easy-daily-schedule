@@ -25,6 +25,10 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# 需要 contents: write 才能用 GITHUB_TOKEN 发布 Release（否则 gh release 报 403 无权限）
+permissions:
+  contents: write
+
 jobs:
   android:
     runs-on: ubuntu-latest
@@ -136,25 +140,17 @@ jobs:
       # - tag 固定为 `latest`（同名 tag 每次 force 覆盖），配合 release 名也是 `latest`，
       #   于是你永远能用一个稳定链接下载最新 APK：
       #     https://github.com/YangZheyuan12/easy-daily-schedule/releases/latest
-      # - 用 `gh release` 而非第三方 action：先 delete 旧 tag/release 再 create，
-      #   避免「tag 已存在」报错；delete 用 `|| true` 容忍首次运行（还没有这个 release）。
+      # - 用官方 softprops/action-gh-release@v2（比手写 gh release 更稳）：
+      #   它自动 force 覆盖同名 tag、自动处理 GITHUB_TOKEN 权限。
       # - 只发布 APK 单文件，手机浏览器点开即可下载安装（仍需在手机上允许「未知来源」）。
       - name: Publish APK to GitHub Release
         if: steps.keystore.outputs.present == 'true'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          APK=android/app/build/distributions/ezschedule-daily.apk
-          # 先清掉可能存在的旧 latest（首次运行没有，用 || true 兜住）
-          gh release delete latest --yes 2>/dev/null || true
-          git push origin :refs/tags/latest 2>/dev/null || true
-          # 建同名 release（会自动打 tag）并上传 APK
-          gh release create latest "$APK" \
-            --title "latest" \
-            --notes "自动构建的签名 APK（versionCode 4 / versionName 1.2）。覆盖安装保留数据。" \
-            --target main
-          echo "下载链接: https://github.com/YangZheyuan12/easy-daily-schedule/releases/latest"
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: latest
+          body: "自动构建的签名 APK（versionCode 4 / versionName 1.2）。覆盖安装保留数据。"
+          files: android/app/build/distributions/ezschedule-daily.apk
 
   ios:
     # Capacitor 8 要求 Xcode 26+，所以必须是 macos-26（macos-15 默认只有 Xcode 16）。
