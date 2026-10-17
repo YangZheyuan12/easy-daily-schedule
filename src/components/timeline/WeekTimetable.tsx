@@ -10,14 +10,12 @@ import {
   type WeekWindow,
   type WeekCell,
 } from '@/services/weekViewService';
-import { minToHHMM } from '@/utils/date';
-
 /** 每一小时对应的像素高度。18 小时 → 720px，一小时 40px 足够放一行字 */
 const HOUR_HEIGHT = 40;
 /** 列头里的「一二三…日」 */
 const WEEKDAY_HEADS = ['一', '二', '三', '四', '五', '六', '日'] as const;
-/** 块内同时放下「时间行 + 标题行」所需的最小像素高度 */
-const TWO_LINE_MIN_PX = 34;
+/** 块内文字每行占的像素高度（text-caption + leading-4） */
+const LINE_PX = 16;
 
 interface WeekTimetableProps {
   /** 本周七天的日期键（周一 → 周日） */
@@ -49,8 +47,9 @@ interface WeekTimetableProps {
  * - **分割线画在内容之上**（DOM 里排在时间块之后 + `pointer-events-none`）。
  *   网格是这一屏的骨架，块再密也不该把骨架吃掉；线只有 1px，压在块上不影响读字。
  * - **列宽平均分配、不横向滚动**。一周要能一眼看完，横向滚动会让「周三下午很满」
- *   这种整体判断失效。代价是列窄（约 50px），所以块内**全部单行截断** ——
- *   宁可截断也不让文字换行压到相邻块上，详情点开看。
+ *   这种整体判断失效。左侧时间轴刻意收窄（只留数字、整体左贴卡片边），把横向空间
+ *   尽量让给七列；块内文字**按时间块高度自动换行、末尾省略（…）**而非单行硬截断 ——
+ *   既不压到相邻块，又把任务名读全。
  */
 export function WeekTimetable({
   weekDays,
@@ -76,7 +75,7 @@ export function WeekTimetable({
     <div className="rounded-card bg-surface border border-surface-line overflow-hidden">
       {/* 表头：周几 + 几号 */}
       <div className="flex border-b border-surface-line">
-        <div className="w-11 shrink-0" />
+        <div className="w-7 shrink-0" />
         {weekDays.map((dateKey, index) => {
           const day = Number(dateKey.slice(8, 10));
           const isToday = dateKey === todayKey;
@@ -116,11 +115,11 @@ export function WeekTimetable({
           端点标签从边缘推开，所以得用 margin 把整段网格推出卡片内沿，端点标签才有
           不被裁掉的空白。网格线同样因此落在「06 之前 / 24 之后」的留白里。
         */}
-        <div className="relative w-11 shrink-0 mt-4 mb-4" style={{ height }}>
+        <div className="relative w-7 shrink-0 mt-4 mb-4" style={{ height }}>
           {ticks.map((tick) => (
             <span
               key={tick}
-              className="absolute right-1.5 -translate-y-1/2 text-caption text-ink-faint tabular-nums"
+              className="absolute right-1 -translate-y-1/2 text-caption text-ink-faint tabular-nums"
               style={{ top: `${percentOf(tick)}%` }}
             >
               {tickLabel(tick).slice(0, 2)}
@@ -155,6 +154,12 @@ export function WeekTimetable({
               ? (sectionConfigs.find((cfg) => cfg.key === cell.slot.sectionId) ?? null)
               : null;
             const pixelHeight = cell.height * height;
+            /*
+              块内文字按时间块高度自动决定可显示行数（约 16px/行），超出则在末尾以
+              「…」省略 —— 既不压到相邻块，又把任务名读全。时间由块在纵轴上的位置
+              本身就表达，所以不再单独画一行时间。
+            */
+            const lineClamp = Math.max(1, Math.floor((pixelHeight - 4) / LINE_PX));
             return (
               <button
                 key={cell.slot.id}
@@ -170,7 +175,8 @@ export function WeekTimetable({
                   top: `${cell.top * 100}%`,
                   height: `${cell.height * 100}%`,
                   minHeight: 18,
-                  paddingTop: pixelHeight >= TWO_LINE_MIN_PX ? 2 : 0,
+                  paddingTop: 2,
+                  paddingBottom: 2,
                   backgroundColor: config
                     ? sectionTint(config)
                     : 'rgb(var(--c-surface-sunken))',
@@ -179,25 +185,17 @@ export function WeekTimetable({
                   }`,
                 }}
               >
-                {/*
-                  短块不画时间行：20px 高的块塞两行，结果是一行都看不全。
-                  宁可只留标题 —— 时间进详情页看，块上优先保证「这是什么」。
-                */}
-                {pixelHeight >= TWO_LINE_MIN_PX && (
-                  <span
-                    className="block text-micro leading-[13px] tabular-nums truncate"
-                    style={{
-                      color: config ? sectionColor(config) : 'rgb(var(--c-ink-faint))',
-                    }}
-                  >
-                    {minToHHMM(cell.slot.actualStartMin ?? cell.slot.startMin)}
-                  </span>
-                )}
                 <span
                   className={clsx(
-                    'block text-caption leading-4 truncate',
+                    'block text-caption leading-4 break-words',
                     cell.slot.done ? 'text-ink-faint line-through' : 'text-ink',
                   )}
+                  style={{
+                    display: '-webkit-box',
+                    WebkitLineClamp: lineClamp,
+                    WebkitBoxOrient: 'vertical',
+                    overflow: 'hidden',
+                  }}
                 >
                   {cell.slot.content || '未命名'}
                 </span>
