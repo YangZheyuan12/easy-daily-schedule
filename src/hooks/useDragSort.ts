@@ -15,18 +15,22 @@
  *    被拖起的卡做 float（translateY 跟手），其余行按「被抽走的卡占了多高」
  *    整体让位 —— 行高不一致也不会留缝（推导见 `shiftOf`）。
  *
- * 实现上的两个坑（都踩过才有这两行注释）：
+ * 实现上的三个坑（都踩过才有这些注释）：
  * - 🔴 位移必须用**文档坐标**（`clientY + scrollY`）：页面滚动时 clientY 不变但内容在动，
  *   不补 scrollY 卡片就会「脱手」，拖到一半突然跟手指错位。
- * - 🔴 状态要用 ref 镜像：在最底层合成的 move 用的是指针 id 与当时的闭包，
- *   不存在再就该把它记在哪里 —— **别让为某些事件量身定制的 useEffect 依赖 state 刷新**，
- *   那样你会在「第一次按下」和它之间失去所有动作。见下面 `attach()`。
+ * - 🔴 **必须 `setPointerCapture`**：移动端 WebView 里手指快速滑出手柄 / 被浏览器当滚动手势
+ *   接管时，pointermove 会丢帧甚至中断，「卡片突然跳一下」就是这么来的。锁住指针后，
+ *   事件仍冒泡到 window（全局 move/up 监听照常工作），但不再丢。
+ * - 🔴 **「抓哪跟哪」用 grabOffset，而不是「整体位移」**：单纯用 `clientY - startClientY`
+ *   跟随，手指抓在卡片中下部时卡片顶部会瞬间跳到手指上方，视觉上就是一次乱跳。
+ *   grabOffset = 手指按下时的文档 Y − 卡片顶部的文档 Y，之后卡片顶 = 手指文档 Y − grabOffset，
+ *   抓点永远粘在指尖。
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { MutableRefObject } from 'react';
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react';
 
-/** 移动超过这个距离才算真正开始拖（小于此距离视为点击） */
+/** 移动超过这个距离才算真正开始拖（小于此距离视为点击 / 误触） */
 const START_THRESHOLD_PX = 4;
 /** 按住不动超过这个时长也可以起手（有些人习惯先按住再拖） */
 const HOLD_MS = 220;
@@ -38,6 +42,12 @@ const EDGE_SPEED_PX = 10;
 const SETTLE_MS = 180;
 /** 让位过渡 */
 const SHIFT_TRANSITION = 'transform 200ms cubic-bezier(0.22, 1, 0.36, 1)';
+/**
+ * 目标判定的**滞回带**：被拖卡片中心必须越过相邻中心这么多像素，才允许
+ * `to` 再多 / 再少一格。没有它，手指在两根卡片的交界处轻微抖动就会让 `to`
+ * 在 N 与 N+1 之间反复横跳 —— 这正是「拖动时其他卡片乱动」的元凶。
+ */
+const TARGET_HYSTERESIS_PX = 6;
 
 interface DragOptions {
   /** 当前参与排序的 id 序列（必须是**渲染顺序**） */
@@ -50,7 +60,7 @@ interface DragState {
   activeId: string;
   from: number;
   to: number;
-  /** 跟手的纵向位移（文档坐标） */
+  /** 跟手的纵向位移（文档坐标，相对被拖卡原始顶部） */
   dy: number;
 }
 
@@ -105,6 +115,48 @@ export function settleDyOf(heights: number[], from: number, to: number): number 
   return sum;
 }
 
+/**
+ * 被拖卡片中心落在哪里 → 它应该插到第几个位置（数组下标）。
+ *
+ * 按「中心」比较天然兼容行高不一致的列表。最后一段是**滞回**：`to` 一旦落定，
+ * 必须被拖卡片中心明显越过相邻中心（见 `TARGET_HYSTERESIS_PX`）才允许再变一格，
+ * 否则维持 `prevTo` —— 这把「手指在交界点轻微抖动会让其他卡片反复横跳」直接掐死。
+ */
+export function computeTargetIndex(
+  tops: number[],
+  heights: number[],
+  from: number,
+  draggedCenter: number,
+  prevTo: number,
+): number {
+  let raw = from;
+  for (let i = 0; i < tops.length; i += 1) {
+    if (i === from) continue;
+    const center = (tops[i] ?? 0) + (heights[i] ?? 0) / 2;
+    if (center < draggedCenter) raw += i < from ? -1 : 1;
+  }
+  if (raw === prevTo) return raw;
+  const diff = raw - prevTo;
+  // 明显跨过整张卡（相差 >1 格）→ 直接接受，不滞回（快速拖动本就该快）
+  if (Math.abs(diff) > 1) return raw;
+  /*
+    只相差一格时加滞回：必须被拖卡片中心**明显**越过相邻边界卡的中心，
+    才允许再变一格。边界卡 = 这一步 A 实际跨越的那张（与 from / prevTo 的相对位置有关）：
+    - 前进（k+1）：若 prevTo 已 ≥ from（A 在自身下方区）边界是 prevTo+1，否则是 prevTo；
+    - 回退（k-1）：若 prevTo > from（A 在自身下方区）边界是 prevTo，否则是 prevTo-1。
+  */
+  const step = diff > 0 ? 1 : -1;
+  const boundary =
+    step > 0 ? prevTo + (prevTo >= from ? 1 : 0) : prevTo - (prevTo > from ? 0 : 1);
+  if (boundary < 0 || boundary >= tops.length) return prevTo;
+  const boundaryCenter = (tops[boundary] ?? 0) + (heights[boundary] ?? 0) / 2;
+  const crossed =
+    step > 0
+      ? draggedCenter >= boundaryCenter + TARGET_HYSTERESIS_PX
+      : draggedCenter <= boundaryCenter - TARGET_HYSTERESIS_PX;
+  return crossed ? raw : prevTo;
+}
+
 export function useDragSort({ ids, onReorder }: DragOptions): DragSortResult {
   const elements: MutableRefObject<Map<string, HTMLElement>> = useRef(new Map());
   const metrics = useRef<Metrics | null>(null);
@@ -115,13 +167,14 @@ export function useDragSort({ ids, onReorder }: DragOptions): DragSortResult {
   const [settling, setSettling] = useState<{ id: string; dy: number } | null>(null);
 
   const pointerId = useRef<number | null>(null);
-  const startInfo = useRef<{ id: string; index: number; y: number } | null>(null);
+  const startInfo = useRef<{ id: string; index: number; x: number; y: number } | null>(null);
   const started = useRef(false);
   const holdTimer = useRef<number | null>(null);
   const settleTimer = useRef<number | null>(null);
   const rafId = useRef<number | null>(null);
   const lastClientY = useRef(0);
-  const detach = useRef<(() => void) | null>(null);
+  /** 手指相对被拖卡片顶部的文档坐标偏移（用于「抓哪跟哪」） */
+  const grabOffset = useRef(0);
 
   // 数据与回调会随渲染刷新；拖拽期间统一读 ref，避免闭包过期
   const idsRef = useRef(ids);
@@ -135,22 +188,19 @@ export function useDragSort({ ids, onReorder }: DragOptions): DragSortResult {
   }, []);
 
   /**
-     * 目标下标：数一数当前被拖卡片的中心越过了多少个其它行的中心。
-     *
-     * 按「中心」而不是按「高度累加」比较，天然兼容**行高不一致**的列表 ——
-     * 任务行有的带第二行描述（更高），累加高度在这种列表上会算偏。
-     */
-  const targetIndexOf = useCallback((snapshot: Metrics, from: number, dy: number) => {
-    const { tops, heights } = snapshot;
-    const draggedCenter = (tops[from] ?? 0) + (heights[from] ?? 0) / 2 + dy;
-    let target = from;
-    for (let i = 0; i < tops.length; i += 1) {
-      if (i === from) continue;
-      const center = (tops[i] ?? 0) + (heights[i] ?? 0) / 2;
-      if (center < draggedCenter) target += i < from ? -1 : 1;
-    }
-    return target;
-  }, []);
+   * 目标下标：数一数当前被拖卡片的中心越过了多少个其它行的中心。
+   *
+   * 按「中心」而不是按「高度累加」比较，天然兼容**行高不一致**的列表 ——
+   * 任务行有的带第二行描述（更高），累加高度在这种列表上会算偏。
+   *
+   * `hysteresis` 让 `to` 一旦落定，必须被拖卡片中心**明显**越过相邻中心才会再变一格，
+   * 消除手指在交界处的临界抖动（见 `TARGET_HYSTERESIS_PX`）。
+   */
+  const targetIndexOf = useCallback(
+    (snapshot: Metrics, from: number, draggedCenter: number, prevTo: number) =>
+      computeTargetIndex(snapshot.tops, snapshot.heights, from, draggedCenter, prevTo),
+    [],
+  );
 
   const stopAutoScroll = useCallback(() => {
     if (rafId.current !== null) {
@@ -173,15 +223,20 @@ export function useDragSort({ ids, onReorder }: DragOptions): DragSortResult {
       const snapshot = metrics.current;
       const prev = dragRef.current;
       if (snapshot && prev) {
-        const dy =
-          lastClientY.current + window.scrollY - snapshot.startScrollY - snapshot.startClientY;
-        if (dy !== prev.dy) {
-          updateDrag({ ...prev, dy, to: targetIndexOf(snapshot, prev.from, dy) });
+        const pointerDocY = lastClientY.current + window.scrollY;
+        const dy = pointerDocY - grabOffset.current - (snapshot.tops[prev.from] ?? 0);
+        const draggedCenter =
+          (snapshot.tops[prev.from] ?? 0) + (snapshot.heights[prev.from] ?? 0) / 2 + dy;
+        const to = targetIndexOf(snapshot, prev.from, draggedCenter, prev.to);
+        if (dy !== prev.dy || to !== prev.to) {
+          updateDrag({ ...prev, dy, to });
         }
       }
     }
     rafId.current = requestAnimationFrame(autoScroll);
   }, [targetIndexOf, updateDrag]);
+
+  const detach = useRef<(() => void) | null>(null);
 
   const releasePointer = useCallback(() => {
     if (holdTimer.current !== null) {
@@ -277,6 +332,12 @@ export function useDragSort({ ids, onReorder }: DragOptions): DragSortResult {
       const snapshot = measure();
       snapshot.activeHeight = snapshot.heights[index] ?? 0;
       metrics.current = snapshot;
+      /*
+        grabOffset：手指按下时相对被拖卡片顶部的文档偏移。
+        之后卡片顶 = 手指文档 Y − grabOffset，于是「抓在哪、卡片哪点就粘在指尖」，
+        不会因为起始点不在卡片顶部而猛地跳一下。
+      */
+      grabOffset.current = lastClientY.current + window.scrollY - (snapshot.tops[index] ?? 0);
       updateDrag({ activeId: start.id, from: index, to: index, dy: 0 });
       stopAutoScroll();
       rafId.current = requestAnimationFrame(autoScroll);
@@ -313,7 +374,9 @@ export function useDragSort({ ids, onReorder }: DragOptions): DragSortResult {
       lastClientY.current = event.clientY;
 
       if (!started.current) {
-        if (Math.abs(event.clientY - start.y) < START_THRESHOLD_PX) return;
+        const dx = Math.abs(event.clientX - start.x);
+        const dyAbs = Math.abs(event.clientY - start.y);
+        if (dx < START_THRESHOLD_PX && dyAbs < START_THRESHOLD_PX) return;
         begin(start.index);
         return;
       }
@@ -321,8 +384,12 @@ export function useDragSort({ ids, onReorder }: DragOptions): DragSortResult {
       const snapshot = metrics.current;
       const prev = dragRef.current;
       if (!snapshot || !prev) return;
-      const dy = event.clientY + window.scrollY - snapshot.startScrollY - snapshot.startClientY;
-      const to = targetIndexOf(snapshot, prev.from, dy);
+      const pointerDocY = event.clientY + window.scrollY;
+      // 「抓哪跟哪」：卡片顶 = 手指文档 Y − grabOffset → 相对原始顶的位移
+      const dy = pointerDocY - grabOffset.current - (snapshot.tops[prev.from] ?? 0);
+      const draggedCenter =
+        (snapshot.tops[prev.from] ?? 0) + (snapshot.heights[prev.from] ?? 0) / 2 + dy;
+      const to = targetIndexOf(snapshot, prev.from, draggedCenter, prev.to);
       if (prev.dy === dy && prev.to === to) return;
       updateDrag({ ...prev, dy, to });
     };
@@ -345,7 +412,7 @@ export function useDragSort({ ids, onReorder }: DragOptions): DragSortResult {
       /*
         🔴 `touch-action: none` 是必需的：安卓 / iOS 会把在元素上的纵向手势判成「滚页面」，
         页面一滚拖拽就跟手性全失。有了它，这一串指针事件从头到尾留在这里，
-        再配合 window 级监听，手指滑出元素也不丢。
+        再配合 window 级监听 + setPointerCapture，手指滑出元素也不丢。
       */
       style: { touchAction: 'none', cursor: 'grab' } as CSSProperties,
       onPointerDown: (event: ReactPointerEvent) => {
@@ -354,9 +421,15 @@ export function useDragSort({ ids, onReorder }: DragOptions): DragSortResult {
         event.preventDefault();
         event.stopPropagation();
         pointerId.current = event.pointerId;
-        startInfo.current = { id, index, y: event.clientY };
+        startInfo.current = { id, index, x: event.clientX, y: event.clientY };
         lastClientY.current = event.clientY;
         started.current = false;
+        // 🔴 锁住指针：之后所有 move / up 都定向到手柄，window 监听照常收到，但不再丢帧
+        try {
+          event.currentTarget.setPointerCapture(event.pointerId);
+        } catch {
+          /* 某些老旧 WebView 不支持，忽略 —— window 监听仍能兜住大部分场景 */
+        }
         attach();
         if (holdTimer.current !== null) window.clearTimeout(holdTimer.current);
         holdTimer.current = window.setTimeout(() => begin(index), HOLD_MS);
