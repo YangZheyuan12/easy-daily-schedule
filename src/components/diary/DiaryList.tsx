@@ -614,12 +614,11 @@ interface ImageStripProps {
 
 /**
  * 行内图片缩略图条：条目有图片时显示在标题下方，可整条折叠。
- * 点缩略图 → 全屏大图；点「N 张图片」标签 → 折叠 / 展开。
+ * 点缩略图 → 全屏大图；点「N 张图片」标签 / 收起按钮 → 折叠 / 展开。
  *
- * 缩略图**排在「N 张图片」标签的正右方**（不是另起一行堆在下面）：
- * - 折叠态：标签 + 一张预览缩略图（在标签右边，给个图的线索又不占一整行）；
- * - 展开态：标签 + 全部缩略图（同样排在标签右边）。
- * 只有一张图时两种状态视觉一致，属正常。
+ * 折叠态只留「N 张图片」标签，**图片收起隐藏**（点一下展开）；
+ * 展开态标签 + 全部缩略图排在标签**正右方**（不是另起一行堆在下面），
+ * 末尾再给一个明确的「收起」按钮。
  *
  * 这里是**只读预览**：上传 / 删除统一收在条目详情抽屉（板块页点行尾「⋯」），
  * 今日列表不再放图片入口，避免同一份图片有两个可写入口。
@@ -633,9 +632,23 @@ function ImageStrip({ itemId, indent, onViewImage }: ImageStripProps) {
 
   if (images.length === 0) return null;
 
-  // 折叠态只露一张预览，展开态露全部；标签始终在最左，缩略图排在它右方
-  const visible = expanded ? images : images.slice(0, 1);
+  if (!expanded) {
+    // 折叠态：只留「N 张图片」标签（图片收起隐藏），点一下展开
+    return (
+      <button
+        type="button"
+        onClick={toggle}
+        className="press inline-flex items-center gap-1 text-caption text-ink-faint"
+        style={{ paddingLeft: indent }}
+        aria-expanded={false}
+      >
+        <Icon name="image" size={13} className="shrink-0" />
+        {images.length} 张图片
+      </button>
+    );
+  }
 
+  // 展开态：标签 + 全部缩略图排在标签右方，末尾给一个明确的「收起」按钮
   return (
     <div
       className="flex items-center gap-2 flex-wrap pt-0.5"
@@ -645,12 +658,12 @@ function ImageStrip({ itemId, indent, onViewImage }: ImageStripProps) {
         type="button"
         onClick={toggle}
         className="press inline-flex items-center gap-1 text-caption text-ink-faint shrink-0"
-        aria-expanded={expanded}
+        aria-expanded
       >
         <Icon name="image" size={13} className="shrink-0" />
         {images.length} 张图片
       </button>
-      {visible.map((image) => (
+      {images.map((image) => (
         <ImageThumb
           key={image.id}
           blob={image.blob}
@@ -658,16 +671,14 @@ function ImageStrip({ itemId, indent, onViewImage }: ImageStripProps) {
           onClick={() => onViewImage(image.blob)}
         />
       ))}
-      {expanded && (
-        <button
-          type="button"
-          onClick={toggle}
-          aria-label="收起图片"
-          className="w-7 h-7 flex items-center justify-center rounded-pill text-ink-faint shrink-0"
-        >
-          <Icon name="chevron-up" size={15} />
-        </button>
-      )}
+      <button
+        type="button"
+        onClick={toggle}
+        aria-label="收起图片"
+        className="w-7 h-7 flex items-center justify-center rounded-pill text-ink-faint shrink-0"
+      >
+        <Icon name="chevron-up" size={15} />
+      </button>
     </div>
   );
 }
