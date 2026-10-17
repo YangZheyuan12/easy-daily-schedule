@@ -437,6 +437,7 @@ function DiaryRow({
   const done = item.done;
 
   if (entry.kind === 'child') {
+    const hasDesc = item.description.trim().length > 0;
     return (
       <li
         className="m-rise flex flex-col gap-1 py-1.5"
@@ -447,6 +448,14 @@ function DiaryRow({
           <EditableTitle item={item} sizeClass="text-body leading-5" tone={done ? 'text-ink-faint' : 'text-ink-muted'} />
           <MoreButton item={item} />
         </div>
+        {/*
+          详细描述：只在填了的时候出现（与任务列表同口径，空描述不占视觉重量）。
+          只读展示 —— 今日列表的标题可点改，描述 / 子分支 / 删除统一收在条目详情抽屉，
+          避免同一份内容多个可写入口。
+        */}
+        {hasDesc && (
+          <p className="text-caption leading-5 text-ink-faint break-words">{item.description}</p>
+        )}
         <ImageStrip itemId={item.id} indent={0} onViewImage={onViewImage} />
       </li>
     );
@@ -471,8 +480,21 @@ function DiaryRow({
         <MoreButton item={item} />
       </div>
       {/*
+        详细描述：只在填了的时候出现（与任务列表同口径，空描述不占视觉重量）。
+        缩进对齐标题列（编号 20 + 间距 10 = 30px），只读展示，编辑走抽屉。
+      */}
+      {item.description.trim().length > 0 && (
+        <p
+          className="text-caption leading-5 text-ink-faint break-words"
+          style={{ paddingLeft: 30 }}
+        >
+          {item.description}
+        </p>
+      )}
+      {/*
         行内缩略图条：图片与任务条「同时出现」，可折叠。
         缩进对齐到标题那一列（编号 20 + 间距 10 = 30px）。
+        折叠态在「N 张图片」标签正右方放一张预览图，展开态把全部缩略图排到标签右方。
       */}
       <ImageStrip itemId={item.id} indent={30} onViewImage={onViewImage} />
     </li>
@@ -591,8 +613,13 @@ interface ImageStripProps {
 }
 
 /**
- * 行内图片缩略图条：条目有图片时显示在任务条下方，可整条折叠。
- * 点缩略图 → 全屏大图；点「收起」→ 折叠成一行「N 张图片」提示，可再展开。
+ * 行内图片缩略图条：条目有图片时显示在标题下方，可整条折叠。
+ * 点缩略图 → 全屏大图；点「N 张图片」标签 → 折叠 / 展开。
+ *
+ * 缩略图**排在「N 张图片」标签的正右方**（不是另起一行堆在下面）：
+ * - 折叠态：标签 + 一张预览缩略图（在标签右边，给个图的线索又不占一整行）；
+ * - 展开态：标签 + 全部缩略图（同样排在标签右边）。
+ * 只有一张图时两种状态视觉一致，属正常。
  *
  * 这里是**只读预览**：上传 / 删除统一收在条目详情抽屉（板块页点行尾「⋯」），
  * 今日列表不再放图片入口，避免同一份图片有两个可写入口。
@@ -603,30 +630,27 @@ interface ImageStripProps {
 function ImageStrip({ itemId, indent, onViewImage }: ImageStripProps) {
   const images = useItemImageStore((s) => s.byItem[itemId] ?? EMPTY_IMAGES);
   const { open: expanded, toggle } = useExpanded(`images:${itemId}`, true);
-  const collapsed = !expanded;
 
   if (images.length === 0) return null;
 
-  if (collapsed) {
-    return (
+  // 折叠态只露一张预览，展开态露全部；标签始终在最左，缩略图排在它右方
+  const visible = expanded ? images : images.slice(0, 1);
+
+  return (
+    <div
+      className="flex items-center gap-2 flex-wrap pt-0.5"
+      style={{ paddingLeft: indent }}
+    >
       <button
         type="button"
         onClick={toggle}
-        className="press inline-flex items-center gap-1 text-caption text-ink-faint"
-        style={{ paddingLeft: indent }}
+        className="press inline-flex items-center gap-1 text-caption text-ink-faint shrink-0"
+        aria-expanded={expanded}
       >
         <Icon name="image" size={13} className="shrink-0" />
         {images.length} 张图片
       </button>
-    );
-  }
-
-  return (
-    <div
-      className="flex items-start gap-2 flex-wrap"
-      style={{ paddingLeft: indent }}
-    >
-      {images.map((image) => (
+      {visible.map((image) => (
         <ImageThumb
           key={image.id}
           blob={image.blob}
@@ -634,14 +658,16 @@ function ImageStrip({ itemId, indent, onViewImage }: ImageStripProps) {
           onClick={() => onViewImage(image.blob)}
         />
       ))}
-      <button
-        type="button"
-        onClick={toggle}
-        aria-label="收起图片"
-        className="w-7 h-7 flex items-center justify-center rounded-pill text-ink-faint"
-      >
-        <Icon name="chevron-up" size={15} />
-      </button>
+      {expanded && (
+        <button
+          type="button"
+          onClick={toggle}
+          aria-label="收起图片"
+          className="w-7 h-7 flex items-center justify-center rounded-pill text-ink-faint shrink-0"
+        >
+          <Icon name="chevron-up" size={15} />
+        </button>
+      )}
     </div>
   );
 }

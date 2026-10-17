@@ -112,8 +112,15 @@ export function TimelinePage() {
 
   useEffect(() => {
     if (mode !== 'week') return;
-    void loadRange(weekDays[0] ?? date, weekDays[6] ?? date);
-  }, [mode, weekDays, date, loadRange]);
+    /*
+      🔴 force=true：日视图里给时间段「分组 / 勾选 / 改内容」后切回周视图，必须重新从仓储读取。
+      否则 `useRangeStore` 按周区间缓存的旧快照不会刷新 —— 在日视图分好的组，
+      周视图里仍是未分组的中性块（用户反馈的「日视图分了组无法同步到周视图」）。
+      把 `slots`（日维度 store）也纳入依赖：周视图里通过同一张抽屉改了某天的时间段，
+      这里会立刻重新拉取整周，完成态 / 分组随之同步。
+    */
+    void loadRange(weekDays[0] ?? date, weekDays[6] ?? date, true);
+  }, [mode, weekDays, date, slots, loadRange]);
 
   const weekCells = useMemo(
     () => buildWeekTimetable(rangeSlots, weekDays, windowSettings),
