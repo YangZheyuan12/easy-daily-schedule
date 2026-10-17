@@ -264,6 +264,8 @@ export function useDragSort({ ids, onReorder }: DragOptions): DragSortResult {
     metrics.current = null;
   }, [stopAutoScroll]);
 
+  const settleAnim = useRef<Animation | null>(null);
+
   const finish = useCallback(
     (commit: boolean) => {
       const snapshot = metrics.current;
@@ -276,19 +278,49 @@ export function useDragSort({ ids, onReorder }: DragOptions): DragSortResult {
         return;
       }
 
-      /*
-        松手后先播一次归位：卡片滑到刚刚让出来的那个坑里，动画结束才真的改数据。
-        直接改数据的话顺序是「瞬变」的 —— 刚才还在指尖上的卡，下一帧就跳到别处去了。
-      */
+      const settleDy = settleDyOf(snapshot.heights, state.from, state.to);
       updateDrag(null);
-      setSettling({
-        id: state.activeId,
-        dy: settleDyOf(snapshot.heights, state.from, state.to),
-      });
+
+      /*
+        🔴 归位动画用 WAAPI，而不是 CSS transition。
+        之前用 CSS transition：松手时要把 `transition` 从 `none`/`0ms` 切到 `180ms`，
+        部分浏览器在「同一帧改 transition 值 + 改 transform」时不启动过渡，于是卡片
+        瞬间从手指位置跳到目标位 = 松手「闪一下」。WAAPI 是独立的动画管线，绝不受这条
+        CSS 怪癖影响，必然平滑播放。结束后取消填充并把数据真正重排。
+      */
+      const el = elements.current.get(state.activeId) ?? null;
+      if (el && typeof el.animate === 'function') {
+        setSettling({ id: state.activeId, dy: settleDy });
+        const anim = el.animate(
+          [
+            { transform: `translateY(${state.dy}px)` },
+            { transform: `translateY(${settleDy}px)` },
+          ],
+          { duration: SETTLE_MS, easing: 'cubic-bezier(0.32, 0.72, 0, 1)', fill: 'forwards' },
+        );
+        settleAnim.current = anim;
+        const commitNow = () => {
+          // 取消 WAAPI 的 forwards 填充，把控制权交回 inline style；此刻已重排到目标槽，
+          // 用 justSettled 瞬切 transform 到 0（视觉零位移），消除重排那一帧的回弹闪烁
+          settleAnim.current = null;
+          anim.cancel();
+          setSettling(null);
+          setJustSettled(state.activeId);
+          onReorderRef.current(state.from, state.to);
+          requestAnimationFrame(() => setJustSettled(null));
+        };
+        anim.onfinish = commitNow;
+        anim.oncancel = () => {
+          settleAnim.current = null;
+          setSettling(null);
+        };
+        return;
+      }
+
+      // 兜底：拿不到元素 / 不支持 WAAPI 时，沿用 CSS transition 归位
+      setSettling({ id: state.activeId, dy: settleDy });
       settleTimer.current = window.setTimeout(() => {
         settleTimer.current = null;
-        // 数据真正重排的这一帧：把被拖卡标成 justSettled，瞬切 transform 到 0（已在目标槽，
-        // 视觉零位移），避免「归位值被 CSS transition 推回旧槽再滑回」的闪烁
         setSettling(null);
         setJustSettled(state.activeId);
         onReorderRef.current(state.from, state.to);
@@ -302,6 +334,7 @@ export function useDragSort({ ids, onReorder }: DragOptions): DragSortResult {
     () => () => {
       if (settleTimer.current !== null) window.clearTimeout(settleTimer.current);
       if (holdTimer.current !== null) window.clearTimeout(holdTimer.current);
+      settleAnim.current?.cancel();
       stopAutoScroll();
       detach.current?.();
     },
