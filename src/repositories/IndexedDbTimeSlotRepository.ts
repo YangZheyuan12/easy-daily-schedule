@@ -3,7 +3,7 @@ import type { TimeSlot } from '@/domain/types';
 import { StorageError } from '@/domain/errors';
 import type { AppDatabase } from './db/DexieDatabase';
 import { compareByOrder } from '@/domain/constants';
-import { filterAlive } from './mappers';
+import { filterAlive, filterPurgeable } from './mappers';
 
 /**
  * TimeSlot 仓储的 IndexedDB 实现。
@@ -85,10 +85,10 @@ export class IndexedDbTimeSlotRepository implements TimeSlotRepository {
   }
 
   /** 启动时清理过期软删记录（超过 7 天） */
-  async purgeExpired(cutoff: number): Promise<number> {
+  async purgeExpired(cutoff: number, syncedThrough: number | null = null): Promise<number> {
     try {
       const all = await this.db.timeSlots.toArray();
-      const expired = all.filter((row) => row.deletedAt !== null && (row.deletedAt ?? 0) < cutoff);
+      const expired = filterPurgeable(all, cutoff, syncedThrough);
       if (expired.length === 0) return 0;
       await this.hardDeleteMany(expired.map((row) => row.id));
       return expired.length;

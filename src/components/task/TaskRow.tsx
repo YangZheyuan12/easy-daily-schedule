@@ -1,5 +1,6 @@
 import { Icon } from '@/components/ui/Icon';
 import { Tick } from '@/components/ui/Tick';
+import { SyncCheck } from '@/components/ui/SyncCheck';
 import { useEffect, useRef, useState } from 'react';
 import clsx from 'clsx';
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react';
@@ -30,6 +31,16 @@ interface TaskRowProps {
   handleProps?: { onPointerDown: (event: ReactPointerEvent) => void; style: CSSProperties };
   /** 本行此刻正被手指拖着（= 抬起的那一层） */
   dragging?: boolean;
+  /**
+   * 勾选同步模式：行首的完成勾选**换成**「选中以同步」的勾选框（R-043）。
+   * 不传 = 普通模式。
+   *
+   * 为什么是「替换」而不是「旁边再加一个」：一行里并排两个方框（完成 / 同步）
+   * 没有人分得清谁是谁，而勾选同步是个**临时模式**，此刻唯一要做的事就是挑任务。
+   */
+  sync?: { checked: boolean; disabled: boolean; onToggle: () => void };
+  /** 这条任务已经同步到今日页（显示「已同步」标记） */
+  synced?: boolean;
 }
 
 /** 退场动效时长：与 `.m-row-exit` 的 `--m-dur-3` 对齐（JS 读不到 CSS 变量） */
@@ -54,6 +65,8 @@ export function TaskRow({
   onClosePicker,
   handleProps,
   dragging = false,
+  sync,
+  synced = false,
 }: TaskRowProps) {
   const setContent = useTaskStore((s) => s.setContent);
   const setDescription = useTaskStore((s) => s.setDescription);
@@ -109,7 +122,7 @@ export function TaskRow({
     最后一条是必须的 —— 分组标记现在住在第二行，若只在「有描述」时才显示，
     归了组但没写描述的任务就完全看不出自己属于哪一块。
   */
-  const showMeta = focused || (task.description?.length ?? 0) > 0 || !ungrouped;
+  const showMeta = focused || (task.description?.length ?? 0) > 0 || !ungrouped || synced;
 
   return (
     <div
@@ -122,13 +135,23 @@ export function TaskRow({
     >
       <div className="flex flex-col">
         <div className="flex items-center min-h-tap">
-          <Tick
-            done={task.done}
-            size={20}
-            shape="square"
-            className="min-w-[38px] min-h-tap"
-            onToggle={() => toggleDone(task.id)}
-          />
+          {sync ? (
+            <SyncCheck
+              checked={sync.checked}
+              disabled={sync.disabled}
+              title={sync.disabled ? '没分组或没内容的任务不能同步' : undefined}
+              className="min-w-[38px] min-h-tap"
+              onToggle={sync.onToggle}
+            />
+          ) : (
+            <Tick
+              done={task.done}
+              size={20}
+              shape="square"
+              className="min-w-[38px] min-h-tap"
+              onToggle={() => toggleDone(task.id)}
+            />
+          )}
 
           <textarea
             ref={titleRef}
@@ -230,6 +253,13 @@ export function TaskRow({
                 anchorRef={groupButtonRef}
               />
             </div>
+
+            {/* 已同步到今日页：平时也能看出「这条已经在今日清单里了」 */}
+            {synced && (
+              <span className="shrink-0 text-caption px-1.5 py-0.5 rounded-pill bg-accent-soft text-accent">
+                已同步
+              </span>
+            )}
 
             {/*
               描述：用 textarea 而不是 input —— 长描述要能换行、能自动增高，

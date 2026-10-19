@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Item, SlotSyncDraft, TaskSyncDraft, VisibleRow } from '@/domain/types';
+import type { Item, VisibleRow } from '@/domain/types';
 import type { Rating, SectionKey } from '@/domain/enums';
 import { clock, repos, undoService } from './bootstrap';
 import { persistItems } from './helper';
@@ -14,9 +14,17 @@ import {
   updateItem as updateItemTree,
 } from '@/services/treeService';
 import { planDelete, planUndo } from '@/services/itemMutationService';
-import { createSyncedItems } from '@/services/taskSyncService';
-import { createSyncedSlotItems } from '@/services/slotSyncService';
+import { applyTaskSync } from '@/services/taskSyncService';
+import { applySlotSync } from '@/services/slotSyncService';
+import type { TaskSyncPlan } from '@/services/taskSyncService';
+import type { SlotSyncPlan } from '@/services/slotSyncService';
 import type { UndoEntry } from '@/services/undoService';
+
+/** 一次同步实际落地的条数（给 Toast 用：新建 N 项 / 更新 M 项） */
+export interface SyncCounts {
+  created: number;
+  updated: number;
+}
 
 interface ItemState {
   /** 当前日期已加载的条目（含软删，渲染时由 selectors 过滤） */
@@ -40,17 +48,15 @@ interface ItemState {
   /** 在 parentId 下新增子条目 */
   addChild: (parentId: string | null, date: string, sectionId: SectionKey) => string | null;
   /**
-   * 把「任务页 → 同步到今日页」的草稿落成条目（R-043）。返回新建条数。
+   * 把「任务页 → 同步到今日页」的计划落成条目（R-043）。
    *
-   * 去重不在这里做 —— `planTaskSync` 已经排掉了同步过的任务。这里只负责落地，
-   * 让「哪些该建」这个判断留在纯函数里，可被单测覆盖。
+   * 语义（2026-10-20 调整）：**勾选即对齐** —— 计划里已经分好「新建 / 更新」两堆，
+   * 这里只负责落地，让「哪些该建、哪些该更新」这个判断留在纯函数里、可被单测覆盖。
+   * 返回新建 / 更新条数，供页面提示「新建 N 项 / 更新 M 项」。
    */
-  syncFromTasks: (drafts: readonly TaskSyncDraft[]) => number;
-  /**
-   * 把「时间轴 → 同步到今日页」的草稿落成条目。返回新建条数。
-   * 与 `syncFromTasks` 同构：去重留给 `planSlotSync`，这里只负责落地。
-   */
-  syncFromSlots: (drafts: readonly SlotSyncDraft[]) => number;
+  syncFromTasks: (plan: TaskSyncPlan) => SyncCounts;
+  /** 把「时间轴 → 同步到今日页」的计划落成条目，与 `syncFromTasks` 同构。 */
+  syncFromSlots: (plan: SlotSyncPlan) => SyncCounts;
   indent: (id: string) => void;
   outdent: (id: string) => void;
   move: (id: string, direction: -1 | 1) => void;
@@ -111,18 +117,18 @@ export const useItemStore = create<ItemState>((set, get) => {
       return result.newId;
     },
 
-    syncFromTasks(drafts) {
-      if (drafts.length === 0) return 0;
-      const result = createSyncedItems(get().items, drafts, clock);
+    syncFromTasks(plan) {
+      if (plan.create.length === 0 && plan.update.length === 0) return { created: 0, updated: 0 };
+      const result = applyTaskSync(get().items, plan, clock);
       commit(result.items, result.touched, true);
-      return result.newIds.length;
+      return { created: result.created.length, updated: result.updated.length };
     },
 
-    syncFromSlots(drafts) {
-      if (drafts.length === 0) return 0;
-      const result = createSyncedSlotItems(get().items, drafts, clock);
+    syncFromSlots(plan) {
+      if (plan.create.length === 0 && plan.update.length === 0) return { created: 0, updated: 0 };
+      const result = applySlotSync(get().items, plan, clock);
       commit(result.items, result.touched, true);
-      return result.newIds.length;
+      return { created: result.created.length, updated: result.updated.length };
     },
 
     indent(id) {

@@ -290,14 +290,85 @@ npm run mobile:ios       # 同步并打开 Xcode
    → 手上没 Mac 又想在 iPhone 上用：**用上面的 Pages 网页版 +「添加到主屏幕」**，
    这是无 Mac 情况下唯一能在 iOS 上真正跑起来的形态。
 
-### 还没做 / 建议下一步
+### iOS 适配现状（2026-10-19）
 
-- **🔴 数据导出 / 导入（最高优先级）**。iOS 会回收 WebView 的网站数据，
-  存储吃紧时 IndexedDB 可能被清空，而本项目 100% 数据在本地、目前没有导出能力。
-  「导出成 JSON + 导入」是唯一兜底，PRD 里它被排在 P1，建议提到最前。
-- 应用图标 / 启动图：现在用的是 Capacitor 默认图标（`npx capacitor-assets generate` 可自动生成）。
+数据导出 / 导入已在更早的迭代里补上（见「我的 → 数据备份」），iOS 侧的落地方式如下。
+**这些改动只做过类型检查与网页端测试，Windows 上无法编译 iOS —— 首次必须在 Mac 上构建验证。**
+
+| 项 | 实现 | 关键点 |
+|---|---|---|
+| 导出落盘 | `@capacitor/filesystem` 写 Documents | 配合 `UIFileSharingEnabled`，在「文件」App → 我的 iPhone → 日程表 可见 |
+| 系统分享 | `@capacitor/share` | 微信 / QQ / 网盘；临时副本写 Cache |
+| WebView 数据回收兜底 | 切后台把**无图**快照写到 `Documents/Backups/snapshot-latest.json` | 本地库为空时启动提示，用户手动确认后才覆盖恢复 |
+| 键盘 | 原生 `keyboardDidShow` 的高度写进 `--keyboard-native-height`，两个键盘 hook 优先读它 | `resize: 'native'` 下视口差值可能恒为 0 |
+| 状态栏 | `StatusBar` 跟随主题（早已就位） | `theme-color` 在 iOS 无效 |
+| Info.plist | 锁竖屏 / `arm64` / `zh_CN` / `ITSAppUsesNonExemptEncryption=false` / 相机文案 | 横屏下 86px 底栏与时间轴排版会乱 |
+| scheme | 固定 `App` | 🔴 `https` 会让 `setURLSchemeHandler` 抛异常 → 启动即崩 |
+| 图标 | 1024×1024 单尺寸（Xcode 14+ 标准） | `node scripts/tools/make-app-icon.mjs` 可重新生成 |
+
+**为什么 iOS 不用自研 Swift 插件**：Capacitor 只把 npm 包形态的插件写进
+`capacitor.config.json` 的 `packageClassList`（`cli/util/iosplugin.js` 只扫 node_modules 里的
+插件目录），App target 里的 Swift 文件不会被注册，`cap sync` 还会冲掉手工加进去的类名。
+官方 `filesystem` / `share` 由 CLI 自动注册，才经得起每次 sync。
+
+### 没有 Mac 也能先验证：Safari 直连（2026-10-19 已跑通）
+
+原生包必须 macOS/Xcode，但 **Web 层的问题今晚就能在 iPhone 上测完** ——
+`vite.config.ts` 里 `server.host` 已经是 `true`，dev server 直接对局域网开放。
+
+1. 电脑与 iPhone 连**同一个 WiFi**。
+2. 电脑跑 `npm run dev`，终端会打印 `Network: http://192.168.x.x:5173/`（以这条为准，
+   不是 localhost）。
+3. iPhone 用 **Safari** 打开那个地址。
+4. Windows 防火墙首次会弹窗 —— 允许 Node.js 通过**专用网络**（公用网络会把端口挡掉）。
+5. 建议再「分享 → 添加到主屏幕」，standalone 模式没有地址栏，观感最接近原生。
+
+**PWA 支持（2026-10-19 补齐）**：`public/manifest.webmanifest` +
+`apple-touch-icon`（180）+ standalone meta，加到主屏幕后有独立图标与全屏窗口。
+图标由 `node scripts/tools/make-app-icon.mjs` 一并生成到 `public/`。
+
+Service Worker（`public/sw.js`）负责离线可用，注册入口是
+`src/platform/pwaBridge.ts`，三道闸：
+
+- 🔴 **原生壳里永不注册**（`Capacitor.isNativePlatform()`）——
+  Capacitor 自己管资源与发版，SW 再缓存一层会导致「装了新版还跑旧代码」，
+  而且这种 bug 只在清缓存后才消失，极难排查；
+- 开发模式不注册（否则 HMR 被缓存，改代码不生效）；
+- 注册失败静默 —— 这只是增强，不是启动的必要条件。
+
+策略是**导航 network-first + 资源 stale-while-revalidate**：
+导航先走网络，所以发版后第一次打开就是新版本，**不需要维护缓存版本号**；
+断网时才回退到缓存。资源走缓存优先，文件名带内容 hash，不存在缓存旧内容的问题。
+
+⚠️ 局域网 http 直连时浏览器**不给 SW**（只在 https / localhost 下可用），
+所以这样测**拿不到离线能力**，但图标 / 全屏 / 独立窗口不依赖 SW，照常生效。
+
+能验证：5 个 Tab 的布局与安全区、键盘弹起时抽屉/输入框避让、拖拽排序、行内编辑、
+主题切换、IndexedDB 持久化（关标签再开数据还在）、时间轴与日历。
+
+**不能**验证（这些只有原生壳有）：原生导出与分享面板、「文件」App 里的可见性、
+自救快照、状态栏跟随主题、图标、橡皮筋手感。
+
+⚠️ 两个容易误判的点：
+- Safari 里点「导出」走的是 `<a download>`（iOS 13+ Safari 支持下载），
+  文件落在「文件」App → 下载。**这不是原生壳的行为**，别拿它当原生导出的验证结果。
+- Safari 会清理**长期不访问**站点的 IndexedDB（加到主屏幕可豁免）。
+  这恰好说明「自救快照」那条兜底不是多余的。
+
+**🔴 首次在 Mac 上必须做的真机验证（Windows 做不到）**
+
+1. `npm run mobile:ios` → Xcode 编译通过（Swift 部分零自研代码，风险主要在工程配置）。
+2. 导出：文件真的出现在「文件」App；分享面板能唤起微信并成功发出。
+3. 键盘：抽屉里的输入框不被遮挡；底部导航在键盘弹起时收下去；入场无「闪一下」。
+4. 强杀 App 后重开：数据仍在；用 Safari 调试手动清掉 IndexedDB 后重开，应出现快照恢复提示。
+5. 切后台再回来：`Documents/Backups/snapshot-latest.json` 的修改时间应该在变。
+
+### 还没做
+
+- **启动图**仍是 Capacitor 默认图（`Assets.xcassets/Splash.imageset`）；图标已换成自有图形。
 - 上架相关：国内安卓要 App 备案 + 软著，iOS 要开发者账号 —— 自用则全部不需要。
 - Android 返回键退出确认（可选，用 `@capacitor/app` 的 `backButton`）。
+- 账号同步（实时多端）：方案已定，未开工 —— 见下一节。
 
 ---
 

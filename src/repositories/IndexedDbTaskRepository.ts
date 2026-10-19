@@ -4,7 +4,7 @@ import { OTHER_KEY } from '@/domain/enums';
 import { StorageError } from '@/domain/errors';
 import type { AppDatabase } from './db/DexieDatabase';
 import { compareByOrder } from '@/domain/constants';
-import { filterAlive, filterDeleted } from './mappers';
+import { filterAlive, filterPurgeable } from './mappers';
 
 /**
  * 老数据缺 `sectionId`（R-043 才加的字段，Dexie 非索引字段无 schema 约束），
@@ -81,10 +81,10 @@ export class IndexedDbTaskRepository implements TaskRepository {
     }
   }
 
-  async purgeExpired(cutoff: number): Promise<number> {
+  async purgeExpired(cutoff: number, syncedThrough: number | null = null): Promise<number> {
     try {
       const all = await this.db.tasks.toArray();
-      const expired = filterDeleted(all).filter((row) => (row.deletedAt ?? 0) < cutoff);
+      const expired = filterPurgeable(all, cutoff, syncedThrough);
       if (expired.length === 0) return 0;
       await this.hardDeleteMany(expired.map((row) => row.id));
       return expired.length;

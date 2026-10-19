@@ -11,6 +11,7 @@ import { IndexedDbInspirationRepository } from './IndexedDbInspirationRepository
 import { IndexedDbItemImageRepository } from './IndexedDbItemImageRepository';
 import { IndexedDbTaskImageRepository } from './IndexedDbTaskImageRepository';
 import { LocalSettingsRepository } from './LocalSettingsRepository';
+import { IndexedDbSyncStateRepository } from './IndexedDbSyncStateRepository';
 
 export { db };
 export { IndexedDbItemRepository } from './IndexedDbItemRepository';
@@ -24,6 +25,11 @@ export { IndexedDbInspirationRepository } from './IndexedDbInspirationRepository
 export { IndexedDbItemImageRepository } from './IndexedDbItemImageRepository';
 export { IndexedDbTaskImageRepository } from './IndexedDbTaskImageRepository';
 export { LocalSettingsRepository, MemorySettingsRepository } from './LocalSettingsRepository';
+export {
+  IndexedDbSyncStateRepository,
+  MemorySyncStateRepository,
+} from './IndexedDbSyncStateRepository';
+export { MemorySyncGateway } from './MemorySyncGateway';
 
 /**
  * 全项目**唯一**的仓储装配点。
@@ -42,5 +48,6 @@ export function createRepositories(): Repositories {
     itemImages: new IndexedDbItemImageRepository(db),
     taskImages: new IndexedDbTaskImageRepository(db),
     settings: new LocalSettingsRepository(),
+    syncState: new IndexedDbSyncStateRepository(db),
   };
 }

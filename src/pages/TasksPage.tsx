@@ -3,7 +3,8 @@ import { useMemo, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import clsx from 'clsx';
 import { isDailyTask } from '@/domain/enums';
-import { compareByOrder } from '@/domain/constants';
+import { compareByOrder, isSyncableSection } from '@/domain/constants';
+import type { Task } from '@/domain/types';
 import { useTaskStore } from '@/store/useTaskStore';
 import { useItemStore } from '@/store/useItemStore';
 import { useDayStore } from '@/store/useDayStore';
@@ -13,11 +14,11 @@ import { TaskRow } from '@/components/task/TaskRow';
 import { useDragSort } from '@/hooks/useDragSort';
 import { DeadlineCard } from '@/components/task/DeadlineCard';
 import { GoalCard } from '@/components/task/GoalCard';
-import { ConfirmSheet } from '@/components/ui/ConfirmSheet';
 import { EmptyState } from '@/components/feedback/EmptyState';
 import { computeTaskProgress, toPercent } from '@/services/progressService';
-import { planTaskSync } from '@/services/taskSyncService';
+import { collectSyncedTaskIds, planTaskSync } from '@/services/taskSyncService';
 import { formatShortDate, isToday } from '@/utils/date';
+import { describeSyncCounts, syncButtonLabel } from '@/utils/syncMessage';
 import { useKeyboardVisible, KEYBOARD_HIDDEN_CLASS } from '@/hooks/useKeyboardVisible';
 
 /**
@@ -44,8 +45,22 @@ export function TasksPage() {
   const [focusId, setFocusId] = useState<string | null>(null);
   /** 正在改分组的任务 id（气泡由那一行自己挂，页面只记「哪一行开着」） */
   const [pickingId, setPickingId] = useState<string | null>(null);
-  const [syncOpen, setSyncOpen] = useState(false);
-  const [syncCount, setSyncCount] = useState(0);
+
+  /*
+    「同步到今日」的勾选模式（2026-10-20 改，与时间轴页同构）。
+
+    原来是「一键同步四大板块全部任务」+ 确认弹框：用户想只放两件进去时，
+    只能先全同步再手动删。现在改成**勾选制**：
+    - 只有**已分组（非「其他」）且有内容**的任务能勾 —— 没分组的在今日页没有落点，
+      空内容的只会建成一排「未命名条目」；
+    - 已经同步过的**默认勾上**：再确认一次 = 更新今日页那条，而不是堆出第二条；
+    - 可以取消勾选 —— 那只是「这一轮不碰它」，不删今日页的条目。
+  */
+  const [selecting, setSelecting] = useState(false);
+  const [checked, setChecked] = useState<ReadonlySet<string>>(new Set());
+  const items = useItemStore((s) => s.items);
+  const syncFromTasks = useItemStore((s) => s.syncFromTasks);
+  const syncedTaskIds = useMemo(() => collectSyncedTaskIds(items), [items]);
 
   // 键盘弹起 → 底部「+ 添加任务」收下去（与 Tab 胶囊同一机制）
   const keyboardVisible = useKeyboardVisible();
@@ -91,24 +106,58 @@ export function TasksPage() {
     pushToast(`已继承 ${created} 项未完成任务`);
   };
 
-  /** 本次同步会新增的条目草稿（每次都现算，不用 state 缓存，避免拿到过期数据） */
-  const currentDrafts = () =>
-    planTaskSync(useTaskStore.getState().tasks, useItemStore.getState().items, date);
+  /** 这条任务能不能同步：必须**已分组（非「其他」）且写了内容** */
+  const isSyncable = (task: Task) =>
+    isSyncableSection(task.sectionId) && task.content.trim().length > 0;
 
-  const openSync = () => {
-    const count = currentDrafts().length;
-    // 没有可同步的就不弹框 —— 弹一个「确认同步 0 项」的框只会让人以为坏了
-    if (count === 0) {
-      pushToast(dailyAlive.length === 0 ? '还没有任务可以同步' : '四大板块的任务都已经同步到今日了');
+  const syncableCount = useMemo(() => dailyAlive.filter(isSyncable).length, [dailyAlive]);
+
+  /** 进入勾选模式（已同步过的默认勾上：再确认一次 = 更新今日页那条） */
+  const startSelecting = () => {
+    if (syncableCount === 0) {
+      pushToast(
+        dailyAlive.length === 0
+          ? '还没有任务可以同步'
+          : '还没有已分组、且写了内容的任务可以同步',
+      );
       return;
     }
-    setSyncCount(count);
-    setSyncOpen(true);
+    setChecked(
+      new Set(
+        dailyAlive.filter((task) => syncedTaskIds.has(task.id) && isSyncable(task)).map((t) => t.id),
+      ),
+    );
+    setSelecting(true);
   };
 
+  const toggleChecked = (taskId: string) => {
+    setChecked((prev) => {
+      const next = new Set(prev);
+      if (next.has(taskId)) next.delete(taskId);
+      else next.add(taskId);
+      return next;
+    });
+  };
+
+  /** 本次勾选到的任务（每次都现算，不用 state 缓存，避免拿到过期数据） */
+  const selectedTasks = useMemo(
+    () => (selecting ? dailyAlive.filter((task) => checked.has(task.id)) : []),
+    [selecting, checked, dailyAlive],
+  );
+
+  /** 底部按钮的计数：新建 / 更新分别多少（确认前就能看见这次会动什么） */
+  const planCounts = useMemo(() => {
+    if (!selecting) return null;
+    const plan = planTaskSync(selectedTasks, items, date);
+    return { create: plan.create.length, update: plan.update.length };
+  }, [selecting, selectedTasks, items, date]);
+
   const confirmSync = () => {
-    const created = useItemStore.getState().syncFromTasks(currentDrafts());
-    pushToast(created > 0 ? `已同步 ${created} 项到今日` : '没有需要同步的任务');
+    const plan = planTaskSync(selectedTasks, items, date);
+    const { created, updated } = syncFromTasks(plan);
+    pushToast(describeSyncCounts(created, updated));
+    setSelecting(false);
+    setChecked(new Set());
   };
 
   return (
@@ -160,26 +209,35 @@ export function TasksPage() {
           />
         </div>
 
-        {/* 两个批量操作并排：继承昨日（拉进来）与同步到今日（推过去） */}
-        <div className="mt-3 flex gap-2">
-          <button
-            type="button"
-            onClick={handleInherit}
-            className="press flex-1 min-h-[40px] rounded-card border border-surface-line bg-surface text-body text-accent inline-flex items-center justify-center gap-1.5"
-          >
-            <Icon name="undo" size={16} />
-            继承昨日未完成
-          </button>
-          <button
-            type="button"
-            onClick={openSync}
-            data-testid="task-sync-button"
-            className="press flex-1 min-h-[40px] rounded-card border border-surface-line bg-surface text-body text-accent inline-flex items-center justify-center gap-1.5"
-          >
-            <Icon name="sync" size={16} />
-            同步到今日
-          </button>
-        </div>
+        {/* 两个批量操作并排：继承昨日（拉进来）与同步到今日（推过去）。
+            勾选模式下这一行让位给说明 —— 「继承昨日」此刻不该被点到。 */}
+        {selecting ? (
+          <p className="mt-3 text-caption leading-5 text-ink-faint">
+            勾选要同步到今日的任务。
+            <span className="text-ink-muted">只有已分组（非「其他」）且写了内容的能勾</span>
+            ；已经同步过的默认勾上，确认后会把今日页那条更新成现在的样子。
+          </p>
+        ) : (
+          <div className="mt-3 flex gap-2">
+            <button
+              type="button"
+              onClick={handleInherit}
+              className="press flex-1 min-h-[40px] rounded-card border border-surface-line bg-surface text-body text-accent inline-flex items-center justify-center gap-1.5"
+            >
+              <Icon name="undo" size={16} />
+              继承昨日未完成
+            </button>
+            <button
+              type="button"
+              onClick={startSelecting}
+              data-testid="task-sync-button"
+              className="press flex-1 min-h-[40px] rounded-card border border-surface-line bg-surface text-body text-accent inline-flex items-center justify-center gap-1.5"
+            >
+              <Icon name="sync" size={16} />
+              同步到今日
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="m-rise flex-1 px-5 pt-3 pb-24" style={{ animationDelay: '60ms' }}>
@@ -209,7 +267,18 @@ export function TasksPage() {
                   focused={focusId === task.id}
                   picking={pickingId === task.id}
                   dragging={drag.activeId === task.id}
-                  handleProps={drag.handleProps(task.id, index)}
+                  synced={syncedTaskIds.has(task.id)}
+                  // 勾选模式下行首换成同步勾选框，同时收起拖拽手柄（此刻只做「挑」这一件事）
+                  sync={
+                    selecting
+                      ? {
+                          checked: checked.has(task.id),
+                          disabled: !isSyncable(task),
+                          onToggle: () => toggleChecked(task.id),
+                        }
+                      : undefined
+                  }
+                  handleProps={selecting ? undefined : drag.handleProps(task.id, index)}
                   onFocus={() => setFocusId(task.id)}
                   onEnter={() => {
                     const id = add(date, '');
@@ -243,34 +312,47 @@ export function TasksPage() {
         )}
         aria-hidden={keyboardVisible}
       >
-        <div className="w-full max-w-[430px] pointer-events-auto">
-          <button
-            type="button"
-            onClick={() => {
-              const id = add(date, '');
-              if (id) setFocusId(id);
-            }}
-            className="press w-full min-h-[46px] rounded-full bg-accent text-lead text-accent-fg shadow-lg"
-          >
-            + 添加任务
-          </button>
+        <div className="w-full max-w-[430px] pointer-events-auto flex gap-2">
+          {selecting ? (
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  setSelecting(false);
+                  setChecked(new Set());
+                }}
+                className="press flex-1 min-h-[46px] rounded-pill border border-surface-line bg-surface text-body text-ink-muted"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={confirmSync}
+                disabled={
+                  checked.size === 0 ||
+                  planCounts === null ||
+                  planCounts.create + planCounts.update === 0
+                }
+                data-testid="task-sync-confirm"
+                className="press flex-[2] min-h-[46px] rounded-pill bg-accent text-lead text-accent-fg disabled:opacity-50"
+              >
+                {syncButtonLabel(planCounts)}
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                const id = add(date, '');
+                if (id) setFocusId(id);
+              }}
+              className="press w-full min-h-[46px] rounded-pill bg-accent text-lead text-accent-fg shadow-lg"
+            >
+              + 添加任务
+            </button>
+          )}
         </div>
       </div>
-
-      {/* 同步确认：把「会影响什么、不会影响什么」写在弹框里，而不是等用户发现 */}
-      <ConfirmSheet
-        open={syncOpen}
-        title="同步到今日"
-        confirmText="确认同步"
-        message={
-          <>
-            将把 {syncCount} 项任务复制到今日页对应的板块（追加在该板块现有条目之后）。
-            没分组（「其他」）的任务不参与同步；已经同步过的任务不会重复添加。
-          </>
-        }
-        onConfirm={confirmSync}
-        onClose={() => setSyncOpen(false)}
-      />
     </div>
   );
 }

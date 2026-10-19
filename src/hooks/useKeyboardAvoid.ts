@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { nativeKeyboardHeight } from './keyboardMetrics';
 
 /**
  * 小于这个值的 offset 一律当作 0。
@@ -27,7 +28,9 @@ export function useKeyboardAvoid(): void {
 
     const update = () => {
       const raw = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
-      const offset = raw < OFFSET_THRESHOLD ? 0 : raw;
+      const measured = raw < OFFSET_THRESHOLD ? 0 : raw;
+      // iOS 的原生高度优先；没有它（网页 / Android）时完全走原来的测量值
+      const offset = nativeKeyboardHeight() || measured;
       document.documentElement.style.setProperty('--keyboard-offset', `${offset}px`);
     };
 

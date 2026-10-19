@@ -9,6 +9,7 @@ import type {
   TaskImage,
   TimeSlot,
 } from '@/domain/types';
+import type { SyncMetaTable } from './schema';
 import { DB_NAME, DB_VERSION, STORES } from './schema';
 
 /**
@@ -26,6 +27,8 @@ export class AppDatabase extends Dexie {
   inspirations!: EntityTable<Inspiration, 'id'>;
   itemImages!: EntityTable<ItemImage, 'id'>;
   taskImages!: EntityTable<TaskImage, 'id'>;
+  /** 同步状态（单行）。与业务表同库，保证「写完数据 + 推进游标」可在同一事务里做 */
+  syncMeta!: EntityTable<SyncMetaTable, 'key'>;
 
   constructor(name: string = DB_NAME) {
     super(name);

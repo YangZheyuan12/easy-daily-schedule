@@ -1,7 +1,17 @@
 /**
- * 本地原生插件 `SaveFile` 的 TS 侧封装。
+ * 本地原生插件 `SaveFile` 的 TS 侧封装 —— **仅 Android**。
  *
  * 对应 `android/app/src/main/java/com/yangzheyuan/dailyschedule/SaveFilePlugin.java`。
+ *
+ * ⚠️ iOS **不用**这个插件：Capacitor 只把 npm 包形态的插件写进 `packageClassList`
+ * （`cli/util/iosplugin.js` 只扫 node_modules 里的插件目录），App target 里的 Swift 文件
+ * 不会被注册，`cap sync` 还会把手工加进去的类名冲掉。所以 iOS 的导出 / 分享改走官方
+ * `@capacitor/filesystem` + `@capacitor/share`（见 `fileBridge.ts`）。
+ *
+ * ⚠️ 两端**落点不同**，这是平台机制决定的，不要试图统一：
+ * - Android 写 MediaStore 的公共「下载」目录（用户用文件管理 App 就能看到）；
+ * - iOS 没有公共下载目录，写 App 沙盒的 Documents（配合 Info.plist 的
+ *   `UIFileSharingEnabled`，在「文件」App → 我的 iPhone → 日程表 里可见）。
  * 两个方法对应两个不同的用户诉求：
  * - `saveText`：把文件写进 Android 公共「下载」目录，长期留在这台设备上。
  * - `shareText`：写成临时文件后弹**系统分享面板**（微信 / QQ / 邮件 / 网盘）。

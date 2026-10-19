@@ -5,6 +5,7 @@ import { groupBy } from '@/utils/array';
 import { monthGrid, monthsInYear, shiftDateKey, toMonthKey, yearRange } from '@/utils/date';
 import type { MonthCell } from '@/utils/date';
 import { computeAllSections, computeTaskProgress } from './progressService';
+import { collectSyncedSlotIds } from './slotSyncService';
 
 /**
  * 日历月视图的摘要计算（纯函数，零浏览器 API）。
@@ -99,6 +100,8 @@ export function buildDaySummary(
   const daySelfStatus = selfStatus && selfStatus.date === date ? selfStatus : null;
 
   const progressMap = computeAllSections(dayItems);
+  // 已同步成条目的时段：条目那边已经计过一次，这里必须排除，否则分母翻倍
+  const syncedSlotIds = collectSyncedSlotIds(dayItems);
 
   const sections = emptySections();
   let totalCount = 0;
@@ -109,7 +112,7 @@ export function buildDaySummary(
     let total = progress.total;
     // 时间段若归类到板块，则并入该板块的完成度（与条目同一口径）
     for (const slot of dayTimeSlots) {
-      if (slot.sectionId === config.key) {
+      if (slot.sectionId === config.key && !syncedSlotIds.has(slot.id)) {
         total += 1;
         if (slot.done) done += 1;
       }

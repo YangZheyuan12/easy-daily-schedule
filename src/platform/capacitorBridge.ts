@@ -3,6 +3,8 @@ import { App } from '@capacitor/app';
 import { Keyboard } from '@capacitor/keyboard';
 import { StatusBar, Style } from '@capacitor/status-bar';
 import { persistence } from '@/store/bootstrap';
+import { useBackupStore } from '@/store/useBackupStore';
+import { useUiStore } from '@/store/useUiStore';
 import { useThemeStore } from '@/theme/useThemeStore';
 import type { ThemeId } from '@/theme/themes';
 
@@ -44,10 +46,32 @@ export function setupNativeBridge(): () => void {
   const cleanups: Array<() => void> = [];
 
   void App.addListener('appStateChange', ({ isActive }) => {
-    if (!isActive) void persistence.flush('lifecycle');
+    if (!isActive) {
+      /*
+        顺序不能反：**先把防抖窗口里的编辑落进 IndexedDB，再写快照**。
+        反过来的话，快照里缺的正是「用户最后那几下编辑」—— 而这恰恰是最想保住的部分。
+      */
+      void persistence
+        .flush('lifecycle')
+        .then(() => useBackupStore.getState().writeSnapshot())
+        .catch(() => undefined);
+    }
   })
     .then((handle) => {
       cleanups.push(() => void handle.remove());
+    })
+    .catch(() => undefined);
+
+  /*
+    启动自检（仅 iOS 实现）：本地库空了、而沙盒里还留着快照 —— 多半是 WKWebView 的
+    站点数据被系统回收了。这里**只提示、不自动恢复**：自动把空库换成旧快照，万一用户
+    是主动清空数据的，就变成了「强行回滚」。恢复必须由用户点。
+  */
+  void useBackupStore
+    .getState()
+    .checkSnapshotRecovery()
+    .then((message) => {
+      if (message) useUiStore.getState().pushToast(message);
     })
     .catch(() => undefined);
 
@@ -61,6 +85,39 @@ export function setupNativeBridge(): () => void {
   );
 
   void Keyboard.setAccessoryBarVisible({ isVisible: false }).catch(() => undefined);
+
+  /*
+    iOS 键盘高度：原生事件报的是**屏幕上的真实高度**，比从两个视口高度反推可靠。
+    `Keyboard.resize = 'native'` 下 WKWebView 会同时压缩布局视口与 visual viewport，
+    前端常见的「innerHeight − vv.height」判据在 iOS 上可能恒为 0，键盘弹起了却检测不到。
+
+    只把高度写进 CSS 变量，**不碰 React 状态**：`useKeyboardAvoid` / `useKeyboardVisible`
+    读这个变量做判据。网页端与 Android 上没有这个变量（读到 0），行为与以前完全一致 ——
+    Android 已有的双判据逻辑经过验证，没必要为了「统一」去冒回归风险。
+  */
+  if (Capacitor.getPlatform() === 'ios') {
+    void Keyboard.addListener('keyboardDidShow', (info) => {
+      document.documentElement.style.setProperty(
+        '--keyboard-native-height',
+        `${info.keyboardHeight}px`,
+      );
+    })
+      .then((handle) => {
+        cleanups.push(() => {
+          void handle.remove();
+          document.documentElement.style.removeProperty('--keyboard-native-height');
+        });
+      })
+      .catch(() => undefined);
+
+    void Keyboard.addListener('keyboardDidHide', () => {
+      document.documentElement.style.setProperty('--keyboard-native-height', '0px');
+    })
+      .then((handle) => {
+        cleanups.push(() => void handle.remove());
+      })
+      .catch(() => undefined);
+  }
 
   return () => {
     for (const fn of cleanups) fn();

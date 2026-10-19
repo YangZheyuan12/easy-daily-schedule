@@ -9,10 +9,18 @@ import {
   describeSummary,
   filterAlive,
   type BackupImage,
+  type BackupPayload,
   type BackupTaskImage,
   type BackupTables,
 } from '@/services/backupService';
-import { saveTextFile, shareTextFile, pickTextFile } from '@/platform/fileBridge';
+import {
+  saveTextFile,
+  shareTextFile,
+  pickTextFile,
+  writeNativeSnapshot,
+  readNativeSnapshot,
+  supportsNativeSnapshot,
+} from '@/platform/fileBridge';
 import { blobToDataUrl, dataUrlToBlob } from '@/platform/imageCodec';
 import { useItemStore } from './useItemStore';
 import { useTaskStore } from './useTaskStore';
@@ -46,11 +54,22 @@ interface BackupState {
   /** 导出时是否连同图片一起（图片会让文件明显变大） */
   includeImages: boolean;
   lastMessage: string;
+  /**
+   * 本机是否能写「自救快照」。
+   * 当前只有 iOS 为 true —— 只有它会回收 WKWebView 的站点数据（见 `platform/fileBridge.ts`）。
+   */
+  snapshotSupported: boolean;
   setIncludeImages: (value: boolean) => void;
   exportBackup: () => Promise<BackupResult>;
   /** 唤起文件选择器并读出文本；用户取消返回 null */
   pickBackupText: () => Promise<string | null>;
   importBackup: (text: string, mode: ImportMode) => Promise<BackupResult>;
+  /** 静默把最新数据写一份到原生沙盒（不含图片）；失败不打扰用户 */
+  writeSnapshot: () => Promise<void>;
+  /** 用本机快照**覆盖**恢复（本地已空时才该用它） */
+  restoreSnapshot: () => Promise<BackupResult>;
+  /** 启动自检：本地库为空且有可用快照时返回一句提示文案，否则 null */
+  checkSnapshotRecovery: () => Promise<string | null>;
   clearMessage: () => void;
 }
 
@@ -58,6 +77,7 @@ export const useBackupStore = create<BackupState>((set, get) => ({
   busy: false,
   includeImages: false,
   lastMessage: '',
+  snapshotSupported: supportsNativeSnapshot(),
 
   setIncludeImages: (value) => set({ includeImages: value }),
   clearMessage: () => set({ lastMessage: '' }),
@@ -66,81 +86,7 @@ export const useBackupStore = create<BackupState>((set, get) => ({
     const includeImages = get().includeImages;
     set({ busy: true, lastMessage: '' });
     try {
-      const [
-        itemsRaw,
-        tasksRaw,
-        days,
-        selfStatus,
-        slotsRaw,
-        inspirationsRaw,
-        imagesRaw,
-        taskImagesRaw,
-      ] = await Promise.all([
-        repos.items.listAll(),
-        repos.tasks.listAll(),
-        repos.days.listAll(),
-        repos.selfStatus.listAll(),
-        repos.timeSlots.listAll(),
-        repos.inspirations.listAll(),
-        includeImages ? repos.itemImages.listAll() : Promise.resolve<ItemImage[]>([]),
-        includeImages ? repos.taskImages.listAll() : Promise.resolve<TaskImage[]>([]),
-      ]);
-
-      const aliveTaskIds = new Set(
-        tasksRaw.filter((task) => task.deletedAt === null).map((task) => task.id),
-      );
-
-      const tables: BackupTables = {
-        items: filterAlive(itemsRaw),
-        tasks: filterAlive(tasksRaw),
-        days,
-        selfStatus,
-        timeSlots: filterAlive(slotsRaw),
-        inspirations: filterAlive(inspirationsRaw),
-        images: [],
-        taskImages: [],
-      };
-
-      // 图片：只带「仍然活着的条目」挂着的附件，避免把已删条目的图也背出去
-      if (includeImages && imagesRaw.length > 0) {
-        const aliveIds = new Set(tables.items.map((item) => item.id));
-        const converted: BackupImage[] = [];
-        for (const image of imagesRaw) {
-          if (!aliveIds.has(image.itemId)) continue;
-          try {
-            converted.push({
-              id: image.id,
-              itemId: image.itemId,
-              createdAt: image.createdAt,
-              dataUrl: await blobToDataUrl(image.blob),
-            });
-          } catch {
-            // 单张转换失败就跳过，不让一张坏图毁掉整份备份
-          }
-        }
-        tables.images = converted;
-      }
-
-      // 任务图片同上口径：只带还活着的任务挂的图
-      if (includeImages && taskImagesRaw.length > 0) {
-        const converted: BackupTaskImage[] = [];
-        for (const image of taskImagesRaw) {
-          if (!aliveTaskIds.has(image.taskId)) continue;
-          try {
-            converted.push({
-              id: image.id,
-              taskId: image.taskId,
-              createdAt: image.createdAt,
-              dataUrl: await blobToDataUrl(image.blob),
-            });
-          } catch {
-            // 同上：单张失败不影响整份
-          }
-        }
-        tables.taskImages = converted;
-      }
-
-      const payload = buildBackupPayload(tables, clock.now());
+      const payload = await collectBackupPayload(includeImages);
       const text = serializeBackup(payload);
       const stamp = toDateKey(new Date(payload.exportedAt));
       const filename = `日程表备份-${stamp}.json`;
@@ -243,7 +189,164 @@ export const useBackupStore = create<BackupState>((set, get) => ({
       return { ok: false, message: `导入失败：${message}` };
     }
   },
+
+  /**
+   * 静默写一份「自救快照」到原生沙盒。
+   *
+   * 触发时机是「切到后台」—— 那正是 iOS 可能回收 WKWebView 数据的时刻。
+   * **不含图片**：这条路径的目的是「文字数据别丢」，base64 图片会让体积膨胀 1/3，
+   * 而且写得太重就不再是「顺手兜底」了（要图片请走导出）。
+   * 所有失败都吞掉：兜底动作失败不该变成用户面前的报错。
+   */
+  async writeSnapshot() {
+    if (!get().snapshotSupported) return;
+    try {
+      const payload = await collectBackupPayload(false);
+      await writeNativeSnapshot(serializeBackup(payload));
+    } catch {
+      // 静默：快照只是兜底，写成功与否都不影响正常使用
+    }
+  },
+
+  /**
+   * 用本机快照恢复 —— **覆盖**语义。
+   *
+   * 为什么是覆盖而不是合并：能走到这一步的前提是本地库已经空了（WebView 数据被回收），
+   * 此时没有任何东西需要保留；合并只会把「恢复」变成「又混进半份旧数据」。
+   */
+  async restoreSnapshot() {
+    const text = await readNativeSnapshot();
+    if (!text) return { ok: false, message: '本机没有可恢复的快照' };
+    return get().importBackup(text, 'overwrite');
+  },
+
+  /**
+   * 启动自检：**本地库为空**且本机有可用快照时，返回一句提示。
+   *
+   * 为什么只在库空时提示：正常使用中每次切后台都会刷新快照，若每次都弹提示就成了骚扰。
+   * 库空才是真正的「出事了」—— 那正是数据被回收之后的形态。
+   */
+  async checkSnapshotRecovery() {
+    if (!get().snapshotSupported) return null;
+    try {
+      const text = await readNativeSnapshot();
+      if (!text) return null;
+      const parsed = parseBackup(text);
+      if (!parsed.ok) return null;
+      if (!(await isLibraryEmpty())) return null;
+      return `检测到本机快照（${describeSummary(summarizeBackup(parsed.payload))}），可在「我的 → 数据备份」恢复`;
+    } catch {
+      return null;
+    }
+  },
 }));
+
+/**
+ * 组装一份备份负载 —— 导出与后台快照**共用这一份口径**。
+ *
+ * 🔴 不要在两处各写一遍取数逻辑：那样很快会出现「导出的文件有八张表、
+ * 后台快照只剩五张」的漂移，而漂移往往只会在真正需要恢复的那天才被发现。
+ */
+async function collectBackupPayload(includeImages: boolean): Promise<BackupPayload> {
+  const [
+    itemsRaw,
+    tasksRaw,
+    days,
+    selfStatus,
+    slotsRaw,
+    inspirationsRaw,
+    imagesRaw,
+    taskImagesRaw,
+  ] = await Promise.all([
+    repos.items.listAll(),
+    repos.tasks.listAll(),
+    repos.days.listAll(),
+    repos.selfStatus.listAll(),
+    repos.timeSlots.listAll(),
+    repos.inspirations.listAll(),
+    includeImages ? repos.itemImages.listAll() : Promise.resolve<ItemImage[]>([]),
+    includeImages ? repos.taskImages.listAll() : Promise.resolve<TaskImage[]>([]),
+  ]);
+
+  const aliveTaskIds = new Set(
+    tasksRaw.filter((task) => task.deletedAt === null).map((task) => task.id),
+  );
+
+  const tables: BackupTables = {
+    items: filterAlive(itemsRaw),
+    tasks: filterAlive(tasksRaw),
+    days,
+    selfStatus,
+    timeSlots: filterAlive(slotsRaw),
+    inspirations: filterAlive(inspirationsRaw),
+    images: [],
+    taskImages: [],
+  };
+
+  // 图片：只带「仍然活着的条目」挂着的附件，避免把已删条目的图也背出去
+  if (includeImages && imagesRaw.length > 0) {
+    const aliveIds = new Set(tables.items.map((item) => item.id));
+    const converted: BackupImage[] = [];
+    for (const image of imagesRaw) {
+      if (!aliveIds.has(image.itemId)) continue;
+      try {
+        converted.push({
+          id: image.id,
+          itemId: image.itemId,
+          createdAt: image.createdAt,
+          dataUrl: await blobToDataUrl(image.blob),
+        });
+      } catch {
+        // 单张转换失败就跳过，不让一张坏图毁掉整份备份
+      }
+    }
+    tables.images = converted;
+  }
+
+  // 任务图片同上口径：只带还活着的任务挂的图
+  if (includeImages && taskImagesRaw.length > 0) {
+    const converted: BackupTaskImage[] = [];
+    for (const image of taskImagesRaw) {
+      if (!aliveTaskIds.has(image.taskId)) continue;
+      try {
+        converted.push({
+          id: image.id,
+          taskId: image.taskId,
+          createdAt: image.createdAt,
+          dataUrl: await blobToDataUrl(image.blob),
+        });
+      } catch {
+        // 同上：单张失败不影响整份
+      }
+    }
+    tables.taskImages = converted;
+  }
+
+  return buildBackupPayload(tables, clock.now());
+}
+
+/**
+ * 本地库是否「没有内容」。
+ *
+ * 只看用户真正生产的数据（条目 / 任务 / 时间段 / 灵感）。`days` 与 `selfStatus`
+ * 会因为「打开过某一天」自动产生记录，拿它们判断会把空库误判成有数据，
+ * 于是该提示恢复的时候反而沉默。
+ */
+async function isLibraryEmpty(): Promise<boolean> {
+  const [items, tasks, slots, inspirations] = await Promise.all([
+    repos.items.listAll(),
+    repos.tasks.listAll(),
+    repos.timeSlots.listAll(),
+    repos.inspirations.listAll(),
+  ]);
+
+  return (
+    filterAlive(items).length === 0 &&
+    filterAlive(tasks).length === 0 &&
+    filterAlive(slots).length === 0 &&
+    filterAlive(inspirations).length === 0
+  );
+}
 
 /** 覆盖导入：把当前库清干净（含软删记录，它们本来也不该留在「回到某时刻」的结果里） */
 async function clearEverything(): Promise<void> {

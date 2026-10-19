@@ -88,16 +88,16 @@ async function makeV4(): Promise<string> {
   return name;
 }
 
-describe('Dexie v1 → v5 迁移', () => {
-  it('当前 schema 版本号是 5', () => {
-    expect(DB_VERSION).toBe(5);
+describe('Dexie v1 → v6 迁移', () => {
+  it('当前 schema 版本号是 6', () => {
+    expect(DB_VERSION).toBe(6);
   });
 
   it('v1 的三个老表（items / tasks / days）数据全部保留', async () => {
     const db = new AppDatabase(await makeV1());
     await db.open();
 
-    expect(db.verno).toBe(5);
+    expect(db.verno).toBe(6);
 
     const items = await db.items.toArray();
     const tasks = await db.tasks.toArray();
@@ -156,13 +156,14 @@ describe('Dexie v1 → v5 迁移', () => {
     const db = new AppDatabase(`fresh-install-${counter++}`);
     await db.open();
 
-    expect(db.verno).toBe(5);
+    expect(db.verno).toBe(6);
     expect(db.tables.map((table) => table.name).sort()).toEqual([
       'days',
       'inspirations',
       'itemImages',
       'items',
       'selfStatus',
+      'syncMeta',
       'taskImages',
       'tasks',
       'timeSlots',
@@ -180,7 +181,7 @@ describe('Dexie v1 → v5 迁移', () => {
     const db = new AppDatabase(await makeV4());
     await db.open();
 
-    expect(db.verno).toBe(5);
+    expect(db.verno).toBe(6);
     expect(db.tables.map((table) => table.name)).toContain('taskImages');
 
     const images = await db.itemImages.toArray();
@@ -195,6 +196,36 @@ describe('Dexie v1 → v5 迁移', () => {
       createdAt: 2,
     });
     expect(await db.taskImages.count()).toBe(1);
+
+    db.close();
+  });
+
+  /*
+    同步内核（v6）：新增 `syncMeta` 表存 deviceId / 双游标 / 时钟偏移。
+    它跟业务数据同库，这样「写完数据 + 推进游标」才能落在同一个事务里 ——
+    分开放（比如 localStorage）就可能在写数据成功、游标失败之间崩掉，
+    结果是下一轮重复推一整库。
+  */
+  it('v6：syncMeta 表建好且可读写（升级不影响既有业务表）', async () => {
+    const db = new AppDatabase(await makeV4());
+    await db.open();
+
+    expect(db.verno).toBe(6);
+    expect(db.tables.map((table) => table.name)).toContain('syncMeta');
+
+    await db.syncMeta.put({
+      key: 'state',
+      deviceId: 'dev_1',
+      userId: null,
+      lastPulledAt: 0,
+      lastPushedAt: 0,
+      serverTimeOffset: 0,
+    });
+    const row = await db.syncMeta.get('state');
+    expect(row?.deviceId).toBe('dev_1');
+
+    // 老业务数据不能因为升版本而丢
+    expect(await db.itemImages.count()).toBe(1);
 
     db.close();
   });

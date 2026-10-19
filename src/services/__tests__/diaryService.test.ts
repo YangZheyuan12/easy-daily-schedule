@@ -247,4 +247,50 @@ describe('buildDiaryList — 时间轴时间段投影', () => {
     expect(life.entries[0]?.item).toBeUndefined();
     expect(life.entries[0]?.timeSlot).toBeDefined();
   });
+
+  /*
+    🔴 用户实际踩到的 bug（2026-10-20）：同步过的时间段会占两个编号 ——
+    它既作为 sourceSlotId 指向的真实条目占一个号，又作为只读投影再占一个号。
+    表现是「同步了 1 条事件，下一个新建的条目直接从 3 跳到 4」。
+  */
+  it('🔴 已同步成条目的时间段不再投影（一件事只占一个编号）', () => {
+    const slot = makeSlot({ id: 'ts1', sectionId: 'work' });
+    const items = [makeItem({ id: 'w1', sectionId: 'work', sourceSlotId: 'ts1' })];
+
+    const groups = buildDiaryList(items, [], [slot]);
+    const work = groups.find((g) => g.key === 'work')!;
+
+    expect(work.entries).toHaveLength(1);
+    expect(work.entries[0]?.kind).toBe('item');
+    expect(work.entries[0]?.displayNo).toBe(1);
+  });
+
+  it('🔴 同步后编号连续：1 条同步来的条目 + 1 条新建 → 1、2（不是 1、3）', () => {
+    const slot = makeSlot({ id: 'ts1', sectionId: 'work' });
+    const items = [
+      makeItem({ id: 'w1', sectionId: 'work', sourceSlotId: 'ts1' }),
+      makeItem({ id: 'w2', sectionId: 'work', order: 2000 }),
+    ];
+
+    const groups = buildDiaryList(items, [], [slot]);
+    const numbers = groups
+      .filter((g) => g.key !== 'inspiration')
+      .flatMap((g) => g.entries.map((e) => e.displayNo));
+
+    expect(numbers).toEqual([1, 2]);
+  });
+
+  it('同步来的条目被删掉后，时间段恢复成投影（不然那件事就凭空消失了）', () => {
+    const slot = makeSlot({ id: 'ts1', sectionId: 'work' });
+    const deleted = makeItem({
+      id: 'w1',
+      sectionId: 'work',
+      sourceSlotId: 'ts1',
+      deletedAt: 5_000,
+    });
+
+    const work = buildDiaryList([deleted], [], [slot]).find((g) => g.key === 'work')!;
+    expect(work.entries).toHaveLength(1);
+    expect(work.entries[0]?.kind).toBe('timeSlot');
+  });
 });

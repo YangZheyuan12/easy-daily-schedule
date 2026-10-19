@@ -477,7 +477,18 @@ export function useDragSort({ ids, onReorder }: DragOptions): DragSortResult {
         页面一滚拖拽就跟手性全失。有了它，这一串指针事件从头到尾留在这里，
         再配合 window 级监听 + setPointerCapture，手指滑出元素也不丢。
       */
-      style: { touchAction: 'none', cursor: 'grab' } as CSSProperties,
+      style: {
+        touchAction: 'none',
+        cursor: 'grab',
+        /*
+          iOS：长按手柄会先弹出「拷贝 / 查询」系统菜单，拖拽手势直接被截断。
+          `-webkit-touch-callout` 关掉长按菜单，`user-select` 关掉文字选中高亮 ——
+          两件一起做，手柄才像「把手」而不是「一段可选中的文字」。
+        */
+        WebkitTouchCallout: 'none',
+        WebkitUserSelect: 'none',
+        userSelect: 'none',
+      } as CSSProperties,
       onPointerDown: (event: ReactPointerEvent) => {
         if (dragRef.current || settling) return;
         if (event.pointerType === 'mouse' && event.button !== 0) return;

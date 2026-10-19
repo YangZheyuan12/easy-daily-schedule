@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { nativeKeyboardHeight } from './keyboardMetrics';
 
 /**
  * 判定软键盘是否正在占用屏幕。
@@ -12,11 +13,16 @@ import { useEffect, useRef, useState } from 'react';
  *   连**布局视口**一起被压缩，`innerHeight` 与 `vv.height` 同时变小 → 高度差恒为 0，
  *   键盘弹起了却检测不到。
  *
- * 所以两条判据取或：
- * 1. visual viewport 被吃掉的高度（`innerHeight - vv.height`）；
- * 2. 布局视口相比「历史最大高度」缩了多少（覆盖 `adjustResize` 场景）。
+ * 所以判据取或：
+ * 1. **iOS 原生事件报的键盘高度**（`--keyboard-native-height`，最权威，见 `keyboardMetrics.ts`）；
+ * 2. visual viewport 被吃掉的高度（`innerHeight - vv.height`）；
+ * 3. 布局视口相比「历史最大高度」缩了多少（覆盖 `adjustResize` 场景）。
  * 再加一个「焦点确实在可编辑元素上」的前置条件 —— 否则旋转屏幕、
  * 浏览器工具栏收起这类视口变化也会被误判成键盘。
+ *
+ * 第 1 条是 2026-10-19 为 iOS 补的：`resize: 'native'` 下 WKWebView 会把两个视口
+ * 一起压缩，2、3 两条同时失效，底部导航就不会收起、被键盘顶住。
+ * 网页端 / Android 上该变量不存在（返回 0），实际生效的仍是原来的 2、3 两条。
  */
 const KEYBOARD_THRESHOLD = 120;
 
@@ -44,7 +50,10 @@ export function useKeyboardVisible(): boolean {
       const layoutShrink = maxHeight.current - height;
 
       setVisible(
-        isEditing() && (viewportInset > KEYBOARD_THRESHOLD || layoutShrink > KEYBOARD_THRESHOLD),
+        isEditing() &&
+          (nativeKeyboardHeight() > KEYBOARD_THRESHOLD ||
+            viewportInset > KEYBOARD_THRESHOLD ||
+            layoutShrink > KEYBOARD_THRESHOLD),
       );
     };
 

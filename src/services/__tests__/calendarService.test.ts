@@ -182,6 +182,16 @@ describe('buildMonthSummaries — 任务 / 时间段 / 自我状态', () => {
     expect(summary?.sections.life).toEqual({ done: 0, total: 0 });
   });
 
+  it('🔴 已同步成条目的时间段不重复计入完成度（同一件事只算一次）', () => {
+    // 与「编号跳号」是同一个 bug 的另一面：不做排除的话，分母会凭空 +1
+    const items = [makeItem({ id: 'i1', date: '2026-10-09', sectionId: 'work', sourceSlotId: 's1' })];
+    const slots = [makeSlot({ id: 's1', date: '2026-10-09', sectionId: 'work', done: true })];
+
+    const summary = buildMonthSummaries(items, NO_TASKS, slots, NO_INSPIRATIONS, NO_SELF, MONTH)['2026-10-09'];
+
+    expect(summary?.sections.work).toEqual({ done: 0, total: 1 });
+  });
+
   it('同一天里板块条目与时间段共存：两边都算数，互不覆盖', () => {
     // 产品口径：分类模式与时间轴模式不是互斥的，一天可以既有条目又有时间段
     const items = [

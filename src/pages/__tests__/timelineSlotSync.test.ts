@@ -13,8 +13,8 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
  * 覆盖：
  * ① 点按钮 → 进入勾选模式：行首出现勾选框，底部换成「取消 + 同步 N 项」；
  * ② 没归板块的时间段勾选框禁用（今日页条目必须落在某个板块下）；
- * ③ 已同步过的时段锁定在勾选态（再同步只会堆出第二条）；
- * ④ 勾选 → 确认 → 真落成今日页条目（`sourceSlotId` 去重、标题与板块正确）；
+ * ③ 已同步过的时段**默认勾选且可取消**（再确认 = 更新今日页那条，而非堆出第二条）；
+ * ④ 勾选 → 确认 → 真落成今日页条目（新建）或更新已有条目（`sourceSlotId` 去重、标题与板块正确）；
  * ⑤ 取消 → 退出勾选模式，不产生任何条目。
  */
 const { fakeRepos, fakePersistence, fakeClock, fakeUndo } = vi.hoisted(() => ({
@@ -78,7 +78,7 @@ function render(): HTMLDivElement {
 function checkboxes(container: HTMLElement): HTMLButtonElement[] {
   return Array.from(
     container.querySelectorAll<HTMLButtonElement>('button[aria-pressed]'),
-  ).filter((b) => (b.getAttribute('aria-label') ?? '').includes('同步这个时间段'));
+  ).filter((b) => (b.getAttribute('aria-label') ?? '').includes('同步这一项'));
 }
 
 function byTestId(container: HTMLElement, testId: string): HTMLButtonElement {
@@ -143,10 +143,13 @@ describe('时间轴 → 同步到今日（勾选模式）', () => {
     expect(boxes[1]!.getAttribute('title')).toContain('未分组');
   });
 
-  it('已同步过的时段锁定在勾选态，不计入可同步数', () => {
-    setSlots([grouped(), ungrouped()]);
+  it('已同步过的时段默认勾选且可取消；确认后更新已有条目而非新建', () => {
+    // 时间轴把标题改了，今日页那条还停留在旧标题 → 确认应当把今日页更新成新标题
+    setSlots([
+      makeSlot({ id: 's1', date: DATE, sectionId: 'work', content: '开组会（改）', startMin: 540 }),
+    ]);
     useItemStore.setState({
-      items: [makeItem({ id: 'i1', date: DATE, sectionId: 'work', sourceSlotId: 's1' })],
+      items: [makeItem({ id: 'i1', date: DATE, sectionId: 'work', title: '开组会', sourceSlotId: 's1' })],
     });
     const container = render();
 
@@ -155,10 +158,25 @@ describe('时间轴 → 同步到今日（勾选模式）', () => {
     });
 
     const boxes = checkboxes(container);
+    expect(boxes).toHaveLength(1);
+    // 默认勾选；且**可取消**（不再是锁死的禁用态 —— 「再同步」现在语义是更新）
     expect(boxes[0]!.getAttribute('aria-pressed')).toBe('true');
-    expect(boxes[0]!.disabled).toBe(true); // 锁住：再同步只会堆出第二条
-    // 确认按钮仍是 0 项（锁住的不算新的）
-    expect(byTestId(container, 'timeline-sync-confirm').disabled).toBe(true);
+    expect(boxes[0]!.disabled).toBe(false);
+    // 确认按钮可点：这次会「更新 1 项」
+    const confirm = byTestId(container, 'timeline-sync-confirm');
+    expect(confirm.disabled).toBe(false);
+    expect(confirm.textContent).toContain('更新');
+
+    act(() => {
+      confirm.click();
+    });
+
+    // 没有新增条目，而是更新了已有的那条
+    const items = useItemStore.getState().items;
+    expect(items).toHaveLength(1);
+    expect(items[0]?.id).toBe('i1');
+    expect(items[0]?.title).toBe('开组会（改）');
+    expect(items[0]?.sourceSlotId).toBe('s1');
   });
 
   it('勾选 → 确认 → 落成今日页条目（板块、标题、来源标记都对）', () => {

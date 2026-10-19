@@ -3,6 +3,7 @@ import { Icon } from '@/components/ui/Icon';
 import clsx from 'clsx';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { Sheet } from '@/components/ui/Sheet';
+import { ConfirmSheet } from '@/components/ui/ConfirmSheet';
 import { CollapsibleCard } from '@/components/ui/CollapsibleCard';
 import { SectionSettings } from '@/components/me/SectionSettings';
 import { THEMES, getThemeMeta } from '@/theme/themes';
@@ -302,6 +303,8 @@ function BackupCard() {
         导入时从这些地方任选其一选中它即可。
       </p>
 
+      <SnapshotSection />
+
       <Sheet open={pending !== null} onClose={() => setPending(null)} title="导入备份">
         <div className="pt-3 space-y-3">
           <p className="text-body leading-6 text-ink-muted">
@@ -335,6 +338,82 @@ function BackupCard() {
           </button>
         </div>
       </Sheet>
+    </div>
+  );
+}
+
+/**
+ * 本机自救快照（仅 iOS 渲染）。
+ *
+ * 为什么需要它：iOS 会在存储吃紧时回收 WKWebView 的站点数据，IndexedDB 可能整库消失 ——
+ * 这不是「用户误删」，而是系统行为，且**没有任何找回路径**。切后台时自动写进原生沙盒的
+ * 那份快照就是唯一的保险（沙盒不随 WebView 回收）。
+ *
+ * 为什么不自动恢复：自动把空库换成旧快照，等于替用户做了一个不可撤销的决定。
+ * 这里只提供入口，恢复必须由用户点，并且再过一道确认。
+ */
+function SnapshotSection() {
+  const supported = useBackupStore((s) => s.snapshotSupported);
+  const writeSnapshot = useBackupStore((s) => s.writeSnapshot);
+  const restoreSnapshot = useBackupStore((s) => s.restoreSnapshot);
+  const pushToast = useUiStore((s) => s.pushToast);
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  // 非 iOS 不渲染：Android / 网页端没有这条兜底路径，不该给用户一个按了没反应的按钮
+  if (!supported) return null;
+
+  const handleSave = async () => {
+    if (busy) return;
+    setBusy(true);
+    await writeSnapshot();
+    setBusy(false);
+    pushToast('已在本机存一份快照（不含图片）');
+  };
+
+  const handleRestore = async () => {
+    if (busy) return;
+    setBusy(true);
+    const result = await restoreSnapshot();
+    setBusy(false);
+    pushToast(result.message);
+  };
+
+  return (
+    <div className="pt-3 mt-1 border-t border-surface-line space-y-2">
+      <div className="text-lead font-medium text-ink">本机快照（iOS）</div>
+      <p className="text-caption leading-5 text-ink-faint">
+        App 切到后台时会自动在本机留一份快照（不含图片）。如果系统回收了网页数据，
+        可以在这里把它找回来。卸载 App 会连同快照一起删除，所以长期备份仍请导出文件。
+      </p>
+
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={() => void handleSave()}
+          disabled={busy}
+          className="press flex-1 min-h-[38px] rounded-card border border-surface-line text-body text-ink disabled:opacity-50"
+        >
+          立即存一份
+        </button>
+        <button
+          type="button"
+          onClick={() => setConfirming(true)}
+          disabled={busy}
+          className="press flex-1 min-h-[38px] rounded-card border border-surface-line text-body text-ink disabled:opacity-50"
+        >
+          从快照恢复
+        </button>
+      </div>
+
+      <ConfirmSheet
+        open={confirming}
+        title="从本机快照恢复"
+        message="会用快照里的内容覆盖当前全部数据，且无法撤销。确定继续吗？"
+        confirmText="覆盖恢复"
+        onConfirm={() => void handleRestore()}
+        onClose={() => setConfirming(false)}
+      />
     </div>
   );
 }

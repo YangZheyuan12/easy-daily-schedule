@@ -3,6 +3,7 @@ import { toAppError } from '@/domain/errors';
 import { createRepositories } from '@/repositories';
 import { systemClock, type Clock } from '@/services/clock';
 import { PersistenceService } from '@/services/persistenceService';
+import { toLocalTime } from '@/services/syncService';
 import { UndoService } from '@/services/undoService';
 import { PURGE_AFTER_MS } from '@/domain/constants';
 
@@ -66,14 +67,30 @@ export function bindLifecycle(): () => void {
   };
 }
 
-/** 启动时清理超过 7 天的软删记录 */
+/**
+ * 启动时清理超过 7 天的软删记录。
+ *
+ * 🔴 开启同步后多了一条约束：**只清理「删除动作已经推上云」的 tombstone**。
+ * 物理删掉一条还没同步出去的删除记录，云端永远不知道它删过，
+ * 下一轮同步时对端那条「还活着」的行会被当成新数据推回来 —— 删除被复活。
+ * 代价是清理最多推迟到下一次成功同步，这比复活数据划算得多。
+ */
 export async function purgeExpiredSoftDeletes(): Promise<void> {
   try {
     const cutoff = clock.now() - PURGE_AFTER_MS;
+    const state = await repos.syncState.get();
+    // 未开启同步（userId 为空）时传 null，按老规则全清 —— 没有对端就谈不上复活
+    const syncedThrough =
+      state.userId !== null ? toLocalTime(state.lastPushedAt, state.serverTimeOffset) : null;
+
     const purgeable: unknown[] = [repos.items, repos.tasks, repos.timeSlots, repos.inspirations];
     for (const repo of purgeable) {
-      const candidate = repo as { purgeExpired?: (c: number) => Promise<number> };
-      if (typeof candidate.purgeExpired === 'function') await candidate.purgeExpired(cutoff);
+      const candidate = repo as {
+        purgeExpired?: (cutoff: number, syncedThrough: number | null) => Promise<number>;
+      };
+      if (typeof candidate.purgeExpired === 'function') {
+        await candidate.purgeExpired(cutoff, syncedThrough);
+      }
     }
     // 清理孤儿图片：所属条目已不存在（被物理清理）的附件一并删除。
     // 传 items 表**全部** id（含软删未到期），保证「还能撤销」的条目图片不被误删。

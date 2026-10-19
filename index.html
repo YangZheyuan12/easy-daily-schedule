@@ -7,7 +7,23 @@
       content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no"
     />
     <meta name="theme-color" content="#FBF8F2" />
+    <!--
+      主屏幕（PWA）相关。
+      `apple-touch-icon` 是 iOS「添加到主屏幕」实际取图标的地方 —— 没有它，
+      iOS 会拿一张网页截图当图标。iOS 16.4+ 虽然也读 manifest，
+      但 apple-touch-icon 在更老的版本上仍是唯一可靠来源，所以两个都给。
+      `mobile-web-app-capable` 是标准写法（iOS 16.4+ 认它），
+      `apple-mobile-web-app-capable` 兼容更老版本，两个都不能少。
+      status-bar-style 用 default：standalone 下它会把状态栏做成白底黑字，
+      与 paper 主题一致；用 black-translucent 会让内容顶到状态栏底下，
+      本项目虽然有 safe-area 处理，但没有必要冒这个排版风险。
+    -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="日程表" />
     <title>日程表 · 今日完成</title>
     <script>
       /**

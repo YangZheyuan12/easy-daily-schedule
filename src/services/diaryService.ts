@@ -1,6 +1,7 @@
 import { SECTION_CONFIGS } from '@/domain/constants';
 import type { DiaryEntry, DiaryGroup, Inspiration, Item, TimeSlot } from '@/domain/types';
 import { buildVisibleRows } from './treeService';
+import { collectSyncedSlotIds } from './slotSyncService';
 
 /**
  * 主页日记体统一列表（纯函数，零浏览器 API）。
@@ -40,6 +41,12 @@ export function buildDiaryList(
   const groups: DiaryGroup[] = [];
   // 顶层条目跨组连续编号：工作 2 条 + 学习 2 条 → 1、2、3、4
   let counter = 0;
+  /*
+    🔴 已经「同步到今日」过的时段**不能再投影**。
+    否则一件事占两个号：它既是 `sourceSlotId` 指向它的真实条目（编号 n），
+    又是这里的只读投影（编号 n+1），用户看到的就是「同步了 1 条，编号却跳了 2」。
+  */
+  const syncedSlotIds = collectSyncedSlotIds(items);
 
   for (const config of SECTION_CONFIGS) {
     const sectionItems = items.filter(
@@ -62,7 +69,12 @@ export function buildDiaryList(
       编号接着往下走 —— 它计入了完成率，就该等价于本板块的一件顶层事项。
     */
     const scopedSlots = sortSlots(
-      timeSlots.filter((slot) => slot.sectionId === config.key && slot.deletedAt === null),
+      timeSlots.filter(
+        (slot) =>
+          slot.sectionId === config.key &&
+          slot.deletedAt === null &&
+          !syncedSlotIds.has(slot.id),
+      ),
     );
     for (const slot of scopedSlots) {
       entries.push({ displayNo: ++counter, kind: 'timeSlot', timeSlot: slot, depth: 0 });

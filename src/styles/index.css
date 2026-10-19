@@ -187,7 +187,18 @@
     line-height: var(--leading-body);
     /* 移动端禁止双击缩放与长按选中干扰 */
     -webkit-tap-highlight-color: transparent;
-    overscroll-behavior-y: none;
+    /*
+      纵向压掉橡皮筋回弹，横向也一起压掉 —— iOS 上从屏幕边缘横向拖拽时，
+      整页会被「顶」着走一下，抽屉贴着边缘时尤其明显。
+    */
+    overscroll-behavior: none;
+    /*
+      iOS：长按图片 / 链接不要弹「存储图像 / 拷贝」系统菜单。
+      图片是条目附件，用户要的是点开预览；系统菜单只会挡住手势。
+    */
+    -webkit-touch-callout: none;
+    /* 禁止 WebKit 在方向变化时自作主张放大字号（已锁竖屏，网页端仍可能触发） */
+    -webkit-text-size-adjust: 100%;
   }
 
   /* 输入框在移动端默认会带内阴影与圆角，统一清除 */

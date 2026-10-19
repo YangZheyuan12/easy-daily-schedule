@@ -9,6 +9,7 @@ import type {
   TimeSlot,
 } from './types';
 import type { SectionKey } from './enums';
+import type { SyncPullPage, SyncPushAck, SyncRow, SyncState } from './sync';
 
 /**
  * 仓储端口（接口）。
@@ -146,6 +147,44 @@ export interface SettingsRepository {
   set<T>(key: string, value: T): Promise<void>;
 }
 
+/* ------------------------------------------------------------------ */
+/* 同步端口（平行于 Repositories 的**第二条**通道）                     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 云端同步网关。
+ *
+ * 与上面的仓储端口**不是一回事**：仓储回答「本地数据怎么存」，
+ * 网关回答「差异怎么搬到对端」。它是本地优先架构里唯一需要网络的地方，
+ * 业务层永远不认识它 —— 只有 `services/syncService` 会调用。
+ *
+ * 所有时间参数/返回值均为**服务端时间轴**（见 `domain/sync.ts` 的时间轴约定）。
+ */
+export interface SyncGateway {
+  /**
+   * 拉取 `since`（服务端轴，**不含**）之后发生变更的行。
+   * 一次最多 `limit` 行；`done` 为 false 时调用方应继续拉下一页。
+   */
+  pull(since: number, limit: number): Promise<SyncPullPage>;
+  /** 推送一批行；云端按记录级 LWW 落库，返回服务端时间与接受条数 */
+  push(rows: SyncRow[]): Promise<SyncPushAck>;
+}
+
+/**
+ * 本地同步状态仓储（deviceId / 双游标 / 时钟偏移）。
+ *
+ * 单独成表而不是塞进 `SettingsRepository`：它是**同步正确性的一部分**
+ * （游标错了会漏数据），不该跟「板块折叠态」这种可丢的偏好混在一起。
+ */
+export interface SyncStateRepository {
+  /** 读取；不存在时返回带新 deviceId 的默认状态 */
+  get(): Promise<SyncState>;
+  /** 局部更新并返回合并后的状态 */
+  patch(patch: Partial<SyncState>): Promise<SyncState>;
+  /** 清空（退出登录时用：设备 id 保留，游标归零） */
+  reset(): Promise<SyncState>;
+}
+
 /** 全部仓储的集合，由 repositories/index.ts 装配后注入 */
 export interface Repositories {
   items: ItemRepository;
@@ -157,4 +196,12 @@ export interface Repositories {
   itemImages: ItemImageRepository;
   taskImages: TaskImageRepository;
   settings: SettingsRepository;
+  /**
+   * 同步状态（deviceId / 双游标 / 时钟偏移）。
+   *
+   * 它跟上面这些**不是一类东西**（不存业务数据，存的是同步自身的进度），
+   * 但放在同一个集合里最省心：装配点仍然只有 `createRepositories()` 一个，
+   * 上层拿到的始终是一整套接口。
+   */
+  syncState: SyncStateRepository;
 }

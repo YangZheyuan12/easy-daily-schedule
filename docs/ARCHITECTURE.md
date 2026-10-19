@@ -2598,11 +2598,13 @@ export function resolveCalendarSelection(
 与 R-043 任务同步同族：**一次性复制 + 来源标记去重**，不是 R-042 那种自动投影
 （投影没有「挑」，服务的是另一个场景）。`Item` 新增 `sourceSlotId: string | null`
 （零 Dexie 变更，仍 v4；仓储读取归一化），`services/slotSyncService.ts` 提供
-`planSlotSync`（过滤：非当天 / 软删 / **未归板块** / 空内容 / 已同步）+ `createSyncedSlotItems`
-（复用 `createSiblingAfter` 落 order），`useItemStore.syncFromSlots` 落地。
+`planSlotSync`（过滤：非当天 / 软删 / **未归板块** / 空内容；已同步**不跳过**，内容变了走 `update`）
++ `createSyncedSlotItems`（复用 `createSiblingAfter` 落 order），`useItemStore.syncFromSlots`
+返回 `{ created, updated }` 供提示「新建 N 项 / 更新 M 项」。
 
 UI（`TimelinePage`）：顶部右侧「同步到今日」按钮 → 勾选模式：行首出现勾选框
-（未分组 = 虚线禁用态；已同步 = 锁定在勾选态），点卡片即勾选，底部换成「取消 + 同步 N 项到今日」。
+（未分组 = 虚线禁用态；**已同步 = 默认勾选且可取消**，再确认即「更新今日页那条」而非堆出第二条），
+点卡片即勾选，底部按钮实时显示「新建 N 项、更新 M 项」或「今日页已是最新」。
 周视图里格子太小不好勾，点按钮先切回当日视图。
 
 🔴 **今日页去重**：同步成的条目与时间段的自动投影**二选一** —— `DiaryList` 把

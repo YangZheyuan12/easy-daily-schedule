@@ -16,14 +16,30 @@
  * - `shareTextFile`：**直接把文件递出去** —— 弹系统分享面板，微信 / QQ / 邮件 /
  *   各家网盘都在里面。用户抱怨「在手机里找不到导出到哪」（2026-10-17）的答案不是
  *   再写一段说明告诉他去哪个文件夹，而是让他压根不用去找。
- * - Web / iOS：没有原生插件，退回 `<a download>`（iOS WKWebView 不保证落地，
- *   侧载本身受苹果限制；有 navigator.canShare 时先走系统分享）。
+ * - **iOS（2026-10-19 补齐）**：原先这里没有原生实现，导出退化成 `<a download>`，
+ *   而 WKWebView 没有 DownloadListener —— 提示「已导出」但文件根本不存在，等于功能是废的。
+ *   现在走官方 `@capacitor/filesystem` + `@capacitor/share`：落点是 App 沙盒 Documents
+ *   （靠 `UIFileSharingEnabled` 在「文件」App 里可见），分享走系统面板。
+ *   只有**网页端**还退回 `<a download>`。
+ *
+ *   为什么不用自研 Swift 插件：Capacitor 只把 npm 包形态的插件写进 `packageClassList`，
+ *   App target 里的 Swift 文件不会被注册，`cap sync` 还会冲掉手工加的名字 ——
+ *   官方插件才是能长期维护的那条路（细节见 `saveTextFile` 的 iOS 分支注释）。
  *
  * 🔴 `saveTextFile` 返回**落点描述 + 真实文件名**而不是 void：用户抱怨过
  * 「不知道导出到哪去了」（2026-10-16 / 10-17 反复出现），调用方要把它们放进提示里。
  */
 import { Capacitor } from '@capacitor/core';
+import { Directory, Encoding, Filesystem } from '@capacitor/filesystem';
+import { Share } from '@capacitor/share';
 import { SaveFile } from './saveFilePlugin';
+
+/**
+ * 自救快照在 App 沙盒里的相对路径（`Documents/Backups/snapshot-latest.json`）。
+ * 放在 Backups 子目录里，是为了让用户在「文件」App 里一眼分清「我导出的备份」
+ * 和「App 自己留的兜底快照」。
+ */
+const NATIVE_SNAPSHOT_PATH = 'Backups/snapshot-latest.json';
 
 /** 一次导出的结果描述 */
 export interface SaveResult {
@@ -39,11 +55,92 @@ export async function saveTextFile(
   text: string,
   mime = 'application/json',
 ): Promise<SaveResult> {
-  if (Capacitor.getPlatform() === 'android') {
+  const platform = Capacitor.getPlatform();
+  if (platform === 'android') {
     const outcome = await SaveFile.saveText({ filename, text, mime });
     return { location: '系统「下载」目录（用文件管理 App 就能看到）', name: outcome.name };
   }
+  if (platform === 'ios') {
+    /*
+      iOS 没有「公共下载目录」这个概念，能长期留存的落点只有 App 沙盒的 Documents。
+      单靠写文件用户照样找不到 —— 是 Info.plist 里的 `UIFileSharingEnabled` 让它出现在
+      「文件」App 里（我的 iPhone → 日程表）。两个改动缺一不可。
+
+      为什么用官方 Filesystem 而不是自研 Swift 插件：Capacitor 只把**npm 包形态**的插件
+      写进 `packageClassList`（`cli/util/iosplugin.js` 只扫 node_modules 里的插件目录），
+      App target 里的 Swift 文件不会被注册，`cap sync` 还会把手工加进去的名字冲掉。
+      官方插件由 CLI 自动注册，这条路才经得起每次 sync。
+    */
+    await Filesystem.writeFile({
+      path: filename,
+      data: text,
+      directory: Directory.Documents,
+      encoding: Encoding.UTF8,
+    });
+    return { location: '「文件」App → 我的 iPhone → 日程表', name: filename };
+  }
   return downloadViaAnchor(filename, text, mime);
+}
+
+/**
+ * 本机是否支持「原生沙盒快照」。
+ *
+ * UI 用它决定要不要渲染「本机快照」那一块 —— 与其在每个组件里各写一次
+ * `Capacitor.getPlatform() === 'ios'`，不如由平台层给出唯一答案。
+ */
+export function supportsNativeSnapshot(): boolean {
+  return Capacitor.getPlatform() === 'ios';
+}
+
+/**
+ * 把最新数据快照写进原生沙盒（**只有 iOS**）。
+ *
+ * 为什么只有 iOS：iOS 会回收 WKWebView 的站点数据，IndexedDB 里的记录可能整库消失，
+ * 而这份快照写在原生沙盒、不随 WebView 回收 —— 它是**没有云同步之前**唯一的自救路径。
+ * Android 的 WebView 不会这样被回收，且那边已有下载目录导出这条更成熟的路径，
+ * 所以不做双写（真要加，给 Java 插件补同样两个方法即可，接口已经对齐）。
+ *
+ * 失败一律返回 `null` 而不是抛错：这是**后台兜底**，绝不能因为兜底失败打扰用户。
+ *
+ * @returns 落盘的文件名；非 iOS 或写入失败返回 `null`
+ */
+export async function writeNativeSnapshot(text: string): Promise<string | null> {
+  if (Capacitor.getPlatform() !== 'ios') return null;
+  try {
+    await Filesystem.writeFile({
+      path: NATIVE_SNAPSHOT_PATH,
+      data: text,
+      directory: Directory.Documents,
+      encoding: Encoding.UTF8,
+      // 首次写入时 Backups 目录还不存在，交给插件一起建
+      recursive: true,
+    });
+    return NATIVE_SNAPSHOT_PATH;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 读回原生沙盒里的自救快照。
+ *
+ * @returns 快照文本；非 iOS / 还没有快照 / 读失败都返回 `null`（「没有快照」不是错误，
+ * 而是大多数时候的正常状态 —— 首次启动必然没有）。
+ */
+export async function readNativeSnapshot(): Promise<string | null> {
+  if (Capacitor.getPlatform() !== 'ios') return null;
+  try {
+    const result = await Filesystem.readFile({
+      path: NATIVE_SNAPSHOT_PATH,
+      directory: Directory.Documents,
+      encoding: Encoding.UTF8,
+    });
+    // 指定了 encoding 时 data 是 string；防御性判断一下，别把 Blob 当文本用
+    return typeof result.data === 'string' ? result.data : null;
+  } catch {
+    // 文件不存在 / 读失败 → 都当作「没有快照」，这是首次启动的正常状态
+    return null;
+  }
 }
 
 /**
@@ -57,7 +154,8 @@ export async function shareTextFile(
   text: string,
   mime = 'application/json',
 ): Promise<{ shared: boolean; result: SaveResult }> {
-  if (Capacitor.getPlatform() === 'android') {
+  const platform = Capacitor.getPlatform();
+  if (platform === 'android') {
     try {
       const outcome = await SaveFile.shareText({ filename, text, mime });
       return {
@@ -66,6 +164,26 @@ export async function shareTextFile(
       };
     } catch {
       // 分享失败（没有可接收文件的应用等）不能让整次导出崩掉 —— 退回写本地
+      return { shared: false, result: await saveTextFile(filename, text, mime) };
+    }
+  }
+
+  if (platform === 'ios') {
+    try {
+      // 分享用的副本放 Cache：系统可自行回收，不该长期占着 Documents
+      const { uri } = await Filesystem.writeFile({
+        path: filename,
+        data: text,
+        directory: Directory.Cache,
+        encoding: Encoding.UTF8,
+      });
+      await Share.share({ title: filename, files: [uri] });
+      return {
+        shared: true,
+        result: { location: '系统分享面板（微信 / QQ / 网盘）', name: filename },
+      };
+    } catch {
+      // 用户取消也算「没分享出去」—— 退回落到 Documents，至少文件还在
       return { shared: false, result: await saveTextFile(filename, text, mime) };
     }
   }
