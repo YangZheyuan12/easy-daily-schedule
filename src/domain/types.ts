@@ -212,6 +212,52 @@ export interface Inspiration {
 }
 
 /**
+ * 每日固定任务（例行模板）。
+ *
+ * 与「每日任务」的核心区别：每日任务**按日期各存一份**，固定任务是**跨日期复用的模板**
+ * —— 只存一份定义，每天独立勾选完成（完成情况落在 `RoutineCompletion`，按 routineId + date 维度）。
+ * 选「自动生成的例行模板」方案正是此意：模板本身不随日期变化，但每一天的勾选彼此独立。
+ */
+export interface Routine {
+  id: string;
+  title: string;
+  /**
+   * 所属分组：四大板块 +「其他」。沿用任务的分组键，复用着色与「同步到今日」的口径。
+   * 老数据缺该字段，仓储读取时归一化为 `'other'`。
+   */
+  sectionId: TaskSectionKey;
+  /** 同组排序值，步长 1000，支持中点插入（与任务页同套坐标系） */
+  order: number;
+  /** 任务描述（长文本，可选） */
+  description?: string;
+  createdAt: number;
+  updatedAt: number;
+  /** 软删时间戳；null 表示未删除 */
+  deletedAt: number | null;
+}
+
+/**
+ * 每日固定任务的每日完成记录（按 routineId + date 维度，独立勾选）。
+ *
+ * 不把「完成态」塞进 Routine 模板：模板是跨日期共享的，而勾选是**每天一份**的，
+ * 二者生命周期不同。拆成独立表后，「切到某天、勾掉某条」直接拼 `routineId@date` 命中，
+ * 不必先查再写，也不存在「改了今天、昨天被改」的串味。
+ */
+export interface RoutineCompletion {
+  /**
+   * 主键 = `${routineId}@${date}`，天然唯一且可反查两个维度。
+   * 用复合主键而不是自增 id，是为了落库时直接 `bulkPut`，无需先读后写。
+   */
+  id: string;
+  routineId: string;
+  /** 日期键 YYYY-MM-DD（本地时区） */
+  date: string;
+  /** 当天是否已完成 */
+  done: boolean;
+  updatedAt: number;
+}
+
+/**
  * 条目图片附件。
  *
  * 单独成表存 Blob（不塞进 Item 记录，否则 `listByDate` 会把图片二进制一起捞上来，

@@ -4,6 +4,8 @@ import type {
   Inspiration,
   Item,
   ItemImage,
+  Routine,
+  RoutineCompletion,
   Task,
   TaskImage,
   TimeSlot,
@@ -102,6 +104,47 @@ export interface InspirationRepository {
 }
 
 /**
+ * 每日固定任务（例行模板）仓储。
+ *
+ * 模板是**跨日期复用**的，因此没有 `listByDate` —— 取的是全量存活模板，
+ * 完成态另存 `routineCompletions` 按日期维度。删除走软删（架构红线），
+ * 到期由 `purgeExpired` 物理清理（固定任务不参与同步，忽略 syncedThrough）。
+ */
+export interface RoutineRepository {
+  /** 全部存活模板（按 order 升序） */
+  listAlive(): Promise<Routine[]>;
+  /** 全表（含软删，清理用） */
+  listAll(): Promise<Routine[]>;
+  /** 批量写入（新增或更新），单事务 */
+  upsertMany(routines: Routine[]): Promise<void>;
+  /** 物理删除（仅用于软删记录到期清理或级联清理） */
+  hardDeleteMany(ids: string[]): Promise<void>;
+  /** 软删清理：删除早于 cutoff 的 tombstone（固定任务不参与同步，忽略 syncedThrough） */
+  purgeExpired(cutoff: number, syncedThrough?: number | null): Promise<number>;
+}
+
+/**
+ * 每日固定任务的每日完成记录仓储。
+ *
+ * 完成记录按 `routineId + date` 维度存在 `routineCompletions` 表，
+ * 主键 `id = routineId@date`。模板被删后，其完成记录即成孤儿，由 `purgeOrphans` 清理。
+ */
+export interface RoutineCompletionRepository {
+  /** 某天的全部完成记录 */
+  listByDate(date: string): Promise<RoutineCompletion[]>;
+  /** 若干模板的完成记录（级联 / 清理用） */
+  listByRoutineIds(routineIds: string[]): Promise<RoutineCompletion[]>;
+  /** 全表拉取（清理用） */
+  listAll(): Promise<RoutineCompletion[]>;
+  /** 批量写入（新增或更新），单事务 */
+  upsertMany(rows: RoutineCompletion[]): Promise<void>;
+  /** 物理删除 */
+  hardDeleteMany(ids: string[]): Promise<void>;
+  /** 清理孤儿：所属模板已不存在的完成记录一并删除，返回清理条数 */
+  purgeOrphans(existingRoutineIds: Set<string>): Promise<number>;
+}
+
+/**
  * 条目图片附件仓储。
  *
  * 图片二进制单独成表，通过 `itemId` 反查；条目删除后由 `purgeOrphans` 清理孤儿附件。
@@ -195,6 +238,8 @@ export interface Repositories {
   inspirations: InspirationRepository;
   itemImages: ItemImageRepository;
   taskImages: TaskImageRepository;
+  routines: RoutineRepository;
+  routineCompletions: RoutineCompletionRepository;
   settings: SettingsRepository;
   /**
    * 同步状态（deviceId / 双游标 / 时钟偏移）。

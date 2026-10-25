@@ -5,6 +5,7 @@ import {
   type MonthMiniSummary,
   buildMonthSummaries,
   buildWeekSummaries,
+  buildYearDayDots,
   buildYearSummaries,
 } from '@/services/calendarService';
 import {
@@ -58,6 +59,8 @@ interface CalendarState {
   weekSlots: TimeSlot[];
   /** 年历每个月的迷你汇总，key 为月键 */
   yearSummaries: Record<string, MonthMiniSummary>;
+  /** 整年每一天是否有记录（迷你月历上色用），key 为日期键 */
+  yearDayDots: Record<string, boolean>;
   /** 本月各板块时长（分钟，来自时间轴） */
   monthDurations: Record<SectionKey, number>;
   /** 本月已归类时间段的合计时长（分钟） */
@@ -117,10 +120,10 @@ export const useCalendarStore = create<CalendarState>((set, get) => {
     };
   };
 
-  /** 整年一次取数：区间 = 1/1 → 12/31，聚合出 12 个月迷你汇总 */
+  /** 整年一次取数：区间 = 1/1 → 12/31，聚合出 12 个月迷你汇总 + 逐日有无记录 */
   const fetchYear = async (
     yearKey: string,
-  ): Promise<Record<string, MonthMiniSummary>> => {
+  ): Promise<{ yearSummaries: Record<string, MonthMiniSummary>; yearDayDots: Record<string, boolean> }> => {
     const { start, end } = yearRange(yearKey);
     const [items, tasks, timeSlots, inspirations, selfStatuses] = await Promise.all([
       repos.items.listByDateRange(start, end),
@@ -129,7 +132,10 @@ export const useCalendarStore = create<CalendarState>((set, get) => {
       repos.inspirations.listByDateRange(start, end),
       repos.selfStatus.listBetween(start, end),
     ]);
-    return buildYearSummaries(yearKey, items, tasks, timeSlots, inspirations, selfStatuses);
+    return {
+      yearSummaries: buildYearSummaries(yearKey, items, tasks, timeSlots, inspirations, selfStatuses),
+      yearDayDots: buildYearDayDots(yearKey, items, tasks, timeSlots, inspirations, selfStatuses),
+    };
   };
 
   return {
@@ -143,6 +149,7 @@ export const useCalendarStore = create<CalendarState>((set, get) => {
     weekItems: [],
     weekSlots: [],
     yearSummaries: {},
+    yearDayDots: {},
     monthDurations: { work: 0, study: 0, fitness: 0, life: 0 },
     monthTotalMinutes: 0,
     weekDurations: { work: 0, study: 0, fitness: 0, life: 0 },
@@ -245,12 +252,12 @@ export const useCalendarStore = create<CalendarState>((set, get) => {
       const token = (requestSeq += 1);
       set({ loading: true, yearKey, view: 'year' });
       try {
-        const yearSummaries = await fetchYear(yearKey);
+        const { yearSummaries, yearDayDots } = await fetchYear(yearKey);
         if (token !== requestSeq) return;
-        set({ yearSummaries, loading: false });
+        set({ yearSummaries, yearDayDots, loading: false });
       } catch {
         if (token !== requestSeq) return;
-        set({ yearSummaries: {}, loading: false });
+        set({ yearSummaries: {}, yearDayDots: {}, loading: false });
       }
     },
 

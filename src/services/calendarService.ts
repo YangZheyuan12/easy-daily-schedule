@@ -346,6 +346,36 @@ export function buildYearSummaries(
 }
 
 /**
+ * 构建整年**每一天**是否有记录的布尔表（key 为日期键）。
+ *
+ * 给年视图的「迷你月历」用：每个月份渲染成缩小版的当月格子，
+ * 有记录的那天才点亮一个小点。直接复用 `buildRangeSummaries` 的逐日聚合核心，
+ * 不重复实现「什么叫有记录」的口径（与月 / 周摘要同源）。
+ */
+export function buildYearDayDots(
+  yearKey: string,
+  items: readonly Item[],
+  tasks: readonly Task[],
+  timeSlots: readonly TimeSlot[],
+  inspirations: readonly Inspiration[],
+  selfStatuses: readonly DailySelfStatus[],
+): Record<string, boolean> {
+  const daySummaries = buildRangeSummaries(
+    yearDays(yearKey),
+    items,
+    tasks,
+    timeSlots,
+    inspirations,
+    selfStatuses,
+  );
+  const dots: Record<string, boolean> = {};
+  for (const [dateKey, summary] of Object.entries(daySummaries)) {
+    dots[dateKey] = summary.hasData;
+  }
+  return dots;
+}
+
+/**
  * 该格要不要渲染四个板块色点。
  *
  * 两个条件各管一件事，别合并回去：

@@ -1,17 +1,14 @@
 import { useMemo } from 'react';
 import clsx from 'clsx';
-import type { MonthMiniSummary } from '@/services/calendarService';
-import { sectionColor } from '@/domain/constants';
-import { useSectionConfigs } from '@/hooks/useSectionConfigs';
+import { monthGrid, monthsInYear, monthLabel, todayKey } from '@/utils/date';
 
-/** 与 DayCell 一致：无记录时的空点 */
-const EMPTY_DOT = 'rgb(var(--c-edge-strong))';
-import { monthsInYear, monthLabel } from '@/utils/date';
+/** 年视图里周几的极简表头：只留首尾，中间用点占位，省横向空间 */
+const COMPACT_WEEKDAYS = ['一', '··', '··', '··', '··', '··', '日'] as const;
 
 interface YearGridProps {
   yearKey: string;
-  /** key 为月键的迷你汇总 */
-  yearSummaries: Record<string, MonthMiniSummary>;
+  /** key 为日期键，true = 该天有记录（迷你格上色用） */
+  yearDayDots: Record<string, boolean>;
   /** 点击某个月 → 切换到月视图并选中该月 */
   onSelectMonth: (monthKey: string) => void;
   /** 当前正在查看的月份（高亮用） */
@@ -19,66 +16,86 @@ interface YearGridProps {
 }
 
 /**
- * 年视图网格（iOS / macOS 风格的 3×4 月份矩阵）。
+ * 年视图：12 个「缩小版月历」垂直排列（荣耀日历风格）。
  *
- * 纯展示：月份迷你汇总从 props 进来、点击通过回调出去。
- * 每个 MiniMonth 显示月份名 + 「N 天有记录」+ 四个板块的小色点（按比例）。
+ * 每个月份渲染成一张迷你月历：7 列格子里每一格是当月真实的一天，
+ * 有记录的那一格点一个重音小圆点。这样一眼就能扫出「哪个月忙、哪天有安排」，
+ * 而不是只看「N 天有记录」这种汇总数字。
+ *
+ * 点整张迷你月历 = 放大进月视图（`onSelectMonth`）。月视图面板带 `m-zoom-in`，
+ * 配合这里「以小见大」的视觉，读起来就是从这一格放大到整月。
+ *
+ * 纯展示：数据从 props 进来、点击通过回调出去。
  */
-export function YearGrid({ yearKey, yearSummaries, onSelectMonth, activeMonthKey }: YearGridProps) {
+export function YearGrid({ yearKey, yearDayDots, onSelectMonth, activeMonthKey }: YearGridProps) {
   const months = useMemo(() => monthsInYear(yearKey), [yearKey]);
-  // 四个色点用用户自定义后的板块色
-  const sectionConfigs = useSectionConfigs();
+  const today = todayKey();
 
   return (
-    <section className="px-3 pt-3">
-      <div className="bg-surface rounded-card border border-surface-line shadow-card p-3">
-        <div className="grid grid-cols-3 gap-2">
-          {months.map((monthKey) => {
-            const summary = yearSummaries[monthKey];
-            const hasAny = summary?.hasAny ?? false;
-            const labelText = monthLabel(monthKey).replace(`${yearKey}年`, ''); // '10月'
-            const isActive = monthKey === activeMonthKey;
-            return (
-              <button
-                key={monthKey}
-                type="button"
-                onClick={() => onSelectMonth(monthKey)}
+    <section className="px-3 pt-3 space-y-3">
+      {months.map((monthKey) => {
+        const cells = monthGrid(monthKey);
+        const isActive = monthKey === activeMonthKey;
+        return (
+          <button
+            key={monthKey}
+            type="button"
+            onClick={() => onSelectMonth(monthKey)}
+            className={clsx(
+              'block w-full text-left rounded-card border p-3 transition-colors active:scale-[0.99]',
+              isActive
+                ? 'border-accent bg-accent-soft'
+                : 'border-surface-line bg-surface shadow-card',
+            )}
+            aria-label={`查看${monthLabel(monthKey)}`}
+          >
+            <div className="flex items-baseline justify-between mb-1.5">
+              <span
                 className={clsx(
-                  'flex flex-col items-center justify-center rounded-card py-3 border transition-colors active:scale-[0.98]',
-                  isActive
-                    ? 'border-accent bg-accent-soft'
-                    : 'border-transparent bg-surface-sunken',
+                  'text-body font-medium tabular-nums',
+                  isActive ? 'text-accent' : 'text-ink-soft',
                 )}
               >
-                <span
-                  className={clsx(
-                    'text-heading font-medium tabular-nums',
-                    isActive ? 'text-accent' : 'text-ink-soft',
-                  )}
+                {monthLabel(monthKey).replace(`${yearKey}年`, '')}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-7 gap-x-0.5 gap-y-1">
+              {COMPACT_WEEKDAYS.map((w, i) => (
+                <div
+                  key={i}
+                  className="text-center text-[9px] leading-none text-ink-faint h-2.5 flex items-center justify-center"
                 >
-                  {labelText}
-                </span>
-                <span className="mt-0.5 text-caption text-ink-faint tabular-nums">
-                  {hasAny ? `${summary?.daysWithData ?? 0}天有记录` : '未记录'}
-                </span>
-                <span className="mt-1.5 flex items-center gap-[3px]">
-                  {sectionConfigs.map((config) => {
-                    const sec = summary?.sections[config.key];
-                    const active = (sec?.total ?? 0) > 0;
-                    return (
-                      <span
-                        key={config.key}
-                        className="w-1.5 h-1.5 rounded-full"
-                        style={{ backgroundColor: active ? sectionColor(config) : EMPTY_DOT }}
-                      />
-                    );
-                  })}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
+                  {w}
+                </div>
+              ))}
+              {cells.map((cell) => {
+                const hasData = cell.inMonth && yearDayDots[cell.dateKey] === true;
+                const isTodayCell = cell.dateKey === today;
+                return (
+                  <div
+                    key={cell.dateKey}
+                    className={clsx(
+                      'flex items-center justify-center',
+                      cell.inMonth ? 'text-[10px]' : 'text-[10px] opacity-30',
+                      isTodayCell && 'font-semibold text-accent',
+                    )}
+                  >
+                    {hasData ? (
+                      <span className="flex flex-col items-center leading-none">
+                        <span>{cell.day}</span>
+                        <span className="mt-0.5 w-1 h-1 rounded-full bg-accent" />
+                      </span>
+                    ) : (
+                      <span>{cell.day}</span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </button>
+        );
+      })}
     </section>
   );
 }

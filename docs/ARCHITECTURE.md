@@ -266,18 +266,18 @@ overrides: [
 
 | 路径 | 职责 | 行数 |
 | --- | --- | --- |
-| `src/domain/types.ts` | 核心实体类型：`Item` / `Task` / `Day` / `DailySelfStatus` / `TimeSlot`（含 `actualStartMin`/`actualEndMin`）/ `Inspiration` / `DaySummary` / `MonthMiniSummary` / `DiaryGroup` / `DiaryEntry` | 232 |
+| `src/domain/types.ts` | 核心实体类型：`Item` / `Task` / `Day` / `DailySelfStatus` / `TimeSlot`（含 `actualStartMin`/`actualEndMin`）/ `Inspiration` / `Routine` / `RoutineCompletion` / `DaySummary` / `MonthMiniSummary` / `DiaryGroup` / `DiaryEntry` | 232 |
 | `src/domain/enums.ts` | `SectionKey` 枚举、刷新原因等枚举（**不扩展**：灵感走独立实体，不污染四大板块口径） | 22 |
 | `src/domain/constants.ts` | 四大板块定义、`ORDER_STEP`、`DEBOUNCE_MS`、`UNDO_WINDOW_MS`、`MAX_LEVEL` | 95 |
-| `src/domain/ports.ts` | **Repository 接口（端口）**：`ItemRepository` / `TaskRepository` / `DayRepository` / `SelfStatusRepository` / `TimeSlotRepository` / `InspirationRepository` / `SettingsRepository` | 93 |
+| `src/domain/ports.ts` | **Repository 接口（端口）**：`ItemRepository` / `TaskRepository` / `DayRepository` / `SelfStatusRepository` / `TimeSlotRepository` / `InspirationRepository` / `RoutineRepository` / `RoutineCompletionRepository` / `SettingsRepository` | 93 |
 | `src/domain/errors.ts` | `AppError` 基类与 `StorageError` / `ValidationError` / `NotFoundError` | 48 |
 | `src/domain/index.ts` | 领域层统一导出（barrel） | 5 |
 
-### 4.4 `src/repositories/` 仓储实现层（11 个文件）
+### 4.4 `src/repositories/` 仓储实现层（13 个文件）
 
 | 路径 | 职责 | 行数 |
 | --- | --- | --- |
-| `src/repositories/db/schema.ts` | Dexie 表结构声明（stores / 复合索引 / 版本迁移链 v1→v2→**v3**） | 41 |
+| `src/repositories/db/schema.ts` | Dexie 表结构声明（stores / 复合索引 / 版本迁移链 v1→v2→v3→v4→v5→**v6（同步内核）**→**v7（每日固定任务）**） | 82 |
 | `src/repositories/db/DexieDatabase.ts` | Dexie 实例创建、open 失败降级处理 | 26 |
 | `src/repositories/mappers.ts` | 存储记录 ↔ 领域实体映射（含 `deletedAt` 过滤与默认值兜底；**TimeSlot 旧记录补 `actual*` 默认 null**） | 28 |
 | `src/repositories/IndexedDbItemRepository.ts` | `ItemRepository` 的 IndexedDB 实现（按 `date+sectionId` 查询、批量 upsert、软删/恢复/清理） | 110 |
@@ -285,6 +285,8 @@ overrides: [
 | `src/repositories/IndexedDbDayRepository.ts` | `DayRepository` **与 `SelfStatusRepository`** 实现（同库同事务；**无独立 `IndexedDbSelfStatusRepository` 文件**） | 62 |
 | `src/repositories/IndexedDbTimeSlotRepository.ts` | `TimeSlotRepository` 实现：按 `date` 查询、区间批量、`upsertMany`、物理删除；软删沿用 `deletedAt` | 89 |
 | `src/repositories/IndexedDbInspirationRepository.ts` | `InspirationRepository` 实现：按 `date` 查询、区间批量、`upsertMany`、物理删除（**镜像 timeSlots 范式**） | 73 |
+| `src/repositories/IndexedDbRoutineRepository.ts` | `RoutineRepository` 实现：跨日期复用模板；`listAlive`（过滤软删 + `compareByOrder` 排序）、`listAll`、`upsertMany`（增量）、`hardDeleteMany`、`purgeExpired`（固定任务不参与同步，忽略 `syncedThrough`） | ~70 |
+| `src/repositories/IndexedDbRoutineCompletionRepository.ts` | `RoutineCompletionRepository` 实现：按 `date` / `routineId` 查询、`upsertMany`、`hardDeleteMany`、`purgeOrphans`（清孤儿记录） | ~50 |
 | `src/repositories/LocalSettingsRepository.ts` | `SettingsRepository` 实现：localStorage 读写板块偏好、主题、折叠态兜底 | 45 |
 | `src/repositories/CloudRepository.stub.ts` | **P2 云端实现占位**：仅方法签名 + `throw new Error` + TODO 注释 | 30 |
 | `src/repositories/index.ts` | **Repository 容器/工厂**：唯一装配点（新增仓储仅在 `createRepositories()` 注册） | 40 |
@@ -300,7 +302,7 @@ overrides: [
 | `src/services/progressService.ts` | 完成度聚合：板块完成率、父条目直系子项进度、总完成率、四板块分段数据（`computeRingData`） | 82 |
 | `src/services/inheritService.ts` | 昨日未完成继承（**幂等**：`inheritedFrom` + 内容 hash 双重去重） | 78 |
 | `src/services/undoService.ts` | 撤销标签/栈管理：`undoLabel`、快照入栈、5s 窗口倒计时、过期丢弃 | 67 |
-| `src/services/persistenceService.ts` | 持久化调度器（`PersistenceService` 类）：脏实体 Map（按实体 id 去重）+ 500ms debounce + `flush(reason)`（**v1.2 增 `markInspiration` 防抖落盘**） | 131 |
+| `src/services/persistenceService.ts` | 持久化调度器（`PersistenceService` 类）：脏实体 Map（按实体 id 去重）+ 500ms debounce + `flush(reason)`（**v1.2 增 `markInspiration`**；**v7 增 `markRoutine` / `markRoutineCompletion` 脏表与立即写**） | 131 |
 | `src/services/calendarService.ts` | 月/年历聚合纯函数：`hasAnyData`（计入 inspirations）/ `buildDaySummary`（折叠 TimeSlot、读 mood/body）/ `buildMonthSummaries` / `buildYearSummaries`；**v1.4 增 `resolveCalendarSelection(monthKey, preferredDate, today)`** | 355 |
 | `src/services/diaryService.ts` | **主页日记体聚合纯函数**：四板块 items + inspirations → 统一分组视图（`buildDiaryList` / `DIARY_GROUP_ORDER`）。**v1.4：四板块组恒显（空组也输出 `entries: []`）** | 61 |
 | `src/services/reminderService.ts` | **应用内提醒纯函数**：`listDueSlots` 输出「已到计划开始时间（`startMin`）且未完成」的到期块（零浏览器 API，不用 Notification） | 22 |
@@ -310,7 +312,7 @@ overrides: [
 | `src/services/lunar/lunarService.ts` | **农历转换纯函数（R-040）**：`LunarDate` / `solarToLunar` / `lunarToSolar` / `formatLunarDay` / `formatLunarMonthDay` / `leapMonthOf` / `lunarMonthDays`；边界常量 `SUPPORTED_SOLAR_MIN` / `SUPPORTED_SOLAR_MAX` | 260 |
 | `src/services/index.ts` | 服务层统一导出 | 9 |
 
-### 4.6 `src/store/` 状态编排层（10 个文件）
+### 4.6 `src/store/` 状态编排层（11 个文件）
 
 | 路径 | 职责 | 行数 |
 | --- | --- | --- |
@@ -322,6 +324,7 @@ overrides: [
 | `src/store/useCalendarStore.ts` | 月/年历状态：`monthKey` / `selectedDate` / `view('month'\|'year')` / `yearKey`，`loadMonth` / `loadYear` / `shiftMonth` / `shiftYear` / `setView` / `selectDate` / `refresh`（**v1.2 取数并入 inspirations 以判 hasData**） | 179 |
 | `src/store/useTimeSlotStore.ts` | 每日时间块状态（**镜像 useTaskStore**）：`date` + `slots` + `add` / `update` / `toggleDone` / `softDelete`（**v1.2 支持 actual 时间记录**） | 113 |
 | `src/store/useInspirationStore.ts` | 每日灵感状态（**镜像 useTimeSlotStore**）：`date` + `inspirations` + `add` / `update` / `remove` / `loadDate`（无 done，无勾选） | 96 |
+| `src/store/useRoutineStore.ts` | **每日固定任务（例行模板）状态**：`routines` + 按 `date` 的 `completions` map；`loadDate` / `add` / `setTitle` / `setDescription` / `setSection` / `reorderIds` / `remove`（软删模板 + 级联清完成记录 + 撤销）/ `toggleDone` / `isDone` / `computeRoutineProgress`；每天独立勾选 | ~150 |
 | `src/store/useUiStore.ts` | UI 状态：抽屉开关、撤销条、Toast、加载/错误态 | 40 |
 | `src/store/selectors.ts` | 派生选择器：可见行、板块统计、**日记体统一视图**、提醒到期列表（memo 化） | 23 |
 
@@ -338,7 +341,7 @@ overrides: [
 
 > 注：设计期的 `useDebouncedPersist` / `useTreeKeyboard` / `usePageLifecycle` / `useUndoToast` 未落地 —— 防抖与生命周期 flush 已内聚到 `services/persistenceService.ts`（`PersistenceService` 类）+ `store/bootstrap.ts`，撤销条逻辑内联在 `components/feedback/UndoBar.tsx`；键盘编排统一为 `useTreeEditor`。
 
-### 4.8 `src/components/` 通用组件（23 个文件）
+### 4.8 `src/components/` 通用组件（25 个文件）
 
 | 路径 | 职责 | 行数 |
 | --- | --- | --- |
@@ -357,6 +360,8 @@ overrides: [
 | `src/components/tree/IndentGuides.tsx` | `├ └ │` 缩进引导线渲染（依据 `ancestorsIsLast[]`） | 17 |
 | `src/components/item/ItemSheet.tsx` | 条目编辑抽屉（标题 + 描述 + 星级 + 子分支 + 删除，≤85vh；描述编辑内联于此） | 185 |
 | `src/components/task/TaskRow.tsx` | 任务行（勾选 + 行内编辑 + 左滑删除 + 上/下移按钮） | 115 |
+| `src/components/routine/RoutineRow.tsx` | 固定任务行：左侧勾选（`toggleDone(routine.id, date)`，每天独立）/ 标题+描述行内编辑 / 分组气泡 / 拖拽手柄 / 退场动效 | ~120 |
+| `src/components/routine/RoutineSection.tsx` | 「每日固定任务」区块：标题 + 完成度 `done/total(percent%)` + 进度条 + 空态 + 拖拽排序列表（`useDragSort`，`data-no-swipe` 包裹）+ 底部「+ 添加固定任务」 | ~90 |
 | `src/components/feedback/UndoBar.tsx` | 底部撤销条「已删除『X』等 4 项 · 撤销」+ 5s 倒计时 | 86 |
 | `src/components/feedback/EmptyState.tsx` | 空状态引导卡片 | 34 |
 | `src/components/ui/RatingStars.tsx` | 1–5 星评分组件（点击打分、半星只读展示） | 68 |
@@ -469,6 +474,7 @@ overrides: [
 > - **v1.2**：新增 `IndexedDbInspirationRepository` / `diaryService` / `reminderService` / `useInspirationStore` / `hooks/useNowMin.ts` / `components/diary/DiaryList.tsx` / `components/reminder/ReminderBanner.tsx` / `components/calendar/DayCell.tsx`；删除 `components/section/SectionCard.tsx`；`SelfStatusCard` 紧凑化。
 > - **v1.4**：`DateNavigator` 增 `onDateClick`、`DiaryList` 四板块组恒显、`calendarService` 增 `resolveCalendarSelection`、`DaySummaryCard` 改三入口。（**以上均不新增文件**。）
 > - **R-040（M9）**：新增 `services/lunar/lunarData.ts` / `services/lunar/lunarService.ts` / `services/solarTermService.ts` / `services/festivalService.ts` / `hooks/useDayFestivals.ts` 及 9 个测试文件；`DateNavigator` 增可选 `subtitleText`、`DaySummaryCard` 增节日一行（**均不新增文件**）。详见 §9-F。
+> - **每日固定任务（例行模板，v7）**：新增 `Routine` / `RoutineCompletion` 领域类型、`RoutineRepository` / `RoutineCompletionRepository` 端口及 `IndexedDbRoutineRepository` / `IndexedDbRoutineCompletionRepository` 实现、`routineService`（纯函数：`routineCompletionKey` / `computeRoutineProgress`）、`useRoutineStore`；Dexie **v7** 新增 `routines`（跨日期复用模板）与 `routineCompletions`（按 `routineId + date` 每日完成记录）两张表；`RoutineSection` / `RoutineRow` 接入「任务」页（上方）与「今日」页（当日视图顶部）；每天独立勾选，模板软删级联清理完成记录，`AppShell` 切日期时 `loadDate`、`useBackupStore` 刷新链路纳入。
 > - 同期另有 UI/主题增量落地，本次一并补入清单：`src/theme/`（`themes.ts` / `useThemeStore.ts` / `useApplyTheme.ts`）、`components/ui/Icon.tsx`、`components/ui/Tick.tsx`、`components/ui/TimeRuler.tsx`、`utils/motion.ts`、`hooks/useRecentlyChanged.ts` 及相关测试（**未单列增量专章，此处仅登记文件**）。
 
 ---
@@ -834,7 +840,7 @@ export interface SettingsRepository {
   setPreference<T>(key: string, value: T): Promise<void>
 }
 
-/** 全部仓储的集合，由 `repositories/index.ts` 装配后注入（v1.1 增 timeSlots / selfStatus；v1.2 增 inspirations） */
+/** 全部仓储的集合，由 `repositories/index.ts` 装配后注入（v1.1 增 timeSlots / selfStatus；v1.2 增 inspirations；v7 增 routines / routineCompletions） */
 export interface Repositories {
   items: ItemRepository
   tasks: TaskRepository
@@ -842,6 +848,8 @@ export interface Repositories {
   timeSlots: TimeSlotRepository
   selfStatus: SelfStatusRepository
   inspirations: InspirationRepository
+  routines: RoutineRepository
+  routineCompletions: RoutineCompletionRepository
   settings: SettingsRepository
 }
 ```
@@ -1920,7 +1928,7 @@ const addSibling = (afterId: EntityId | null) => {
 - **输入类**（标题 / 描述）→ 仅 `markItem()` / `markItems()`（入脏表，500ms 防抖后落盘）
 - **离散类**（勾选 / 删除 / 折叠 / 层级 / 排序）→ `markItems()` + `scheduleImmediate()`（跳过防抖立即写）
 - **切换日期 / 页面隐藏** → `flush()`（强制落盘）
-- 脏实体各自按 `id` 去重（`selfStatus` 按 `date`），`PersistenceService` 内部维护 items / tasks / selfStatus / timeSlots / inspirations 五张脏表 —— 不存在 `item:${id}` 这类前缀 key
+- 脏实体各自按 `id` 去重（`selfStatus` 按 `date`），`PersistenceService` 内部维护 items / tasks / selfStatus / timeSlots / inspirations / routines / routineCompletions 七张脏表 —— 不存在 `item:${id}` 这类前缀 key
 
 ### 9.7 样式约定（Tailwind + clsx）
 
@@ -1974,6 +1982,8 @@ db.version(3).stores({
 | `selfStatus` | `date` | — | 每日自我状态（**取代旧 reviews 表**） |
 | `timeSlots` | `id` | `date`、`[date+sectionId]`（复合）、`deletedAt` | 每日时间块（扁平 per-day）；`actualStartMin` / `actualEndMin` 为**非索引列**，旧行读取时归一化 `null` |
 | `inspirations` | `id` | `date`、`deletedAt` | 灵感（日记体第 5 组，独立轻实体；**v3 新增**） |
+| `routines` | `id` | `order`、`sectionId`、`deletedAt`、`updatedAt` | **每日固定任务（例行模板）**：跨日期复用的模板，软删只改 `deletedAt`；**v7 新增** |
+| `routineCompletions` | `id`（`${routineId}@${date}`） | `routineId`、`date` | **每日完成记录**：按 `routineId + date` 维度，每天独立勾选；模板被删时级联清理；**v7 新增** |
 | 偏好 | — | — | **不进 IndexedDB**，走 localStorage（`LocalSettingsRepository`） |
 
 ---
@@ -2312,6 +2322,10 @@ sequenceDiagram
 | **v1** | `items` / `tasks` / `days` / `reviews` | 初始骨架 |
 | **v2** | 删除 `reviews`；新增 `selfStatus: '&date'`、`timeSlots: '&id, date, [date+sectionId], deletedAt'` | `DailySelfStatus` 取代 `DailyReview`；引入 `TimeSlot`（§9-B） |
 | **v3** | 新增 `inspirations: '&id, date, deletedAt'`（其它表原样重申） | 引入 `Inspiration`（§9-C.1）；`TimeSlot.actualStartMin/actualEndMin` 为非索引列，**无需**改 `stores`，旧行在 mapper 读取时归一化为 `null` |
+| **v4** | 新增 `itemImages: '&id, itemId'`（其它表原样重申） | 给条目挂图片附件（`itemId` 索引） |
+| **v5** | 新增 `taskImages: '&id, taskId'`（其它表原样重申） | 给任务（期限任务 / 长时目标）挂图片附件（`taskId` 索引） |
+| **v6** | 新增 `syncMeta: '&key'`；给 items / tasks / timeSlots / inspirations / selfStatus 补 `updatedAt` 索引（其它表原样重申） | 同步内核（行级 LWW）：`syncMeta` 存 deviceId / 双游标 / 时钟偏移；`updatedAt` 供增量扫描（详见 `docs/SYNC.md`） |
+| **v7** | 新增 `routines: '&id, order, sectionId, deletedAt, updatedAt'` 与 `routineCompletions: '&id, routineId, date'`（其它表原样重申） | **每日固定任务（例行模板）**：`routines` 为跨日期复用的模板，`routineCompletions` 为按 `routineId + date` 维度的每日完成记录，每天独立勾选，模板软删级联清理完成记录 |
 
 > 迁移约束不变：**不得破坏旧版本迁移链**，每个 `db.version(n).stores({...})` 必须声明该版本的**完整**表集合。
 

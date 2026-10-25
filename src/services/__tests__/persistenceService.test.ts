@@ -17,6 +17,8 @@ function fakeRepos() {
     selfStatus: { upsert: vi.fn(async () => undefined) },
     timeSlots: { upsertMany: vi.fn(async () => undefined) },
     inspirations: { upsertMany: vi.fn(async () => undefined) },
+    routines: { upsertMany: vi.fn(async () => undefined) },
+    routineCompletions: { upsertMany: vi.fn(async () => undefined) },
   };
 }
 

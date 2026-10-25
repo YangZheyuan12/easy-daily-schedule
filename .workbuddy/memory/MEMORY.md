@@ -2,7 +2,7 @@
 
 ## 定位与选型（2026-10 快照）
 移动端优先 H5（Vite5+React18+TS+Tailwind3），Capacitor 8 套壳，HashRouter。5 Tab：今日/时间轴/任务/日历/我的。
-纯前端无后端，数据全存 IndexedDB（Dexie4 v5 八表，`version(n)` 必须声明完整 schema）。Zustand4.5。
+纯前端无后端，数据全存 IndexedDB（Dexie v7，11 stores，`version(n)` 必须声明完整 schema）。Zustand4.5。
 ID nanoid；日期用自写 `utils/date.ts`。
 
 ## 架构红线（CRITICAL）
@@ -27,6 +27,13 @@ ID nanoid；日期用自写 `utils/date.ts`。
 - 🔴 展开/收起跨页保持：`useUiStore.expansions`+`hooks/useExpanded(key, default)`，TaskPreviewCard/CollapsibleCard/
   SelfStatusCard/SectionRow/ImageStrip/ReminderBanner 都走它；刷新重置。
 - order 步长 1000；撤销 5s；软删 7 天清理。
+
+## 每日固定任务（v7，2026-10-25）
+- 数据模型 = **每天自动生成的例行模板**：`routines` 表（跨日期复用模板，软删只改 `deletedAt`）+ `routineCompletions` 表（按 `routineId + date` 维度，id=`${routineId}@${date}`，每天独立勾选）。
+- 模板软删级联清理该模板全部完成记录（`persistence.hardDeleteRoutineCompletions`）；`purgeExpiredSoftDeletes` 末步 `purgeOrphans` 清孤儿完成记录。
+- 接入：任务页（上方 `RoutineSection`）+ 今日页（当日视图顶部）；`AppShell` 切日期 `loadDate`、`useBackupStore` 刷新链路均纳入。
+- `computeRoutineProgress(routines, completions, date)` → `{done,total,ratio}`（total=0 时 ratio=0，杜绝 NaN）。固定任务**不参与**同步（LWW 实体仅 item/task/timeSlot/inspiration/selfStatus）。
+- 详见 `docs/ARCHITECTURE.md` §4.6 / §9（数据表 `routines` / `routineCompletions`）。
 
 ## 任务页 / 时间轴（2026-10-17 功能）
 - 🔴 每日任务列表**行尾拖拽手柄**（自写 `hooks/useDragSort`，零依赖 pointer events）上下重排 →

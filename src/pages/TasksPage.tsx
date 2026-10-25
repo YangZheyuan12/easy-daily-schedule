@@ -1,6 +1,5 @@
 import { Icon } from '@/components/ui/Icon';
 import { useMemo, useState, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
 import clsx from 'clsx';
 import { isDailyTask } from '@/domain/enums';
 import { compareByOrder, isSyncableSection } from '@/domain/constants';
@@ -11,9 +10,11 @@ import { useDayStore } from '@/store/useDayStore';
 import { useUiStore } from '@/store/useUiStore';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { TaskRow } from '@/components/task/TaskRow';
+import { DatePickerModal } from '@/components/date/DatePickerModal';
 import { useDragSort } from '@/hooks/useDragSort';
 import { DeadlineCard } from '@/components/task/DeadlineCard';
 import { GoalCard } from '@/components/task/GoalCard';
+import { RoutineSection } from '@/components/routine/RoutineSection';
 import { EmptyState } from '@/components/feedback/EmptyState';
 import { computeTaskProgress, toPercent } from '@/services/progressService';
 import { collectSyncedTaskIds, planTaskSync } from '@/services/taskSyncService';
@@ -32,8 +33,8 @@ import { useKeyboardVisible, KEYBOARD_HIDDEN_CLASS } from '@/hooks/useKeyboardVi
  * 分组退化成一个随时可改的标记 —— 名次与分组互不干涉。
  */
 export function TasksPage() {
-  const navigate = useNavigate();
   const date = useDayStore((s) => s.date);
+  const setDate = useDayStore((s) => s.setDate);
   const goToday = useDayStore((s) => s.goToday);
   const tasks = useTaskStore((s) => s.tasks);
   const add = useTaskStore((s) => s.add);
@@ -61,6 +62,9 @@ export function TasksPage() {
   const items = useItemStore((s) => s.items);
   const syncFromTasks = useItemStore((s) => s.syncFromTasks);
   const syncedTaskIds = useMemo(() => collectSyncedTaskIds(items), [items]);
+
+  /** 就地日期选择弹窗：点日期不再跳日历 Tab（见 DatePickerModal） */
+  const [datePickerOpen, setDatePickerOpen] = useState(false);
 
   // 键盘弹起 → 底部「+ 添加任务」收下去（与 Tab 胶囊同一机制）
   const keyboardVisible = useKeyboardVisible();
@@ -185,10 +189,10 @@ export function TasksPage() {
         }
         subtitle={
           <>
-            {/* 日期可点 → 去日历选日子（选完自动回到本页）；「完成度」保持纯文本 */}
+            {/* 日期可点 → 就地弹出日期选择卡片（不切 Tab，见 DatePickerModal） */}
             <button
               type="button"
-              onClick={() => navigate('/calendar', { state: { pickDateFrom: '/tasks' } })}
+              onClick={() => setDatePickerOpen(true)}
               className="press -my-2 py-2 pr-0.5 inline-flex items-center gap-0.5 active:opacity-60"
               aria-label="选择日期"
             >
@@ -240,6 +244,8 @@ export function TasksPage() {
         )}
       </div>
 
+      <RoutineSection date={date} className="px-5 mt-4" />
+
       <div className="m-rise flex-1 px-5 pt-3 pb-24" style={{ animationDelay: '60ms' }}>
         {dailyAlive.length === 0 ? (
           <EmptyState
@@ -255,7 +261,7 @@ export function TasksPage() {
           /* 概念稿 C4：所有任务装在同一张纸卡里，行与行之间不画线。
              每行外面这层 div 是拖拽的承载体：transform 由 useDragSort 下发，
              被拖起的 card 抬 z-index，其余行同步让位。 */
-          <div className="bg-surface rounded-card shadow-card p-1.5">
+          <div className="bg-surface rounded-card shadow-card p-1.5" data-no-swipe>
             {dailyAlive.map((task, index) => (
               <div
                 key={task.id}
@@ -353,6 +359,13 @@ export function TasksPage() {
           )}
         </div>
       </div>
+
+      <DatePickerModal
+        open={datePickerOpen}
+        value={date}
+        onSelect={(d) => setDate(d)}
+        onClose={() => setDatePickerOpen(false)}
+      />
     </div>
   );
 }

@@ -12,6 +12,7 @@ import { useUiStore } from '@/store/useUiStore';
 import { Icon } from '@/components/ui/Icon';
 import { SyncCheck } from '@/components/ui/SyncCheck';
 import { DateNavigator, type DateViewMode } from '@/components/date/DateNavigator';
+import { DatePickerModal } from '@/components/date/DatePickerModal';
 import { ReminderBanner } from '@/components/reminder/ReminderBanner';
 import { WeekTimetable } from '@/components/timeline/WeekTimetable';
 import {
@@ -53,6 +54,8 @@ export function TimelinePage() {
   const shiftDate = useDayStore((s) => s.shiftDate);
   const setDate = useDayStore((s) => s.setDate);
   const goToday = useDayStore((s) => s.goToday);
+  /** 就地日期选择弹窗：点日期不再跳日历 Tab，而是原地弹出选日期卡片 */
+  const [datePickerOpen, setDatePickerOpen] = useState(false);
   const slots = useTimeSlotStore((s) => s.slots);
   const addSlot = useTimeSlotStore((s) => s.addSlot);
   const updateSlot = useTimeSlotStore((s) => s.updateSlot);
@@ -260,7 +263,7 @@ export function TimelinePage() {
         onPrev={() => shiftDate(-weekStep)}
         onNext={() => shiftDate(weekStep)}
         onToday={goToday}
-        onDateClick={() => navigate('/calendar', { state: { pickDateFrom: '/timeline' } })}
+        onDateClick={() => setDatePickerOpen(true)}
         viewMode={mode}
         onViewModeChange={setMode}
         centerLabel={mode === 'week' ? weekRangeShortLabel(date) : undefined}
@@ -305,7 +308,7 @@ export function TimelinePage() {
         )}
       </div>
 
-      <div className={clsx('px-5', mode === 'day' ? 'mt-3' : 'mt-2')}>
+      <div className={clsx('px-5', mode === 'day' ? 'mt-3' : 'mt-2')} data-no-swipe>
         {mode === 'week' ? (
           <>
             {weekCells.length === 0 && (
@@ -498,6 +501,13 @@ export function TimelinePage() {
         onDelete={handleDelete}
         onClose={() => setFormOpen(false)}
         dateLabel={mode === 'week' ? formatShortDate(date) : undefined}
+      />
+
+      <DatePickerModal
+        open={datePickerOpen}
+        value={date}
+        onSelect={(d) => setDate(d)}
+        onClose={() => setDatePickerOpen(false)}
       />
     </div>
   );

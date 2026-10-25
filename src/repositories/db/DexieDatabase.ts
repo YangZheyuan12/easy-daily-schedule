@@ -5,6 +5,8 @@ import type {
   Inspiration,
   Item,
   ItemImage,
+  Routine,
+  RoutineCompletion,
   Task,
   TaskImage,
   TimeSlot,
@@ -27,6 +29,10 @@ export class AppDatabase extends Dexie {
   inspirations!: EntityTable<Inspiration, 'id'>;
   itemImages!: EntityTable<ItemImage, 'id'>;
   taskImages!: EntityTable<TaskImage, 'id'>;
+  /** 每日固定任务：跨日期复用的例行模板 */
+  routines!: EntityTable<Routine, 'id'>;
+  /** 每日固定任务的每日完成记录（按 routineId + date 维度） */
+  routineCompletions!: EntityTable<RoutineCompletion, 'id'>;
   /** 同步状态（单行）。与业务表同库，保证「写完数据 + 推进游标」可在同一事务里做 */
   syncMeta!: EntityTable<SyncMetaTable, 'key'>;
 

@@ -10,6 +10,8 @@ import { IndexedDbTimeSlotRepository } from './IndexedDbTimeSlotRepository';
 import { IndexedDbInspirationRepository } from './IndexedDbInspirationRepository';
 import { IndexedDbItemImageRepository } from './IndexedDbItemImageRepository';
 import { IndexedDbTaskImageRepository } from './IndexedDbTaskImageRepository';
+import { IndexedDbRoutineRepository } from './IndexedDbRoutineRepository';
+import { IndexedDbRoutineCompletionRepository } from './IndexedDbRoutineCompletionRepository';
 import { LocalSettingsRepository } from './LocalSettingsRepository';
 import { IndexedDbSyncStateRepository } from './IndexedDbSyncStateRepository';
 
@@ -24,6 +26,8 @@ export { IndexedDbTimeSlotRepository } from './IndexedDbTimeSlotRepository';
 export { IndexedDbInspirationRepository } from './IndexedDbInspirationRepository';
 export { IndexedDbItemImageRepository } from './IndexedDbItemImageRepository';
 export { IndexedDbTaskImageRepository } from './IndexedDbTaskImageRepository';
+export { IndexedDbRoutineRepository } from './IndexedDbRoutineRepository';
+export { IndexedDbRoutineCompletionRepository } from './IndexedDbRoutineCompletionRepository';
 export { LocalSettingsRepository, MemorySettingsRepository } from './LocalSettingsRepository';
 export {
   IndexedDbSyncStateRepository,
@@ -47,6 +51,8 @@ export function createRepositories(): Repositories {
     inspirations: new IndexedDbInspirationRepository(db),
     itemImages: new IndexedDbItemImageRepository(db),
     taskImages: new IndexedDbTaskImageRepository(db),
+    routines: new IndexedDbRoutineRepository(db),
+    routineCompletions: new IndexedDbRoutineCompletionRepository(db),
     settings: new LocalSettingsRepository(),
     syncState: new IndexedDbSyncStateRepository(db),
   };

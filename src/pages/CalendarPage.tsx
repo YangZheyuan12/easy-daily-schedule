@@ -50,7 +50,7 @@ export function CalendarPage() {
   const weekSummaries = useCalendarStore((s) => s.weekSummaries);
   const weekItems = useCalendarStore((s) => s.weekItems);
   const weekSlots = useCalendarStore((s) => s.weekSlots);
-  const yearSummaries = useCalendarStore((s) => s.yearSummaries);
+  const yearDayDots = useCalendarStore((s) => s.yearDayDots);
   const monthDurations = useCalendarStore((s) => s.monthDurations);
   const monthTotalMinutes = useCalendarStore((s) => s.monthTotalMinutes);
   const weekDurations = useCalendarStore((s) => s.weekDurations);
@@ -216,7 +216,7 @@ export function CalendarPage() {
 
               <YearGrid
                 yearKey={yearKey}
-                yearSummaries={yearSummaries}
+                yearDayDots={yearDayDots}
                 activeMonthKey={monthKey}
                 onSelectMonth={handleSelectMonth}
               />

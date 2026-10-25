@@ -26,6 +26,7 @@ import { useItemStore } from './useItemStore';
 import { useTaskStore } from './useTaskStore';
 import { useTimeSlotStore } from './useTimeSlotStore';
 import { useInspirationStore } from './useInspirationStore';
+import { useRoutineStore } from './useRoutineStore';
 import { useDayStore } from './useDayStore';
 import { toDateKey } from '@/utils/date';
 
@@ -385,5 +386,6 @@ async function refreshStores(): Promise<void> {
     useTaskStore.getState().loadDate(date),
     useTimeSlotStore.getState().loadDate(date),
     useInspirationStore.getState().loadDate(date),
+    useRoutineStore.getState().loadDate(date),
   ]);
 }

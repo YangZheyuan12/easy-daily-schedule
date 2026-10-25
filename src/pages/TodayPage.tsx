@@ -8,8 +8,10 @@ import { sectionColor } from '@/domain/constants';
 import { useSectionConfig } from '@/hooks/useSectionConfigs';
 import type { SectionKey } from '@/domain/enums';
 import { DateNavigator, type DateViewMode } from '@/components/date/DateNavigator';
+import { DatePickerModal } from '@/components/date/DatePickerModal';
 import { SelfStatusCard } from '@/components/selfstatus/SelfStatusCard';
 import { DiaryList } from '@/components/diary/DiaryList';
+import { RoutineSection } from '@/components/routine/RoutineSection';
 import { WeekSectionBoards } from '@/components/diary/WeekSectionBoards';
 import { ReminderBanner } from '@/components/reminder/ReminderBanner';
 import { ItemSheet } from '@/components/item/ItemSheet';
@@ -55,6 +57,9 @@ export function TodayPage() {
     location.state && (location.state as { mode?: string }).mode === 'week' ? 'week' : 'day',
   );
 
+  /** 就地日期选择弹窗：点中间日期不再跳日历 Tab，而是原地弹出一个选日期的卡片 */
+  const [datePickerOpen, setDatePickerOpen] = useState(false);
+
   // 日期下方的农历 / 节日行（如「九月初三 · 中秋节」）；无内容时为空串
   const { festivalLine, lunarLine } = useDayFestivals(date);
   const subtitleText = [lunarLine, festivalLine].filter(Boolean).join(' · ');
@@ -98,8 +103,8 @@ export function TodayPage() {
         onPrev={() => shiftDate(-weekStep)}
         onNext={() => shiftDate(weekStep)}
         onToday={goToday}
-        // 点中间日期 → 去日历选日子（选完自动回到本页）
-        onDateClick={() => navigate('/calendar', { state: { pickDateFrom: '/today' } })}
+        // 点中间日期 → 就地弹出日期选择卡片（不切 Tab，见 DatePickerModal）
+        onDateClick={() => setDatePickerOpen(true)}
         viewMode={mode}
         onViewModeChange={setMode}
         centerLabel={mode === 'week' ? weekRangeShortLabel(date) : undefined}
@@ -111,6 +116,9 @@ export function TodayPage() {
           <ReminderBanner />
 
           <div className="m-rise px-5 mt-2.5 space-y-4">
+            {/* 每日固定任务：跨日期复用的例行模板，当天独立勾选 */}
+            <RoutineSection date={date} />
+
             {/* 自我状态（心情 + 身体）— 紧凑单行，点开再编辑 */}
             <SelfStatusCard date={date} />
 
@@ -123,6 +131,13 @@ export function TodayPage() {
             item={drawerItem}
             accent={sectionColor(drawerConfig)}
             sectionName={drawerConfig.name}
+          />
+
+          <DatePickerModal
+            open={datePickerOpen}
+            value={date}
+            onSelect={(d) => setDate(d)}
+            onClose={() => setDatePickerOpen(false)}
           />
         </>
       ) : (

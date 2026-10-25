@@ -14,6 +14,8 @@ import type {
   Inspiration,
   Item,
   ItemImage,
+  Routine,
+  RoutineCompletion,
   Task,
   TaskImage,
   TimeSlot,
@@ -21,7 +23,7 @@ import type {
 import type { SyncState } from '@/domain/sync';
 
 export const DB_NAME = 'daily-schedule';
-export const DB_VERSION = 6;
+export const DB_VERSION = 7;
 
 export interface ItemTable extends Item {}
 export interface TaskTable extends Task {}
@@ -31,6 +33,8 @@ export interface TimeSlotTable extends TimeSlot {}
 export interface InspirationTable extends Inspiration {}
 export interface ItemImageTable extends ItemImage {}
 export interface TaskImageTable extends TaskImage {}
+export interface RoutineTable extends Routine {}
+export interface RoutineCompletionTable extends RoutineCompletion {}
 /**
  * 同步状态行。全表只有一行（`key === 'state'`），
  * 字段与 `SyncState` 平铺，省掉一层 JSON 序列化。
@@ -57,6 +61,8 @@ export const SYNC_STATE_KEY = 'state';
  * 并给五张参与 LWW 的表补 `updatedAt` 索引（增量扫描用；当前实现是全表扫描 +
  * 内存过滤，索引是为了后续数据量上来后能直接切成 `where('updatedAt').above()`）。
  * 新增索引不需要数据迁移，Dexie 会自动重建。
+ * v7 变更（每日固定任务）：新增 `routines`（例行模板，跨日期复用）与 `routineCompletions`
+ * （按 routineId + date 维度的每日完成记录）两张表。同样重申全部既有表。
  */
 export const STORES = {
   items: '&id, date, sectionId, parentId, [date+sectionId], deletedAt, updatedAt',
@@ -67,6 +73,8 @@ export const STORES = {
   inspirations: '&id, date, deletedAt, updatedAt',
   itemImages: '&id, itemId',
   taskImages: '&id, taskId',
+  routines: '&id, order, sectionId, deletedAt, updatedAt',
+  routineCompletions: '&id, routineId, date',
   syncMeta: '&key',
 } as const;
 

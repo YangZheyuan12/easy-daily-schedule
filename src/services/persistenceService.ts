@@ -1,5 +1,13 @@
 import { DEBOUNCE_MS } from '@/domain/constants';
-import type { DailySelfStatus, Inspiration, Item, Task, TimeSlot } from '@/domain/types';
+import type {
+  DailySelfStatus,
+  Inspiration,
+  Item,
+  Routine,
+  RoutineCompletion,
+  Task,
+  TimeSlot,
+} from '@/domain/types';
 import type { Repositories } from '@/domain/ports';
 import { debounce } from '@/utils/debounce';
 import type { Debounced } from '@/utils/debounce';
@@ -29,6 +37,8 @@ export class PersistenceService {
   private dirtySelfStatus = new Map<string, DailySelfStatus>();
   private dirtyTimeSlots = new Map<string, TimeSlot>();
   private dirtyInspirations = new Map<string, Inspiration>();
+  private dirtyRoutines = new Map<string, Routine>();
+  private dirtyRoutineCompletions = new Map<string, RoutineCompletion>();
   private readonly flushDebounced: Debounced<[]>;
 
   constructor(
@@ -75,6 +85,36 @@ export class PersistenceService {
     this.flushDebounced();
   }
 
+  markRoutine(routine: Routine): void {
+    this.dirtyRoutines.set(routine.id, routine);
+    this.flushDebounced();
+  }
+
+  markRoutines(routines: readonly Routine[]): void {
+    for (const routine of routines) this.dirtyRoutines.set(routine.id, routine);
+    if (routines.length > 0) this.flushDebounced();
+  }
+
+  markRoutineCompletion(completion: RoutineCompletion): void {
+    this.dirtyRoutineCompletions.set(completion.id, completion);
+    this.flushDebounced();
+  }
+
+  markRoutineCompletions(completions: readonly RoutineCompletion[]): void {
+    for (const completion of completions) this.dirtyRoutineCompletions.set(completion.id, completion);
+    if (completions.length > 0) this.flushDebounced();
+  }
+
+  /** 离散操作：立即物理删除完成记录（级联清理模板时用），跳过防抖直接落库 */
+  async hardDeleteRoutineCompletions(ids: string[]): Promise<void> {
+    if (ids.length === 0) return;
+    try {
+      await this.repos.routineCompletions.hardDeleteMany(ids);
+    } catch (error) {
+      this.sink.onError?.(error);
+    }
+  }
+
   /** 离散操作：跳过防抖，立刻写 */
   async scheduleImmediate(): Promise<void> {
     await this.flush('immediate');
@@ -86,7 +126,9 @@ export class PersistenceService {
       this.dirtyTasks.size > 0 ||
       this.dirtySelfStatus.size > 0 ||
       this.dirtyTimeSlots.size > 0 ||
-      this.dirtyInspirations.size > 0
+      this.dirtyInspirations.size > 0 ||
+      this.dirtyRoutines.size > 0 ||
+      this.dirtyRoutineCompletions.size > 0
     );
   }
 
@@ -99,11 +141,15 @@ export class PersistenceService {
     const selfStatuses = [...this.dirtySelfStatus.values()];
     const timeSlots = [...this.dirtyTimeSlots.values()];
     const inspirations = [...this.dirtyInspirations.values()];
+    const routines = [...this.dirtyRoutines.values()];
+    const routineCompletions = [...this.dirtyRoutineCompletions.values()];
     this.dirtyItems.clear();
     this.dirtyTasks.clear();
     this.dirtySelfStatus.clear();
     this.dirtyTimeSlots.clear();
     this.dirtyInspirations.clear();
+    this.dirtyRoutines.clear();
+    this.dirtyRoutineCompletions.clear();
 
     try {
       // 软删记录也要写（deletedAt 变更本身就是一次写）
@@ -114,9 +160,17 @@ export class PersistenceService {
       }
       await this.repos.timeSlots.upsertMany(timeSlots);
       await this.repos.inspirations.upsertMany(inspirations);
+      await this.repos.routines.upsertMany(routines);
+      await this.repos.routineCompletions.upsertMany(routineCompletions);
       this.sink.onFlushed?.(
         reason,
-        items.length + tasks.length + selfStatuses.length + timeSlots.length + inspirations.length,
+        items.length +
+          tasks.length +
+          selfStatuses.length +
+          timeSlots.length +
+          inspirations.length +
+          routines.length +
+          routineCompletions.length,
       );
     } catch (error) {
       // 写失败要把脏数据放回去，否则这条改动就永久丢了
@@ -125,6 +179,9 @@ export class PersistenceService {
       for (const selfStatus of selfStatuses) this.dirtySelfStatus.set(selfStatus.date, selfStatus);
       for (const slot of timeSlots) this.dirtyTimeSlots.set(slot.id, slot);
       for (const row of inspirations) this.dirtyInspirations.set(row.id, row);
+      for (const routine of routines) this.dirtyRoutines.set(routine.id, routine);
+      for (const completion of routineCompletions)
+        this.dirtyRoutineCompletions.set(completion.id, completion);
       this.sink.onError?.(error);
     }
   }
