@@ -3,9 +3,9 @@
 | 项目信息 | 内容 |
 | --- | --- |
 | 项目名称 | `daily_schedule_app` |
-| 文档版本 | v1.6（增量：R-040 农历 / 二十四节气 / 节日显示；承 v1.5 R-039 主页四板块组内联快速添加） |
+| 文档版本 | v1.7（增量：账号与权益层（Dexie v8）+ 本地登录/会员 UI；承 v1.6 R-040 农历 / 节气 / 节日） |
 | 撰写人 | 高见远（架构师） |
-| 最近更新 | 追加 §9-F（R-040 农历 / 节气 / 节日显示）；附录 B 追溯矩阵补 R-040 / R-041（R-041 标注二期未实现）并扩覆盖范围至 **R-041**；**§4 文件清单重新对齐 `src/`（冻结快照 130 文件 / 15,788 行）**（arch-docs） |
+| 最近更新 | 新增 §9-M（账号与权益层：account / entitlements 两表、AuthGateway / EntitlementGateway / PurchaseGateway / TokenStore 端口、本地实现四件套、登录/升级 UI）；§4 文件清单按 `src/` 现状重对齐（**快照 269 文件 / 90 个 `*.test.ts`**，platform 层首次入清单）；迁移链补 **v8**（arch-docs） |
 | 上游输入 | `docs/PRD.md`（v1.0，许清楚） |
 | 目标平台 | 移动端优先 H5（375–430px），二期可迁移微信小程序 |
 | 架构主线 | **本地优先 + Repository 抽象 + 严格分层**（业务层零浏览器 API） |
@@ -262,36 +262,44 @@ overrides: [
 | `src/App.tsx` | 应用根组件：主题 Provider + 路由出口 + 全局 Toast/撤销条挂载点 | 8 |
 | `src/router/AppRouter.tsx` | HashRouter 路由表（今日 / `section/:sectionId` / 任务 / 时间轴 / 日历 / 我的 + 404）；**无独立 `routes.ts`**，路径常量内联于此 | 33 |
 
-### 4.3 `src/domain/` 领域层（6 个文件，零依赖）
+### 4.3 `src/domain/` 领域层（7 个文件，零依赖）
 
 | 路径 | 职责 | 行数 |
 | --- | --- | --- |
-| `src/domain/types.ts` | 核心实体类型：`Item` / `Task` / `Day` / `DailySelfStatus` / `TimeSlot`（含 `actualStartMin`/`actualEndMin`）/ `Inspiration` / `Routine` / `RoutineCompletion` / `DaySummary` / `MonthMiniSummary` / `DiaryGroup` / `DiaryEntry` | 232 |
+| `src/domain/types.ts` | 核心实体类型：`Item` / `Task` / `Day` / `DailySelfStatus` / `TimeSlot`（含 `actualStartMin`/`actualEndMin`）/ `Inspiration` / `Routine` / `RoutineCompletion` / `DaySummary` / `MonthMiniSummary` / `DiaryGroup` / `DiaryEntry` / **账号与权益：`Plan` / `FeatureKey` / `EntitlementState` / `Account` / `AuthToken` / `Session` / `Entitlement` / `SignInCredential` / `CodeRequestResult`** | 503 |
 | `src/domain/enums.ts` | `SectionKey` 枚举、刷新原因等枚举（**不扩展**：灵感走独立实体，不污染四大板块口径） | 22 |
 | `src/domain/constants.ts` | 四大板块定义、`ORDER_STEP`、`DEBOUNCE_MS`、`UNDO_WINDOW_MS`、`MAX_LEVEL` | 95 |
-| `src/domain/ports.ts` | **Repository 接口（端口）**：`ItemRepository` / `TaskRepository` / `DayRepository` / `SelfStatusRepository` / `TimeSlotRepository` / `InspirationRepository` / `RoutineRepository` / `RoutineCompletionRepository` / `SettingsRepository` | 93 |
-| `src/domain/errors.ts` | `AppError` 基类与 `StorageError` / `ValidationError` / `NotFoundError` | 48 |
+| `src/domain/ports.ts` | **Repository 接口（端口）**：`ItemRepository` / `TaskRepository` / `DayRepository` / `SelfStatusRepository` / `TimeSlotRepository` / `InspirationRepository` / `RoutineRepository` / `RoutineCompletionRepository` / `ItemImageRepository` / `TaskImageRepository` / `SettingsRepository` / **账号权益：`AccountRepository` / `EntitlementRepository`**；**网关端口：`AuthGateway` / `EntitlementGateway` / `PurchaseGateway` / `TokenStore`**；**同步端口：`SyncGateway` / `SyncStateRepository`** | 351 |
+| `src/domain/sync.ts` | **同步裁决纯逻辑（本地与云端共用）**：`SyncRow` / `SyncPullPage` / `SyncPushAck` / `SyncState` 类型、`syncStamp` 排序键、删除优先 → updatedAt → deviceId 字典序的 LWW 裁决、服务端轴↔本地轴换算 | ~150 |
+| `src/domain/errors.ts` | `AppError` 基类与 `StorageError` / `ValidationError` / `NotFoundError`（**账号层抛 `DomainError`**：验证码类错误走它） | 48 |
 | `src/domain/index.ts` | 领域层统一导出（barrel） | 5 |
 
-### 4.4 `src/repositories/` 仓储实现层（13 个文件）
+### 4.4 `src/repositories/` 仓储实现层（19 个文件）
 
 | 路径 | 职责 | 行数 |
 | --- | --- | --- |
-| `src/repositories/db/schema.ts` | Dexie 表结构声明（stores / 复合索引 / 版本迁移链 v1→v2→v3→v4→v5→**v6（同步内核）**→**v7（每日固定任务）**） | 82 |
-| `src/repositories/db/DexieDatabase.ts` | Dexie 实例创建、open 失败降级处理 | 26 |
+| `src/repositories/db/schema.ts` | Dexie 表结构声明（stores / 复合索引 / 版本迁移链 v1→v2→v3→v4→v5→**v6（同步内核）**→**v7（每日固定任务）**→**v8（账号与权益）**） | 92 |
+| `src/repositories/db/DexieDatabase.ts` | Dexie 实例创建、open 失败降级处理；`EntityTable` 声明（v8 增 `account` / `entitlements`） | 52 |
 | `src/repositories/mappers.ts` | 存储记录 ↔ 领域实体映射（含 `deletedAt` 过滤与默认值兜底；**TimeSlot 旧记录补 `actual*` 默认 null**） | 28 |
 | `src/repositories/IndexedDbItemRepository.ts` | `ItemRepository` 的 IndexedDB 实现（按 `date+sectionId` 查询、批量 upsert、软删/恢复/清理） | 110 |
 | `src/repositories/IndexedDbTaskRepository.ts` | `TaskRepository` 实现（含按 `inheritedFrom` 幂等查询） | 74 |
 | `src/repositories/IndexedDbDayRepository.ts` | `DayRepository` **与 `SelfStatusRepository`** 实现（同库同事务；**无独立 `IndexedDbSelfStatusRepository` 文件**） | 62 |
 | `src/repositories/IndexedDbTimeSlotRepository.ts` | `TimeSlotRepository` 实现：按 `date` 查询、区间批量、`upsertMany`、物理删除；软删沿用 `deletedAt` | 89 |
 | `src/repositories/IndexedDbInspirationRepository.ts` | `InspirationRepository` 实现：按 `date` 查询、区间批量、`upsertMany`、物理删除（**镜像 timeSlots 范式**） | 73 |
+| `src/repositories/IndexedDbItemImageRepository.ts` | `ItemImageRepository` 实现：按 `itemId` 反查图片二进制、`putMany` / `replace` / `purgeOrphans`（条目没了清孤儿附件） | ~90 |
+| `src/repositories/IndexedDbTaskImageRepository.ts` | `TaskImageRepository` 实现（与条目图片同构，归属键是 `taskId`，独立一张表） | ~90 |
 | `src/repositories/IndexedDbRoutineRepository.ts` | `RoutineRepository` 实现：跨日期复用模板；`listAlive`（过滤软删 + `compareByOrder` 排序）、`listAll`、`upsertMany`（增量）、`hardDeleteMany`、`purgeExpired`（固定任务不参与同步，忽略 `syncedThrough`） | ~70 |
 | `src/repositories/IndexedDbRoutineCompletionRepository.ts` | `RoutineCompletionRepository` 实现：按 `date` / `routineId` 查询、`upsertMany`、`hardDeleteMany`、`purgeOrphans`（清孤儿记录） | ~50 |
+| `src/repositories/IndexedDbSyncStateRepository.ts` | `SyncStateRepository` 实现：`syncMeta` 单行（deviceId / 双游标 / 时钟偏移 / userId）读写与局部合并 | ~60 |
+| `src/repositories/MemorySyncGateway.ts` | `SyncGateway` 的**内存实现**（本地跑通同步内核的占位对端；未接云端） | ~40 |
+| `src/repositories/IndexedDbAccountRepository.ts` | `AccountRepository` 实现：`account` 表单行（主键固定 `'current'`）读写清除；**token 绝不入此库** | 38 |
+| `src/repositories/IndexedDbEntitlementRepository.ts` | `EntitlementRepository` 实现：`entitlements` 表单行权益快照缓存（服务端/购买网关是真相源） | 38 |
 | `src/repositories/LocalSettingsRepository.ts` | `SettingsRepository` 实现：localStorage 读写板块偏好、主题、折叠态兜底 | 45 |
 | `src/repositories/CloudRepository.stub.ts` | **P2 云端实现占位**：仅方法签名 + `throw new Error` + TODO 注释 | 30 |
+| `src/repositories/index.ts` | **唯一装配点** `createRepositories()`：上述全部仓储实例化并聚合成 `Repositories` | ~40 |
 | `src/repositories/index.ts` | **Repository 容器/工厂**：唯一装配点（新增仓储仅在 `createRepositories()` 注册） | 40 |
 
-### 4.5 `src/services/` 业务服务层（16 个文件，纯 TS）
+### 4.5 `src/services/` 业务服务层（28 个文件，纯 TS）
 
 | 路径 | 职责 | 行数 |
 | --- | --- | --- |
@@ -306,29 +314,52 @@ overrides: [
 | `src/services/calendarService.ts` | 月/年历聚合纯函数：`hasAnyData`（计入 inspirations）/ `buildDaySummary`（折叠 TimeSlot、读 mood/body）/ `buildMonthSummaries` / `buildYearSummaries`；**v1.4 增 `resolveCalendarSelection(monthKey, preferredDate, today)`** | 355 |
 | `src/services/diaryService.ts` | **主页日记体聚合纯函数**：四板块 items + inspirations → 统一分组视图（`buildDiaryList` / `DIARY_GROUP_ORDER`）。**v1.4：四板块组恒显（空组也输出 `entries: []`）** | 61 |
 | `src/services/reminderService.ts` | **应用内提醒纯函数**：`listDueSlots` 输出「已到计划开始时间（`startMin`）且未完成」的到期块（零浏览器 API，不用 Notification） | 22 |
+| `src/services/durationService.ts` | 时长格式化 / 聚合（各板块时长占比，日历时长条用） | 109 |
+| `src/services/slotSyncService.ts` | **时间段同步到今日**：`sourceSlotId` 去重投影（有存活条目指向的时段不投影；未分组不可同步；零 Dexie 变更） | 211 |
+| `src/services/taskSyncService.ts` | 任务同步：**一次性复制 + 来源标记去重**（与 R-042 自动投影同族而非一类） | 188 |
+| `src/services/courseImportService.ts` | 课表导入（R-049）：复制粘贴解析 + `platform/textCodec`（GBK 兜底） | 430 |
+| `src/services/weekViewService.ts` | 周视图聚合纯函数：`buildWeekSectionBoards` / `WeekSectionBoard` 等 | 374 |
+| `src/services/routineService.ts` | **每日固定任务纯函数**：`routineCompletionKey(routineId, date)`（=`routineId@date`）/ `computeRoutineProgress`（total=0 时 ratio=0，杜绝 NaN） | 46 |
+| `src/services/syncService.ts` | **同步内核编排（纯逻辑，未接后端）**：pull/push 分批（500）、双游标、服务端轴↔本地轴 offset 换算、先 pull 后 push（详见 `docs/SYNC.md`） | 399 |
+| `src/services/backupService.ts` | 备份导出 / 导入：`parseBackup` / `summarizeBackup` / `describeSummary` | 219 |
+| `src/services/updateService.ts` | 版本比对纯函数：`evaluateUpdate`（解析 GitHub Release body） | 81 |
 | `src/services/festivalService.ts` | **节日聚合纯函数（R-040）**：`FestivalKind` / `Festival` / `getFestivals` / `getFestivalLine`；折行最多 2 个、`' · '` 连接、优先级 农历传统＞公历＞西方＞节气；除夕按当年腊月**实际天数** | 192 |
 | `src/services/solarTermService.ts` | **二十四节气纯函数（R-040）**：`SOLAR_TERMS` / `solarTermOf` / `solarTermDayOfMonth`；Meeus 视黄经 + 牛顿迭代 + 纯整数 JDN 换算 + 北京时间（+8h）定日（**不用 `Date` 做时刻→日期换算**） | 223 |
 | `src/services/lunar/lunarData.ts` | **压缩农历表 `LUNAR_INFO`（R-040）**：201 项、覆盖 1900–2100；高位 4 bit 存闰月序号；导出 `MIN_LUNAR_YEAR` / `MAX_LUNAR_YEAR` | 66 |
 | `src/services/lunar/lunarService.ts` | **农历转换纯函数（R-040）**：`LunarDate` / `solarToLunar` / `lunarToSolar` / `formatLunarDay` / `formatLunarMonthDay` / `leapMonthOf` / `lunarMonthDays`；边界常量 `SUPPORTED_SOLAR_MIN` / `SUPPORTED_SOLAR_MAX` | 260 |
+| `src/services/authIdentifier.ts` | **登录标识符纯函数**：`detectIdentifier` / `isValidIdentifier` / `maskIdentifier`（手机号 / 邮箱校验与脱敏；UI 与 `LocalAuthGateway` 共用同一套口径） | 37 |
+| `src/services/entitlementService.ts` | **权益门禁纯函数**：`PLAN_RANK` / `PLAN_MATRIX`（`advancedExport` / `adFree` → pro）/ `isPaidFeature` / `isPlanAtLeast` / `isFeatureUnlocked` / `defaultEntitlement` / `evaluateGrace`（到期→宽限→过期，**只改 state 不删数据**） | 100 |
+| `src/services/authService.ts` | **账号会话编排（纯逻辑，零浏览器 API）**：`requestCode`（先本地校验标识符）/ `signIn(credential)`（换会话→令牌进安全存储→画像进缓存）/ `restore`（冷启动恢复 + 过期刷新）/ `signOut`；注入 `AuthGateway` + `TokenStore` + `AccountRepository` + `Clock` | 95 |
 | `src/services/index.ts` | 服务层统一导出 | 9 |
 
-### 4.6 `src/store/` 状态编排层（11 个文件）
+### 4.6 `src/store/` 状态编排层（22 个文件）
 
 | 路径 | 职责 | 行数 |
 | --- | --- | --- |
-| `src/store/bootstrap.ts` | **依赖装配 DI**：创建 Repository 实例 → 注入 Service → 注册生命周期 flush（`visibilitychange` / `pagehide`）→ 加载首日数据 | 84 |
-| `src/store/helper.ts` | Store 通用工具：乐观更新辅助、`persistence` 单例访问等 | 37 |
+| `src/store/bootstrap.ts` | **依赖装配 DI（唯一入口）**：创建 Repository → 创建 Service（含账号/权益四件套）→ 注册生命周期 flush（`visibilitychange` / `pagehide`）→ 全局错误通道 | 140 |
+| `src/store/helper.ts` | Store 通用工具：乐观更新辅助、`persistence` 单例访问、固定任务落盘助手（`persistRoutines` / `persistRoutineCompletion`） | 61 |
 | `src/store/useDayStore.ts` | 当前日期 `DateKey`、日维度数据（Day / DailySelfStatus，`loadSelfStatus`）、切换日期（先 flush 后加载） | 66 |
-| `src/store/useItemStore.ts` | 条目树状态（`Item[]` 扁平数组）+ 全部树操作 action（乐观更新 + 调度落盘）。**R-039 扩展 `addSibling`**：新增**可选**第 4 参 `title?: string`（实现 `title ?? ''` 透传给 `createSiblingAfter`，该函数本就消费 `draft.title`）；**不新增 action**；`useTreeEditor.ts:41` / `SectionPage.tsx:53` 的三参调用保持兼容 | 183 |
-| `src/store/useTaskStore.ts` | 每日任务状态与 action（增删改勾选排序 + 继承昨日） | 164 |
-| `src/store/useCalendarStore.ts` | 月/年历状态：`monthKey` / `selectedDate` / `view('month'\|'year')` / `yearKey`，`loadMonth` / `loadYear` / `shiftMonth` / `shiftYear` / `setView` / `selectDate` / `refresh`（**v1.2 取数并入 inspirations 以判 hasData**） | 179 |
-| `src/store/useTimeSlotStore.ts` | 每日时间块状态（**镜像 useTaskStore**）：`date` + `slots` + `add` / `update` / `toggleDone` / `softDelete`（**v1.2 支持 actual 时间记录**） | 113 |
+| `src/store/useItemStore.ts` | 条目树状态（`Item[]` 扁平数组）+ 全部树操作 action（乐观更新 + 调度落盘）。**R-039 扩展 `addSibling`**：新增**可选**第 4 参 `title?: string`（实现 `title ?? ''` 透传给 `createSiblingAfter`，该函数本就消费 `draft.title`）；**不新增 action**；`useTreeEditor.ts:41` / `SectionPage.tsx:53` 的三参调用保持兼容 | 217 |
+| `src/store/useTaskStore.ts` | 每日任务状态与 action（增删改勾选排序 + 继承昨日） | 311 |
+| `src/store/useCalendarStore.ts` | 月/年历状态：`monthKey` / `selectedDate` / `view('month'\|'year')` / `yearKey`，`loadMonth` / `loadYear` / `shiftMonth` / `shiftYear` / `setView` / `selectDate` / `refresh`（**v1.2 取数并入 inspirations 以判 hasData**） | 303 |
+| `src/store/useTimeSlotStore.ts` | 每日时间块状态（**镜像 useTaskStore**）：`date` + `slots` + `add` / `update` / `toggleDone` / `softDelete`（**v1.2 支持 actual 时间记录**） | 121 |
 | `src/store/useInspirationStore.ts` | 每日灵感状态（**镜像 useTimeSlotStore**）：`date` + `inspirations` + `add` / `update` / `remove` / `loadDate`（无 done，无勾选） | 96 |
-| `src/store/useRoutineStore.ts` | **每日固定任务（例行模板）状态**：`routines` + 按 `date` 的 `completions` map；`loadDate` / `add` / `setTitle` / `setDescription` / `setSection` / `reorderIds` / `remove`（软删模板 + 级联清完成记录 + 撤销）/ `toggleDone` / `isDone` / `computeRoutineProgress`；每天独立勾选 | ~150 |
-| `src/store/useUiStore.ts` | UI 状态：抽屉开关、撤销条、Toast、加载/错误态 | 40 |
+| `src/store/useRoutineStore.ts` | **每日固定任务（例行模板）状态**：`routines` + 按 `date` 的 `completions` map；`loadDate` / `add` / `setTitle` / `setDescription` / `setSection` / `reorderIds` / `remove`（软删模板 + 级联清完成记录 + 撤销）/ `toggleDone` / `isDone` / `computeRoutineProgress`；每天独立勾选 | 194 |
+| `src/store/useItemImageStore.ts` | 条目图片附件状态（选择 / 上传 / 删除 / 编辑，走 `platform/imageCodec` 压缩） | 86 |
+| `src/store/useTaskImageStore.ts` | 任务图片附件状态（同条目图片范式，归属键 taskId） | 95 |
+| `src/store/useRangeStore.ts` | 区间数据装载（日历月/年视图的区间批量拉取缓存） | 62 |
+| `src/store/useSectionProfileStore.ts` | 板块改名 / 排序等板块画像（`SectionProfile`，落 settings） | 98 |
+| `src/store/useTimelineWindowStore.ts` | 时间轴可视窗口设置（起止时间 / 分割线间隔，周课程表用） | 113 |
+| `src/store/useTimetableImportStore.ts` | 课表导入编排（R-049：粘贴解析 → 预览 → 确认写入） | 189 |
+| `src/store/useTodayHiddenStore.ts` | 今日页「隐藏/显示」条目集合（本地记忆） | 58 |
+| `src/store/useBackupStore.ts` | 备份导出 / 导入 / 本机快照（iOS）编排；刷新链路纳入固定任务 | 391 |
+| `src/store/useAuthStore.ts` | **账号状态**：`status`（unknown/anonymous/authenticated）+ 账号画像 + 内存 token；`init`（冷启动恢复）/ `requestCode` / `signIn(credential)` / `signOut` | 55 |
+| `src/store/useEntitlementStore.ts` | **权益状态**：`entitlement` 快照 + `hydrate`（开机读缓存，设备级权益未登录也生效）/ `refresh`（登录态落定后走网关）/ `purchase` / `restore` / `isUnlocked` | 98 |
+| `src/store/useFeature.ts` | 组件钩子：`useFeature(featureKey)` 订阅某功能点解锁态（权益变化自动重渲染） | 13 |
+| `src/store/useUiStore.ts` | UI 状态：抽屉开关、撤销条、Toast、加载/错误态 | 63 |
 | `src/store/selectors.ts` | 派生选择器：可见行、板块统计、**日记体统一视图**、提醒到期列表（memo 化） | 23 |
 
-### 4.7 `src/hooks/` 交互层（6 个文件）
+### 4.7 `src/hooks/` 交互层（13 个文件）
 
 | 路径 | 职责 | 行数 |
 | --- | --- | --- |
@@ -338,38 +369,73 @@ overrides: [
 | `src/hooks/useNowMin.ts` | 当前时间「距 00:00 分钟数」，每 60s 刷新一次（供提醒横幅 / 时间轴高亮）；时间在 UI 层取，服务层保持纯函数 | 24 |
 | `src/hooks/useDayFestivals.ts` | **R-040 农历/节气/节日取用的 UI 层唯一入口**：返回 `{ festivalLine: string \| null; lunarLine: string }`；超出支持年份范围时 `lunarLine` 为 `''` | 24 |
 | `src/hooks/useRecentlyChanged.ts` | 「刚刚变化过」开关：让微动效**只在状态真的变化那一刻**播放（规避 CSS animation 首挂载也跑导致的「整页抖动」） | 41 |
+| `src/hooks/keyboardMetrics.ts` | 键盘原生高度读取（`--keyboard-native-height`，iOS 原生桥写入；统一读取入口） | 23 |
+| `src/hooks/useKeyboardVisible.ts` | 键盘可见性（配合 `KEYBOARD_HIDDEN_CLASS`，弹起时统一收起 fixed 底部元素） | 88 |
+| `src/hooks/useDragSort.ts` | **拖拽排序（自写，零依赖 pointer events）**：页面级 `ids` + `onReorder`，下发 `handleProps` / `itemStyle` / `registerItem`；落盘 `reorderIds` 重写 order（步长 1000） | 569 |
+| `src/hooks/useExpanded.ts` | 展开/收起状态跨页保持（`useUiStore.expansions` + 稳定 key；刷新重置） | 31 |
+| `src/hooks/useObjectUrl.ts` | Blob → Object URL 的创建/吊销封装（图片预览） | 23 |
+| `src/hooks/useSectionConfigs.ts` | 板块配置（改名 / 颜色 / 排序）读取钩子 | 41 |
+| `src/hooks/useTabSwipe.ts` | **左右滑动切换底部 Tab**（仅基本横向滑动触发，不干扰竖向滚动；`data-no-swipe` 容器可豁免） | 66 |
 
 > 注：设计期的 `useDebouncedPersist` / `useTreeKeyboard` / `usePageLifecycle` / `useUndoToast` 未落地 —— 防抖与生命周期 flush 已内聚到 `services/persistenceService.ts`（`PersistenceService` 类）+ `store/bootstrap.ts`，撤销条逻辑内联在 `components/feedback/UndoBar.tsx`；键盘编排统一为 `useTreeEditor`。
 
-### 4.8 `src/components/` 通用组件（25 个文件）
+### 4.8 `src/components/` 通用组件（53 个文件）
 
 | 路径 | 职责 | 行数 |
 | --- | --- | --- |
-| `src/components/layout/AppShell.tsx` | 移动端外壳：视口约束、安全区 padding、滚动容器 + 生命周期 flush | 65 |
+| `src/components/layout/AppShell.tsx` | 移动端外壳：视口约束、安全区 padding、滚动容器 + 生命周期 flush + 启动 hydrate（账号 init / 权益 hydrate / authStatus→refresh） | ~90 |
 | `src/components/layout/BottomTabBar.tsx` | 底部 **5 Tab**（今日/任务/时间轴/日历/我的），激活态与路由联动（注：微信小程序 tabBar 支持 2–5 个，5 个完全合规，旧注释「4 个是上限」是错误的） | 109 |
 | `src/components/layout/PageHeader.tsx` | 通用页头（返回 + 标题 + 右侧操作区） | 48 |
 | `src/components/date/DateNavigator.tsx` | 日期栏 `‹ 日期 ›`；**v1.4 增可选 `onDateClick`**：提供时中心按钮改为「打开日历」（副标题「点击选择日期」，非今天时保留小「今天」按钮），未提供时行为不变（今日页）；**R-040 增可选 `subtitleText`**：有值时段落渲染节日/农历一行（`text-caption` 13px · `text-ink-faint`），**不传或空串时不产生多余 DOM、不追加多余 class（逐字节不变）** | 136 |
+| `src/components/date/DatePickerModal.tsx` | **居中日期选择弹窗（Modal）**：点日期就地切换，不切到日历 Tab | 119 |
 | `src/components/diary/DiaryList.tsx` | 主页日记体统一列表（四板块编号条目 + 缩进子项 + 灵感组；组头/条目点击跳板块详情、勾选、灵感✕软删）。**v1.4：四板块组恒显**；**R-039：四板块组底部常驻内联快速添加（输入框 + 「添加」，Enter 或按钮提交、空串禁用 → 调 `useItemStore.addSibling(null, date, sectionId, title)` 直接在主页新增该组顶层条目，提交后清空并保持聚焦；不再跳板块详情，空组以该录入区作入口）** | 315 |
+| `src/components/diary/WeekSectionBoards.tsx` | 周视图四板块看板：点某一天看当日详情、点整个板块进该板块本周时间线 | 123 |
 | `src/components/calendar/DayCell.tsx` | 月历单元格：日期数字、选中/今天态、四色小点（`shouldShowDayDots`）。**R-040：不显示节日，格子高度不变** | 82 |
 | `src/components/calendar/MonthGrid.tsx` | 月历网格：42 格排布 + 月份切换。**R-040：不显示节日** | 118 |
+| `src/components/calendar/WeekGrid.tsx` | 周历网格（7 列，选中日高亮 + 色点） | 113 |
 | `src/components/calendar/YearGrid.tsx` | 年视图：12 个月缩略网格 + `MonthMiniSummary` 提示。**R-040：不显示节日** | 81 |
 | `src/components/calendar/DaySummaryCard.tsx` | 日历选中日摘要卡；**v1.4 把单一「去补记」改为三入口「当日 / 时间轴 / 任务」**（`onGo(target)`：先 `setDate(selectedDate)` 再跳路由）；**R-040 在标题行下方渲染 `useDayFestivals` 的一行（`data-testid="day-summary-festival"`）** | 105 |
+| `src/components/calendar/DurationBar.tsx` | 时长条：各板块时长占比（`durationService` 取数，日历页用） | 75 |
+| `src/components/calendar/WeekTaskOverview.tsx` | 周视图任务总览：整周条目 + 时间段的完成度概览 | 87 |
 | `src/components/reminder/ReminderBanner.tsx` | 应用内提醒顶部横幅（仅当天、按「日期 + 到期 id 集合」dismiss、新到期重现；今日页 / 时间轴页共用） | 61 |
 | `src/components/selfstatus/SelfStatusCard.tsx` | 每日自我状态**紧凑横条**（一行显示 心情♥/身体★ 与分数，**点击展开再编辑**；数据模型 `DailySelfStatus` 不变） | 231 |
 | `src/components/tree/TreeRow.tsx` | 单行渲染：勾选框 + 折叠箭头 + 标题输入 + 子项进度徽标 + 打开抽屉 | 116 |
 | `src/components/tree/IndentGuides.tsx` | `├ └ │` 缩进引导线渲染（依据 `ancestorsIsLast[]`） | 17 |
 | `src/components/item/ItemSheet.tsx` | 条目编辑抽屉（标题 + 描述 + 星级 + 子分支 + 删除，≤85vh；描述编辑内联于此） | 185 |
+| `src/components/item/ItemImageSection.tsx` | 条目图片区（抽屉内上传 / 管理 / 删除，走 `useItemImageStore`） | 172 |
+| `src/components/item/ImageEditor.tsx` | 图片编辑器：裁剪 / 旋转 / 缩放（上传后二次编辑，`replace` 保留 id 与 createdAt） | 543 |
+| `src/components/item/ImageLightbox.tsx` | 图片全屏预览（双指缩放 + 左右翻页） | 324 |
+| `src/components/item/ImageThumb.tsx` | 图片缩略图（列表 / 图条共用） | 63 |
 | `src/components/task/TaskRow.tsx` | 任务行（勾选 + 行内编辑 + 左滑删除 + 上/下移按钮） | 115 |
+| `src/components/task/TaskPreviewCard.tsx` | 任务预览卡（默认收起；点进去行内直接改标题+描述） | 139 |
+| `src/components/task/TaskKindRow.tsx` | 任务行（勾选 + 行内编辑 + 图片条；期限任务 / 长时目标共用） | 149 |
+| `src/components/task/TaskKindComposer.tsx` | 任务种类抽屉（期限日期 / 删除 / 图片等低频动作收在里面） | 266 |
+| `src/components/task/DeadlineCard.tsx` | 期限任务卡（任务页只读预览 + 期限文案：具体日期＞抽象期限＞未设） | 40 |
+| `src/components/task/GoalCard.tsx` | 长时目标卡（任务页底部**只读预览**；增删改在专属页 `/tasks/goal`） | 30 |
+| `src/components/task/TaskImageSection.tsx` | 任务图片区（抽屉内上传 / 管理） | 114 |
+| `src/components/task/TaskImageStrip.tsx` | 任务图片缩略图条（列表行内展示） | 54 |
+| `src/components/task/SectionPickerPopover.tsx` | 板块选择气泡（任务 / 固定任务分组用） | 87 |
 | `src/components/routine/RoutineRow.tsx` | 固定任务行：左侧勾选（`toggleDone(routine.id, date)`，每天独立）/ 标题+描述行内编辑 / 分组气泡 / 拖拽手柄 / 退场动效 | ~120 |
 | `src/components/routine/RoutineSection.tsx` | 「每日固定任务」区块：标题 + 完成度 `done/total(percent%)` + 进度条 + 空态 + 拖拽排序列表（`useDragSort`，`data-no-swipe` 包裹）+ 底部「+ 添加固定任务」 | ~90 |
+| `src/components/timeline/SlotEditorSheet.tsx` | 时间段编辑抽屉（起止时间 + 板块 + 标题；`TimeRuler` 拖选） | 301 |
+| `src/components/timeline/WeekTimetable.tsx` | 周课程表（`useTimelineWindowStore` 控制可视窗口） | 224 |
 | `src/components/feedback/UndoBar.tsx` | 底部撤销条「已删除『X』等 4 项 · 撤销」+ 5s 倒计时 | 86 |
 | `src/components/feedback/EmptyState.tsx` | 空状态引导卡片 | 34 |
+| `src/components/me/SectionSettings.tsx` | 板块设置（改名 / 颜色 / 排序，`useSectionProfileStore`） | 203 |
+| `src/components/me/AccountCard.tsx` | **「账号与会员」卡**：登录/注册入口（未登录）/ 账号行 + 退出登录（已登录）/ 会员权益行（免费版或 Pro·有效期）→ 登录 / 升级弹层 | 117 |
+| `src/components/auth/LoginSheet.tsx` | **登录/注册弹层**：手机号/邮箱 + 验证码（60s 重发冷却）；本地模拟验证码展示框；首次登录自动建号 | 168 |
+| `src/components/auth/PaywallSheet.tsx` | **Pro 升级弹层**：当前权益态 / 功能对比表（免费 vs Pro）/ 开通 / 续费 / 恢复购买 / 本地模拟支付声明 | 157 |
 | `src/components/ui/RatingStars.tsx` | 1–5 星评分组件（点击打分、半星只读展示） | 68 |
-| `src/components/ui/Sheet.tsx` | 底部抽屉/浮层基础组件（承载编辑表单） | 244 |
+| `src/components/ui/Sheet.tsx` | 底部抽屉/浮层基础组件（下拉关闭 + 退场动画 + 键盘抬升） | 244 |
+| `src/components/ui/ConfirmSheet.tsx` | 底部确认抽屉（危险操作二次确认） | 64 |
+| `src/components/ui/Modal.tsx` | 居中弹窗基础组件（日期选择器等） | 77 |
 | `src/components/ui/Toast.tsx` | 轻提示组件 | 26 |
 | `src/components/ui/Icon.tsx` | **线性图标集**（24×24、`stroke: currentColor`）；自带矢量图标、**不引图标库**（零包体），避免 emoji 的跨平台字重/基线差异 | 204 |
 | `src/components/ui/Tick.tsx` | 勾选控件（`useRecentlyChanged` 驱动「刚勾选弹一下」微动效；`size` / `shape` / `color` 可配，树/任务/日记体共用） | 66 |
 | `src/components/ui/TimeRuler.tsx` | **时间刻度尺**（时间轴页用；替换原生 `<input type="time">`，指针拖选起止） | 242 |
+| `src/components/ui/CollapsibleCard.tsx` | 可折叠卡（设置页；展开态跨页保持走 `useExpanded`） | 68 |
+| `src/components/ui/Popover.tsx` | 气泡浮层（`anchorRef` portal 到 body + fixed + z-[55]，scroll 捕获跟随，放不下上翻） | 190 |
+| `src/components/ui/SyncCheck.tsx` | 同步状态指示（同步内核 UI 挂点） | 54 |
 
 > 注：设计期的 `components/section/SectionCard.tsx`、`section/SectionIcon.tsx`、`section/SectionProgressBar.tsx`、`tree/TreeList.tsx`、`tree/ItemTitleInput.tsx`、`item/ItemDrawer.tsx`、`item/ItemMetaRow.tsx`、`item/DescriptionEditor.tsx`、`feedback/UndoSnackbar.tsx`、`feedback/ConfirmDialog.tsx`、`date/DatePickerDialog.tsx` **均未落地**（已随实现被合并/改名/删除，见附录 B.1）。
 
@@ -384,7 +450,7 @@ overrides: [
 | `src/pages/TasksPage.tsx` | 每日任务页：任务清单 + 进度条 + 继承昨日按钮 | 138 |
 | `src/pages/MePage.tsx` | 我的页（P1：**外观主题切换器**（三主题色板预览）+ 数据存放 / 关于设置占位；版本 `v0.1.0 · MVP`） | 94 |
 
-### 4.10 `src/utils/` / `src/theme/` / `src/styles/` / 环境声明（9 个 .ts/.tsx + `styles/index.css`）
+### 4.10 `src/utils/` / `src/theme/` / `src/platform/` / 环境声明（21 个 .ts/.tsx + `styles/index.css`）
 
 | 路径 | 职责 | 行数 |
 | --- | --- | --- |
@@ -397,11 +463,23 @@ overrides: [
 | `src/theme/useThemeStore.ts` | 主题状态（zustand）：`theme` / `hydrated` / `setTheme`；经 `repos` 落 localStorage，`hydrated` 前不覆写用户选择 | 49 |
 | `src/theme/useApplyTheme.ts` | **唯一写 `data-theme` 的 hook**（UI 层职责）；首屏闪烁由 `index.html` 内联脚本兜住 | 39 |
 | `src/vite-env.d.ts` | Vite 环境类型声明 | 1 |
+| `src/platform/appInfo.ts` | 运行时版本号：原生走 `App.getInfo()`，Web 走兜底常量 | 26 |
+| `src/platform/capacitorBridge.ts` | Capacitor 能力探测与桥接封装（是否原生壳 / 平台判断） | 125 |
+| `src/platform/fileBridge.ts` | 文件选择 / 读写桥（备份导入选文件等） | 315 |
+| `src/platform/imageCodec.ts` | 图片压缩 / 格式转换（上传前瘦身，Web 端 Canvas） | 41 |
+| `src/platform/textCodec.ts` | 文本编解码（GBK 兜底，课表粘贴导入用） | 53 |
+| `src/platform/saveFilePlugin.ts` | 本地插件 `SaveFilePlugin` 封装（导出落系统「下载」目录；API 29+ MediaStore 免权限） | 57 |
+| `src/platform/updateBridge.ts` | 检查更新网络层：拉 GitHub 最新 Release + 外链打开 | 66 |
+| `src/platform/pwaBridge.ts` | Service Worker 注册三道闸（原生壳永不注册 / 开发模式不注册 / 失败静默） | 31 |
+| `src/platform/auth/localAuthGateway.ts` | **本地鉴权网关**：验证码登录（本地模拟短信/邮件，`devCode` 回传展示，5 分钟有效 / 5 次尝试上限）+ 本机账号（同标识符复用 userId，新标识符建号）；本地会话 30 天 | 129 |
+| `src/platform/auth/localEntitlementGateway.ts` | **本地权益网关**：读 Dexie `entitlements`（本地即真相源，无网络故无失败分支） | 26 |
+| `src/platform/auth/localPurchaseGateway.ts` | **本地购买网关（模拟支付）**：开通 / 续费（原到期日顺延）/ 恢复购买（重放 + 重判宽限）；`provider: 'local'`、`receiptRef` 为本地订单号 | 70 |
+| `src/platform/auth/secureTokenStore.ts` | **token 安全存储**：原生 `@capacitor/preferences`（iOS UserDefaults / Android SharedPreferences）/ Web localStorage 双后端 + AES-GCM 加密落盘（数据密钥同后端另存，`crypto.subtle` 不可用自动退明文）；🔴 Preferences ≠ Keychain（社区安全插件当前网络不可装，见 §9-M.6） | 219 |
 | `src/styles/index.css` | Tailwind 指令 + CSS 变量（含 `[data-theme='<id>']` 主题色板）+ 安全区工具类 + 滚动条隐藏；**样式资产，不计入上表合计** | 575 |
 
 > 注：设计期的 `src/theme/muiTheme.ts` **未落地**（项目未引入 MUI 主题层）；现行 `src/theme/` 为**自研 Tailwind 主题层**（纯数据 + zustand 状态 + 落 DOM 的 hook 三件套），与「Tailwind + 自研 `ui/` 组件」主线一致。
 
-### 4.11 测试与辅助文件（39 个 `*.test.ts` + 1 个非测试辅助 `fixtures.ts`）
+### 4.11 测试与辅助文件（90 个 `*.test.ts` + 1 个非测试辅助 `fixtures.ts`）
 
 | 路径 | 职责 | 行数 |
 | --- | --- | --- |
@@ -445,24 +523,38 @@ overrides: [
 | `src/theme/__tests__/useApplyTheme.test.ts` | `useApplyTheme` 落 `data-theme` | 99 |
 | `src/utils/__tests__/date.test.ts` | 日期工具用例（含月末/跨年/时区边界） | 315 |
 | `src/utils/__tests__/motion.test.ts` | `staggerDelay` 节拍与封顶 | 26 |
+| `src/services/__tests__/routineService.test.ts` | `routineCompletionKey` / `computeRoutineProgress`（空模板 ratio=0） | 31 |
+| `src/services/__tests__/authIdentifier.test.ts` | 手机号/邮箱识别与脱敏口径 | 32 |
+| `src/services/__tests__/entitlementService.test.ts` | `PLAN_MATRIX` 判权 / 宽限 / 到期 / 免费默认值 | 102 |
+| `src/services/__tests__/authService.test.ts` | 会话编排：凭据登录（裁剪空白）/ 恢复 / 过期刷新 / 登出 / `requestCode` 透传与前置校验 | 183 |
+| `src/platform/__tests__/localAuthGateway.test.ts` | 验证码全流程：正确登录 / 尝试上限 / 过期 / 账号复用 vs 建号 / 刷新续期 | 139 |
+| `src/platform/__tests__/localPurchaseGateway.test.ts` | 开通（30 天 + 3 天宽限）/ 续费顺延 / 过期重起 / 恢复重判 | 108 |
+| `src/platform/__tests__/secureTokenStore.test.ts` | Web 后端：加密封信封（不含明文）/ 旧版裸 JSON 兼容 / 后端故障内存兜底 / 密文损坏按无令牌（jsdom） | 99 |
+| `src/platform/__tests__/secureTokenStore.native.test.ts` | 原生 Preferences 后端（mock 插件）：存取 / 加封 / clear 连密钥（jsdom） | 73 |
+| `src/repositories/__tests__/IndexedDbRoutineRepository.test.ts` | `listAlive` 排序与软删过滤 / sectionId 归一化 / `upsertMany` 增量 / `purgeExpired` | ~120 |
+| `src/repositories/__tests__/IndexedDbRoutineCompletionRepository.test.ts` | `listByDate` / `listByRoutineIds` / `upsertMany` / `purgeOrphans` / `hardDeleteMany` | ~90 |
+| `src/repositories/__tests__/IndexedDbAccountRepository.test.ts` | `account` 单行读写清除（主键恒 `'current'`） | 44 |
+| `src/repositories/__tests__/IndexedDbEntitlementRepository.test.ts` | `entitlements` 单行读写清除 | 47 |
+| `src/store/__tests__/useRoutineStore.test.ts` | 新增排序 / `setTitle` 防抖不立即落盘 / 软删红线 / 每天独立勾选 / 级联删完成记录 / `loadDate` | 180 |
+| `src/store/__tests__/useEntitlementStore.test.ts` | 未登录免费且不打网关 / 登录拉取解锁 / 过期锁门 / 失败回落缓存 / hydrate / purchase / restore | 170 |
 
-### 4.12 文件总数统计（`src/` 实际 130 个 / 15,788 行）
+### 4.12 文件总数统计（`src/` 实际 269 个 / ≈ 38,987 行）
 
 | 分组 | 文件数 | 总行数 |
 | --- | --- | --- |
-| 入口与路由（§4.2） | 3 | 54 |
-| `domain/`（§4.3） | 6 | 495 |
-| `repositories/`（§4.4） | 11 | 618 |
-| `services/`（§4.5） | 16 | 2,098 |
-| `store/`（§4.6） | 10 | 985 |
-| `hooks/`（§4.7） | 6 | 216 |
-| `components/`（§4.8） | 23 | 2,754 |
-| `pages/`（§4.9） | 6 | 1,125 |
-| `utils/` + `theme/` + `vite-env.d.ts`（§4.10，*.ts/*.tsx） | 9 | 502 |
-| `__tests__/`（§4.11：**39 个 `*.test.ts` + 1 个辅助 `fixtures.ts`**） | 40 | 6,941 |
-| **合计（`src/`）** | **130** | **≈ 15,788 行** |
+| 入口与路由（§4.2，含 `vite-env.d.ts`） | 4 | 88 |
+| `domain/`（§4.3） | 7 | 1,528 |
+| `repositories/`（§4.4） | 19 | 1,422 |
+| `services/`（§4.5） | 28 | 4,555 |
+| `store/`（§4.6） | 22 | 2,853 |
+| `hooks/`（§4.7） | 13 | 1,072 |
+| `components/`（§4.8） | 53 | 8,064 |
+| `pages/`（§4.9） | 9 | 2,784 |
+| `utils/` + `theme/` + `platform/`（§4.10，*.ts/*.tsx） | 23 | 2,052 |
+| `__tests__/`（§4.11：**90 个 `*.test.ts` + 1 个辅助 `fixtures.ts`**） | 91 | 14,569 |
+| **合计（`src/`）** | **269** | **≈ 38,987 行** |
 
-> **快照 2026-10-13**（`test:strict` **940 用例 / 39 文件 / 0 失败**；`find src` 与 `check:layers` 均为 130 个源文件）。以此为冻结基线。
+> **快照 2026-10-25**（`test:strict` **1410 用例 / 90 文件 / 0 失败**；`find src` 与 `check:layers` 均为 **269** 个源文件）。此为现行基线；历史冻结基线为 2026-10-13 的 130 文件 / 15,788 行（`test:strict` 940 用例 / 39 文件），保留以供追溯。
 
 > 计数口径 = `find src -type f \( -name '*.ts' -o -name '*.tsx' \)`（含 `__tests__`、含 `vite-env.d.ts`），与 `scripts/check-layers.mjs` 末行打印的 `已扫描 N 个源文件` 同源（该脚本动态统计，其数值**应等于上表合计**）；`src/styles/index.css` 为样式资产，**不计入上表合计**。
 > **测试口径**：`__tests__/` 下的条目中，**1 个为非测试辅助 `fixtures.ts`**（工厂函数，不含用例）—— 可被 vitest 收集执行的 `*.test.ts` 数与之相差 1，请勿把辅助文件计入「测试文件数」；本文档凡称「测试文件数」均指纯 `*.test.ts`。
@@ -475,6 +567,7 @@ overrides: [
 > - **v1.4**：`DateNavigator` 增 `onDateClick`、`DiaryList` 四板块组恒显、`calendarService` 增 `resolveCalendarSelection`、`DaySummaryCard` 改三入口。（**以上均不新增文件**。）
 > - **R-040（M9）**：新增 `services/lunar/lunarData.ts` / `services/lunar/lunarService.ts` / `services/solarTermService.ts` / `services/festivalService.ts` / `hooks/useDayFestivals.ts` 及 9 个测试文件；`DateNavigator` 增可选 `subtitleText`、`DaySummaryCard` 增节日一行（**均不新增文件**）。详见 §9-F。
 > - **每日固定任务（例行模板，v7）**：新增 `Routine` / `RoutineCompletion` 领域类型、`RoutineRepository` / `RoutineCompletionRepository` 端口及 `IndexedDbRoutineRepository` / `IndexedDbRoutineCompletionRepository` 实现、`routineService`（纯函数：`routineCompletionKey` / `computeRoutineProgress`）、`useRoutineStore`；Dexie **v7** 新增 `routines`（跨日期复用模板）与 `routineCompletions`（按 `routineId + date` 每日完成记录）两张表；`RoutineSection` / `RoutineRow` 接入「任务」页（上方）与「今日」页（当日视图顶部）；每天独立勾选，模板软删级联清理完成记录，`AppShell` 切日期时 `loadDate`、`useBackupStore` 刷新链路纳入。
+> - **账号与权益层（v8）**：新增 `Account` / `AuthToken` / `Session` / `Entitlement` / `SignInCredential` / `CodeRequestResult` 领域类型与 `AccountRepository` / `EntitlementRepository` / `AuthGateway` / `EntitlementGateway` / `PurchaseGateway` / `TokenStore` 端口；Dexie **v8** 新增 `account` / `entitlements` 两表（🔴 token 不入库）；`services/authService`（会话编排）/ `entitlementService`（`PLAN_MATRIX` 判权）/ `authIdentifier`（标识符校验脱敏）三个纯逻辑服务；`platform/auth/` 四个本地实现（`LocalAuthGateway` 验证码登录 + 本机账号、`LocalEntitlementGateway`、`LocalPurchaseGateway` 模拟支付、`SecureTokenStore` Preferences + AES-GCM）；`useAuthStore` / `useEntitlementStore` / `useFeature`；「我的」页「账号与会员」卡 + `LoginSheet` / `PaywallSheet`。权益为**设备级**（未登录 Pro 也生效），到期只锁门不删数据。详见 §9-G。
 > - 同期另有 UI/主题增量落地，本次一并补入清单：`src/theme/`（`themes.ts` / `useThemeStore.ts` / `useApplyTheme.ts`）、`components/ui/Icon.tsx`、`components/ui/Tick.tsx`、`components/ui/TimeRuler.tsx`、`utils/motion.ts`、`hooks/useRecentlyChanged.ts` 及相关测试（**未单列增量专章，此处仅登记文件**）。
 
 ---
@@ -755,6 +848,76 @@ export interface DiaryEntry {
   /** 缩进深度，0 = 顶层 */
   depth: number
 }
+
+/* ---- 账号与权益（v8；本地优先 + 可选云端账户，收费功能基础） ---- */
+
+/** 订阅套餐档位。rank 越大权限越高（`PLAN_RANK` 注册） */
+export type Plan = 'free' | 'pro' | 'team'
+
+/** 可被权益门禁的功能点。加付费点 = 加一个枚举值 + `PLAN_MATRIX` 一行映射 */
+export type FeatureKey = 'advancedExport' | 'adFree'
+
+/** 权益快照状态（服务端是真相源，本地只是缓存） */
+export type EntitlementState = 'none' | 'active' | 'trialing' | 'expired' | 'grace'
+
+/** 账号画像（非敏感，缓存进 IndexedDB 供 UI 直接用；🔴 绝不存 token） */
+export interface Account {
+  id: 'current' // 本地只缓存当前账号，主键固定
+  userId: string
+  phone: string | null
+  email: string | null
+  displayName: string | null
+  avatarUrl: string | null
+  createdAt: number
+  updatedAt: number
+}
+
+/** 鉴权令牌（敏感，只存在安全存储，不落 Dexie） */
+export interface AuthToken {
+  accessToken: string
+  refreshToken: string | null
+  /** 过期时间（ms 时间戳） */
+  expiresAt: number
+}
+
+/** 一次登录建立的会话（内存态，token 不进持久层） */
+export interface Session {
+  account: Account
+  token: AuthToken
+}
+
+/** 登录凭据：手机号或邮箱 + 验证码（provider 由 identifier 形态推导） */
+export interface SignInCredential {
+  identifier: string
+  code: string
+}
+
+/**
+ * 验证码请求结果。
+ * 🔴 `devCode` 只在「本地模拟短信/邮件」时由网关回传供界面展示；
+ * 接真实后端后网关不再返回该字段，UI 展示逻辑随之隐藏，契约不变。
+ */
+export interface CodeRequestResult {
+  devCode?: string
+  /** 验证码有效期（秒） */
+  expiresInSec: number
+}
+
+/** 权益快照（服务端是真相源，本地只是缓存；到期只锁门，不删数据） */
+export interface Entitlement {
+  id: 'current' // 单账号本地同时只持有一份
+  plan: Plan
+  state: EntitlementState
+  /** 服务端轴过期时间（ms）；null = 无过期（永久权益） */
+  expireAt: number | null
+  /** 宽限截止（state='grace' 时使用）；null = 无宽限 */
+  graceUntil: number | null
+  provider: 'appstore' | 'play' | 'workbuddy' | 'local' | null
+  /** 回执引用（内购校验 / 本地订单号），仅引用不含原始回执 */
+  receiptRef: string | null
+  /** 本地快照更新时间，用于比对新鲜度 */
+  updatedAt: number
+}
 ```
 
 ### 5.2 Repository 接口（`src/domain/ports.ts`）
@@ -840,7 +1003,7 @@ export interface SettingsRepository {
   setPreference<T>(key: string, value: T): Promise<void>
 }
 
-/** 全部仓储的集合，由 `repositories/index.ts` 装配后注入（v1.1 增 timeSlots / selfStatus；v1.2 增 inspirations；v7 增 routines / routineCompletions） */
+/** 全部仓储的集合，由 `repositories/index.ts` 装配后注入（v1.1 增 timeSlots / selfStatus；v1.2 增 inspirations；v7 增 routines / routineCompletions；v8 增 account / entitlements） */
 export interface Repositories {
   items: ItemRepository
   tasks: TaskRepository
@@ -850,7 +1013,72 @@ export interface Repositories {
   inspirations: InspirationRepository
   routines: RoutineRepository
   routineCompletions: RoutineCompletionRepository
+  account: AccountRepository
+  entitlements: EntitlementRepository
   settings: SettingsRepository
+  syncState: SyncStateRepository
+}
+
+/* ---- 账号与权益端口（v8；平行于业务仓储的第二条通道） ---- */
+
+/** 账号画像仓储（缓存当前登录用户的非敏感信息；token 不在这里） */
+export interface AccountRepository {
+  get(): Promise<Account | undefined>
+  upsert(account: Account): Promise<void>
+  clear(): Promise<void>
+}
+
+/** 权益快照仓储（服务端/购买网关产出权益的本地缓存） */
+export interface EntitlementRepository {
+  get(): Promise<Entitlement | undefined>
+  upsert(entitlement: Entitlement): Promise<void>
+  clear(): Promise<void>
+}
+
+/**
+ * 鉴权网关（唯一允许打网络的地方，与 SyncGateway 同级）。
+ * 当前为本地实现（LocalAuthGateway：验证码登录 + 本机账号）；
+ * 接 WorkBuddy 云服务 / 微信 / Apple 时仅替换该实现，业务零改动。
+ */
+export interface AuthGateway {
+  /** 请求登录验证码。本地实现是「模拟短信/邮件」：生成 6 位码并经 devCode 回传供 UI 展示 */
+  requestCode(identifier: string): Promise<CodeRequestResult>
+  /** 凭验证码登录（首次登录自动建号），返回完整会话 */
+  signIn(credential: SignInCredential): Promise<Session>
+  signOut(): Promise<void>
+  /** 取已存储的会话（冷启动 hydrate 用）；无则返回 null */
+  getStoredSession(): Promise<Session | null>
+  /** 用 refreshToken 换新的 accessToken */
+  refreshToken(token: AuthToken): Promise<AuthToken>
+}
+
+/** 权益网关：拿着 userId + token 去服务端拉最新权益。服务端是真相源 */
+export interface EntitlementGateway {
+  fetch(userId: string, token: AuthToken): Promise<Entitlement>
+}
+
+/**
+ * 购买网关：开通 / 续费 / 恢复购买。
+ * 与 EntitlementGateway（只读）分开：一个「查」一个「买」。
+ * 真实实现走支付渠道（iOS App Store / 微信支付）并由服务端校验回执；
+ * 当前为本地模拟实现（LocalPurchaseGateway），换真实支付时只替换这一个文件。
+ */
+export interface PurchaseGateway {
+  /** 购买 / 续费某套餐，返回新的权益快照（调用方负责落库） */
+  purchase(plan: Plan): Promise<Entitlement>
+  /** 恢复购买：重放本机已购权益；无购买记录返回免费态 */
+  restore(): Promise<Entitlement>
+}
+
+/**
+ * 鉴权令牌安全存储。
+ * 🔴 敏感信息绝不进 IndexedDB / localStorage 明文：走平台安全存储
+ * （Capacitor Preferences / Keychain）；当前实现见 platform/auth/secureTokenStore.ts。
+ */
+export interface TokenStore {
+  save(token: AuthToken): Promise<void>
+  load(): Promise<AuthToken | null>
+  clear(): Promise<void>
 }
 ```
 
@@ -1123,6 +1351,37 @@ export const SOLAR_TERMS: readonly string[]
 export function solarTermDayOfMonth(year: number, index: number): number
 /** 日期键当天的节气名；不是节气日 / 越界 / 非法输入 → null */
 export function solarTermOf(dateKey: string): string | null
+
+// authIdentifier —— 登录标识符纯函数（UI 与 LocalAuthGateway 共用同一套口径）
+export type IdentifierKind = 'phone' | 'email'
+export function detectIdentifier(value: string): IdentifierKind | null
+export function isValidIdentifier(value: string): boolean
+export function maskIdentifier(value: string): string // 138****8888 / n***@qq.com
+
+// entitlementService —— 权益门禁纯函数（服务端是真相源，本模块只做本地判权）
+export const PLAN_RANK: Record<Plan, number>
+export const PLAN_MATRIX: Record<FeatureKey, Plan> // advancedExport/adFree → pro
+export const FEATURES: readonly FeatureKey[]
+export function isPaidFeature(feature: FeatureKey): boolean
+export function isPlanAtLeast(plan: Plan, required: Plan): boolean
+export function isFeatureUnlocked(feature: FeatureKey, entitlement: Entitlement | null | undefined): boolean
+export function defaultEntitlement(now: number): Entitlement
+/** 依当前时间重新判定权益状态：到期→宽限(grace)→过期(expired)；续费回补→active。只改 state，不删数据 */
+export function evaluateGrace(entitlement: Entitlement, now: number): Entitlement
+
+// authService —— 账号会话编排（纯逻辑，零浏览器 API；注入 gateway + tokenStore + accounts + clock）
+export class AuthService {
+  constructor(gateway: AuthGateway, tokenStore: TokenStore, accounts: AccountRepository, clock: Clock)
+  isExpired(token: AuthToken, now?: number): boolean
+  /** 冷启动恢复：有效 token + 有账号画像 → 会话；否则 null（匿名） */
+  restore(): Promise<Session | null>
+  /** 请求验证码（先做本地标识符校验，不合法就不麻烦网关） */
+  requestCode(identifier: string): Promise<CodeRequestResult>
+  /** 登录：网关换会话 → 令牌进安全存储 → 账号画像进缓存 */
+  signIn(credential: SignInCredential): Promise<Session>
+  /** 登出：先尽力清对端，再清本地令牌与画像（对端失败不影响本地登出） */
+  signOut(): Promise<void>
+}
 ```
 
 > **节气实现口径**：`solarTermService` **实时求解太阳视黄经** —— 用 Meeus《Astronomical Algorithms》第 25 章 **low-accuracy** 算法求视黄经，再用**牛顿迭代**求交节瞬间，随后以**纯整数 JDN** 完成儒略日↔公历换算（Fliegel–Van Flandern），最后 **+8h 按北京时间定日**（全程不使用 `Date` 做「时刻→日期」换算）。详见 §9-F.3。
@@ -1984,6 +2243,8 @@ db.version(3).stores({
 | `inspirations` | `id` | `date`、`deletedAt` | 灵感（日记体第 5 组，独立轻实体；**v3 新增**） |
 | `routines` | `id` | `order`、`sectionId`、`deletedAt`、`updatedAt` | **每日固定任务（例行模板）**：跨日期复用的模板，软删只改 `deletedAt`；**v7 新增** |
 | `routineCompletions` | `id`（`${routineId}@${date}`） | `routineId`、`date` | **每日完成记录**：按 `routineId + date` 维度，每天独立勾选；模板被删时级联清理；**v7 新增** |
+| `account` | `id`（固定 `'current'`） | `updatedAt` | **账号画像缓存**（非敏感）：userId / phone / email / displayName；🔴 **token 绝不入此表**（走 `TokenStore` 安全存储）；**v8 新增** |
+| `entitlements` | `id`（固定 `'current'`） | `plan`、`updatedAt` | **权益快照缓存**：plan / state / expireAt / graceUntil / provider / receiptRef；服务端（购买网关）是真相源，本地只做离线体验与门禁；**v8 新增** |
 | 偏好 | — | — | **不进 IndexedDB**，走 localStorage（`LocalSettingsRepository`） |
 
 ---
@@ -2326,6 +2587,7 @@ sequenceDiagram
 | **v5** | 新增 `taskImages: '&id, taskId'`（其它表原样重申） | 给任务（期限任务 / 长时目标）挂图片附件（`taskId` 索引） |
 | **v6** | 新增 `syncMeta: '&key'`；给 items / tasks / timeSlots / inspirations / selfStatus 补 `updatedAt` 索引（其它表原样重申） | 同步内核（行级 LWW）：`syncMeta` 存 deviceId / 双游标 / 时钟偏移；`updatedAt` 供增量扫描（详见 `docs/SYNC.md`） |
 | **v7** | 新增 `routines: '&id, order, sectionId, deletedAt, updatedAt'` 与 `routineCompletions: '&id, routineId, date'`（其它表原样重申） | **每日固定任务（例行模板）**：`routines` 为跨日期复用的模板，`routineCompletions` 为按 `routineId + date` 维度的每日完成记录，每天独立勾选，模板软删级联清理完成记录 |
+| **v8** | 新增 `account: '&id, updatedAt'` 与 `entitlements: '&id, plan, updatedAt'`（其它表原样重申） | **账号与权益层**：`account` 缓存当前登录用户非敏感画像（主键固定 `'current'`），`entitlements` 缓存权益快照；🔴 token 不入库，走 `platform/auth/secureTokenStore.ts`（Capacitor Preferences / Web localStorage + AES-GCM）；权益是**设备级**购买记录，未登录时已开通的 Pro 同样生效 |
 
 > 迁移约束不变：**不得破坏旧版本迁移链**，每个 `db.version(n).stores({...})` 必须声明该版本的**完整**表集合。
 
@@ -2834,6 +3096,87 @@ Android 11+ 只能访问 App 自建文件）。
 新增测试 13 条（`useKeyboardAvoid` 阈值 5、`fileBridge` 平台分支 4、`TaskKindComposer`
 延迟聚焦 4），负向验证：去掉阈值 → 抖动用例红；恢复 `autoFocus` → 3 条聚焦用例红；
 fileBridge 退回 `<a download>` → 3 条 Android 用例红。
+
+---
+
+### 9-M 账号与权益层（v8，2026-10-25）
+
+#### 9-M.1 动机与定位
+
+用户要为应用开通收费功能，需要一套账号系统承载「登录态 + 会员权益」。架构定位：
+
+- **账号是可选叠加层，本地优先不变**：不登录完全离线可用（符合产品定位，也降低 iOS 审核难度）；
+- **权益是设备级购买记录**：未登录时已开通的 Pro 同样生效（`hydrate` 读本地缓存）；
+- **平行通道，不碰现有仓储内核**：账号/权益走独立端口（`AuthGateway` / `EntitlementGateway` /
+  `PurchaseGateway` / `TokenStore` + 两个仓储），与 `SyncGateway` 同级的第二条平行线。
+
+#### 9-M.2 数据模型（Dexie v8，新增两表）
+
+| 表 | 主键 | 内容 | 红线 |
+| --- | --- | --- | --- |
+| `account` | `'current'` | 账号画像（userId / phone / email / displayName） | 🔴 **token 绝不入此表** |
+| `entitlements` | `'current'` | 权益快照（plan / state / expireAt / graceUntil / provider / receiptRef） | 服务端（购买网关）是真相源，本地只做缓存 |
+
+token 走 `platform/auth/secureTokenStore.ts`（见 §9-M.6）。
+
+#### 9-M.3 分层落点
+
+| 层 | 文件 | 职责 |
+| --- | --- | --- |
+| domain | `types.ts` / `ports.ts` | `Account` / `AuthToken` / `Session` / `Entitlement` / `SignInCredential` / `CodeRequestResult`；`AccountRepository` / `EntitlementRepository` / `AuthGateway` / `EntitlementGateway` / `PurchaseGateway` / `TokenStore` |
+| services | `authIdentifier.ts` | 手机号 / 邮箱校验与脱敏纯函数（UI 与网关共用一套口径） |
+| services | `entitlementService.ts` | `PLAN_MATRIX`（当前 `advancedExport` / `adFree` → pro）/ `isFeatureUnlocked` / `evaluateGrace` / `defaultEntitlement` |
+| services | `authService.ts` | 会话编排（纯逻辑）：`requestCode` / `signIn(credential)` / `restore` / `signOut` / 过期刷新（5s 安全边界） |
+| platform | `auth/localAuthGateway.ts` | 验证码登录 + 本机账号（见 §9-M.4） |
+| platform | `auth/localEntitlementGateway.ts` | 权益快照读 Dexie（本地即真相源） |
+| platform | `auth/localPurchaseGateway.ts` | 模拟支付：开通（30 天 + 3 天宽限）/ 续费（原到期日顺延）/ 恢复购买 |
+| platform | `auth/secureTokenStore.ts` | token 安全存储（见 §9-M.6） |
+| repositories | `IndexedDbAccountRepository` / `IndexedDbEntitlementRepository` | 两表单行（主键固定 `'current'`）读写清除 |
+| store | `useAuthStore` / `useEntitlementStore` / `useFeature` | 登录态 / 权益态 / 功能点门禁钩子 |
+| components | `me/AccountCard` / `auth/LoginSheet` / `auth/PaywallSheet` | 「我的」页账号卡 + 登录弹层 + 升级弹层 |
+
+启动链（`AppShell`）：mount 时并行 `useAuthStore.init()` + `useEntitlementStore.hydrate()`；
+另挂 `authStatus` effect，登录态每次落定 → `refresh()`（依赖登录态里的 token）。
+
+#### 9-M.4 关键决策与理由
+
+1. **验证码登录（本地模拟短信/邮件）**：不存密码（免去口令散列与撞库风险）；6 位码 5 分钟有效、
+   5 次尝试上限；本应用没有真实消息服务，码由网关经 `devCode` 回传、界面直接展示并标注
+   「本地模拟」—— 接真实消息服务后该展示自动消失，契约不变。
+2. **同标识符复用 userId，新标识符建号**：账号只缓存一份（主键 `'current'`）；
+   重复登录同一手机号/邮箱不产生第二账号。
+3. **权益设备级**：购买记录存本机 Dexie；`signOut` **不清** entitlements（退登不清会员）。
+   代价：换设备需重新开通（UI 已明示，与「定期导出备份」的话术一致）。
+4. **到期只锁门，不删数据**（iOS 订阅规范 + 客诉规避）：`evaluateGrace` 把到期流转为
+   `grace`（宽限续用）→ `expired`（锁功能）；续费回补时间自动复位 `active`。
+5. **PLAN_MATRIX 可扩展**：加付费点 = 加一个 `FeatureKey` 枚举 + 一行映射，表结构 / UI 框架不动。
+
+#### 9-M.5 登录 / 升级 UI
+
+- `LoginSheet`：手机号/邮箱 + 验证码（60s 重发冷却）+ 本地模拟码展示框；**无 autoFocus**（键盘红线）；
+- `PaywallSheet`：当前权益态 / 功能对比表（免费 vs Pro）/ 开通 / 续费 / 恢复购买 / 模拟支付声明；
+- `AccountCard`（我的页「账号与会员」卡）：未登录显示登录入口；已登录显示脱敏标识符 + 退出登录
+  （确认弹窗明示「只清登录态，业务数据与会员权益保留」）。
+
+#### 9-M.6 token 安全存储的诚实边界
+
+`SecureTokenStore` 双后端：**原生** `@capacitor/preferences`（iOS UserDefaults /
+Android SharedPreferences）/ **Web** localStorage；值以 **AES-GCM** 加密落盘（数据密钥为每设备
+随机 AES-256，同后端另存；`crypto.subtle` 不可用时自动退明文，绝不丢令牌）；`clear()` 连密钥一起删。
+
+🔴 **Preferences ≠ Keychain / EncryptedSharedPreferences**：生产级安全存储需要社区插件
+`@capacitor-community/secure-storage`，但当前开发网络无法安装该 scope（registry 404）。
+可安装时只需替换 `backendGet/Set/Remove` 三个方法与 capacitor 配置，加密层与上层契约不变。
+加密层的诚实定位：挡住「备份文件 / 偏好文件被直接读取看到明文 token」这类场景，
+挡不住能同时拿到密钥的攻击者 —— 是当前约束下的 proportionate 方案，不是 Keychain 的等价物。
+
+#### 9-M.7 验收方式
+
+`tsc` 0 错 / `check:layers` 通过（domain / services 无浏览器 API）/ `vite build` 成功；
+新增测试：`authIdentifier` / `entitlementService` / `authService` / `localAuthGateway` /
+`localPurchaseGateway` / `secureTokenStore`（Web + 原生两路）/ 两个仓储 / `useEntitlementStore`
+（purchase / restore / hydrate）；`test:strict` 全量基线通过。负向验证：`clear()` 不删密钥 →
+native 用例红；续费不顺延 → purchase 用例红；鉴权码尝试上限算术错 → gateway 用例红。
 
 ---
 

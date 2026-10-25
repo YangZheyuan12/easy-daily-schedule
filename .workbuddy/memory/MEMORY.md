@@ -35,6 +35,21 @@ ID nanoid；日期用自写 `utils/date.ts`。
 - `computeRoutineProgress(routines, completions, date)` → `{done,total,ratio}`（total=0 时 ratio=0，杜绝 NaN）。固定任务**不参与**同步（LWW 实体仅 item/task/timeSlot/inspiration/selfStatus）。
 - 详见 `docs/ARCHITECTURE.md` §4.6 / §9（数据表 `routines` / `routineCompletions`）。
 
+## 账号与权益（v8，2026-10-25）
+- 定位：账号是**可选叠加层**，本地优先不变；未登录完全离线可用，登录后逐步打通多端同步。
+- 存储：Dexie **v8** 新增 `account`（主键固定 `'current'`，非敏感画像）与 `entitlements`（权益快照缓存，**服务端是真相源**）两表；🔴 token **不入库**，走 platform 安全存储。
+- 分层：`domain/ports` 加 `AccountRepository` / `EntitlementRepository` / `AuthGateway` / `EntitlementGateway` / `PurchaseGateway` / `TokenStore`；`services/authService`（会话编排，纯逻辑）/ `entitlementService`（`PLAN_MATRIX` 判权，纯函数）/ `authIdentifier`（手机号/邮箱校验+脱敏，纯函数）；`platform/auth/*` 为全部端点实现（接真实后端只换这里，业务零改）。
+- 收费：`PLAN_MATRIX` 当前只把 `advancedExport` / `adFree` 映射到 `pro`（用户 2026-10-25 定）；模型可扩展——加付费点 = 加一个 `FeatureKey` + 一行映射。`useFeature(key)` 钩子供组件门禁；🔴 到期/退款只锁门，**绝不删用户数据**。
+- 启动 hydrate：`AppShell` mount 并行 `useAuthStore.init()` + `useEntitlementStore.hydrate()`；另挂 `authStatus` effect，登录态落定 → `refresh()`（权益刷新依赖登录态 token）。
+- **2026-10-25 晚落地（本地实现，云服务激活被用户关闭→按 useLocalImplementation 继续）**：
+  - `LocalAuthGateway`：验证码登录（**本地模拟短信/邮件**，6 位码经 `devCode` 回传由 LoginSheet 展示，5 分钟有效、5 次尝试上限）；同标识符复用 userId、新标识符建号；本地会话 30 天，refreshToken 顺延。
+  - `LocalEntitlementGateway`：读 Dexie `entitlements`（本地即真相源）；`LocalPurchaseGateway`：模拟支付（provider:'local'，receiptRef=ord_ 前缀），**续费在原到期日顺延**，`restore()` 重放+重判宽限。
+  - 🔴 权益是**设备级**：未登录时已开通的 Pro 同样生效（hydrate 读缓存），signOut **不清** entitlements。
+  - `SecureTokenStore`：原生走 `@capacitor/preferences`（iOS UserDefaults/Android SharedPreferences，**非 Keychain**——社区安全插件 `@capacitor-community/secure-storage` 在当前网络 registry 404 装不上），Web 走 localStorage；AES-GCM 加密落盘（密钥同后端另存，`crypto.subtle` 不可用自动退明文）；clear 连密钥一起删。cap sync 已把插件注册进 android/ios（SPM，iOS 无需 pod install）。
+  - UI：`components/auth/LoginSheet`（验证码+60s 冷却+本地码展示）、`components/auth/PaywallSheet`（权益对比表/开通/续费/恢复购买/模拟支付声明）、`components/me/AccountCard`（我的页「账号与会员」卡）；无 autoFocus（键盘红线）。
+  - 🔴 WorkBuddy 云服务：本会话 `workbuddy_cloud_service activate` 弹窗被关闭（cancelled+useLocalImplementation）→ 全部走本地实现；用户想接云端时重跑 activate 再换 4 个 platform 文件即可。
+- 待办：WorkBuddy 云服务真实 `AuthGateway`/`EntitlementGateway`（换 platform/auth 四个文件）、真实支付（iOS 内购/微信支付，换 `LocalPurchaseGateway`）、iOS 第三方登录红线（Sign in with Apple + 账号删除入口 + 隐私政策）。
+
 ## 任务页 / 时间轴（2026-10-17 功能）
 - 🔴 每日任务列表**行尾拖拽手柄**（自写 `hooks/useDragSort`，零依赖 pointer events）上下重排 →
   落盘 `reorderIds` 重写 order（步长1000）；其余行同步让位动画，抬起层抬 z-index。

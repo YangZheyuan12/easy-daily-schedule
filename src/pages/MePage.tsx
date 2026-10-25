@@ -6,6 +6,7 @@ import { Sheet } from '@/components/ui/Sheet';
 import { ConfirmSheet } from '@/components/ui/ConfirmSheet';
 import { CollapsibleCard } from '@/components/ui/CollapsibleCard';
 import { SectionSettings } from '@/components/me/SectionSettings';
+import { AccountCard } from '@/components/me/AccountCard';
 import { THEMES, getThemeMeta } from '@/theme/themes';
 import { useThemeStore } from '@/theme/useThemeStore';
 import { useTimelineWindowStore } from '@/store/useTimelineWindowStore';
@@ -83,10 +84,14 @@ export function MePage() {
           </div>
         </CollapsibleCard>
 
+        <CollapsibleCard title="账号与会员" expandKey="me:account">
+          <AccountCard />
+        </CollapsibleCard>
+
         <CollapsibleCard title="存储与同步" expandKey="me:storage">
           <div className="space-y-1">
             <Row label="数据存放" value="本机浏览器（IndexedDB）" />
-            <Row label="账号同步" value="P2 规划中" />
+            <Row label="账号同步" value="规划中（本机账号已就绪）" />
           </div>
         </CollapsibleCard>
 

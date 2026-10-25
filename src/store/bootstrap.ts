@@ -2,6 +2,11 @@ import type { Repositories } from '@/domain/ports';
 import { toAppError } from '@/domain/errors';
 import { createRepositories } from '@/repositories';
 import { systemClock, type Clock } from '@/services/clock';
+import { AuthService } from '@/services/authService';
+import { LocalAuthGateway } from '@/platform/auth/localAuthGateway';
+import { LocalEntitlementGateway } from '@/platform/auth/localEntitlementGateway';
+import { LocalPurchaseGateway } from '@/platform/auth/localPurchaseGateway';
+import { SecureTokenStore } from '@/platform/auth/secureTokenStore';
 import { PersistenceService } from '@/services/persistenceService';
 import { toLocalTime } from '@/services/syncService';
 import { UndoService } from '@/services/undoService';
@@ -17,6 +22,23 @@ import { PURGE_AFTER_MS } from '@/domain/constants';
 export const repos: Repositories = createRepositories();
 export const clock: Clock = systemClock;
 export const undoService = new UndoService(clock);
+
+/*
+ * 账号与权益装配（本地优先：全部端点都是本机实现，零网络请求）。
+ *
+ * - `LocalAuthGateway`：验证码登录（本地模拟短信/邮件）+ 本机账号；
+ * - `LocalEntitlementGateway`：权益快照读 Dexie（本地即真相源）；
+ * - `LocalPurchaseGateway`：模拟支付的开通 / 续费 / 恢复购买；
+ * - `SecureTokenStore`：token 进 Capacitor Preferences（原生）/ localStorage（Web），
+ *   AES-GCM 加密落盘。
+ *
+ * 接 WorkBuddy 云服务 / 真实支付时，只换这四个 platform 实现，业务零改动。
+ */
+export const authGateway = new LocalAuthGateway(repos.account);
+export const entitlementGateway = new LocalEntitlementGateway(repos.entitlements, clock);
+export const purchaseGateway = new LocalPurchaseGateway(repos.entitlements, clock);
+export const tokenStore = new SecureTokenStore();
+export const authService = new AuthService(authGateway, tokenStore, repos.account, clock);
 
 type ErrorHandler = (error: unknown) => void;
 

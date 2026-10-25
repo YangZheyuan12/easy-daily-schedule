@@ -393,6 +393,96 @@ export interface DiaryEntry {
   depth: number;
 }
 
+/* ------------------------------------------------------------------ */
+/* 账号与权益（本地优先 + 可选云端账户，收费功能基础）                   */
+/* ------------------------------------------------------------------ */
+
+/** 订阅套餐档位。rank 越大权限越高，新增档位只需在此追加并在 `PLAN_RANK` 注册 */
+export type Plan = 'free' | 'pro' | 'team';
+
+/**
+ * 可被权益门禁的功能点。
+ * 🔴 当前仅 `advancedExport`（高级导出）/ `adFree`（去广告）为付费点；
+ * 其余（如多端实时同步）暂不收费，但模型已预留 —— 后续加付费点只需在此加一个枚举值。
+ */
+export type FeatureKey = 'advancedExport' | 'adFree';
+
+/** 权益快照状态（服务端是真相源，本地只是缓存） */
+export type EntitlementState = 'none' | 'active' | 'trialing' | 'expired' | 'grace';
+
+/**
+ * 账号画像（非敏感，缓存进 IndexedDB 供 UI 直接用）。
+ * 🔴 绝不存 token —— token 走安全存储（platform 层），不入 Dexie。
+ */
+export interface Account {
+  /** 本地只缓存当前账号，主键固定 'current' */
+  id: 'current';
+  userId: string;
+  /** 手机号登录时为脱敏前的原值？不 —— 存原值，UI 展示时再脱敏（maskIdentifier） */
+  phone: string | null;
+  email: string | null;
+  displayName: string | null;
+  avatarUrl: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/**
+ * 登录凭据：手机号或邮箱 + 验证码。
+ * 登录方式（provider）由 identifier 形态推导，不单独传。
+ */
+export interface SignInCredential {
+  identifier: string;
+  code: string;
+}
+
+/**
+ * 验证码请求结果。
+ *
+ * 🔴 `devCode` 只在「本地模拟短信/邮件」时由网关回传，供界面直接展示
+ * （本应用没有真实短信/邮件服务）。接真实后端后网关不再返回该字段，
+ * UI 的展示逻辑随之隐藏 —— 上层契约不变。
+ */
+export interface CodeRequestResult {
+  devCode?: string;
+  /** 验证码有效期（秒） */
+  expiresInSec: number;
+}
+
+/** 鉴权令牌（敏感，只存在安全存储，不落 Dexie） */
+export interface AuthToken {
+  accessToken: string;
+  refreshToken: string | null;
+  /** 过期时间（ms 时间戳） */
+  expiresAt: number;
+}
+
+/** 一次登录建立的会话（内存态，token 不进持久层） */
+export interface Session {
+  account: Account;
+  token: AuthToken;
+}
+
+/**
+ * 权益快照（服务端是真相源，本地只是缓存）。
+ * 过期 / 退款判定以服务端为准；客户端凭此做离线体验与门禁。
+ */
+export interface Entitlement {
+  /** 主键固定 'current'（单账号本地同时只持有一份） */
+  id: 'current';
+  plan: Plan;
+  state: EntitlementState;
+  /** 服务端轴过期时间（ms）；null = 无过期（永久权益） */
+  expireAt: number | null;
+  /** 宽限截止（state='grace' 时使用）；null = 无宽限 */
+  graceUntil: number | null;
+  provider: 'appstore' | 'play' | 'workbuddy' | 'local' | null;
+  /** 服务端回传的回执引用（iOS/Android 内购校验用），仅引用不含原始回执 */
+  receiptRef: string | null;
+  /** 本地快照更新时间，用于比对新鲜度 */
+  updatedAt: number;
+}
+
 export interface DaySummary {
   /** 所属日期键 YYYY-MM-DD */
   date: string;

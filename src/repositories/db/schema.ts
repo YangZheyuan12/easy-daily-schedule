@@ -9,8 +9,10 @@
  *   「已删除」的清理走 `filter` 全表扫描（启动时执行一次）。
  */
 import type {
+  Account,
   DailySelfStatus,
   Day,
+  Entitlement,
   Inspiration,
   Item,
   ItemImage,
@@ -23,7 +25,7 @@ import type {
 import type { SyncState } from '@/domain/sync';
 
 export const DB_NAME = 'daily-schedule';
-export const DB_VERSION = 7;
+export const DB_VERSION = 8;
 
 export interface ItemTable extends Item {}
 export interface TaskTable extends Task {}
@@ -35,6 +37,10 @@ export interface ItemImageTable extends ItemImage {}
 export interface TaskImageTable extends TaskImage {}
 export interface RoutineTable extends Routine {}
 export interface RoutineCompletionTable extends RoutineCompletion {}
+/** 账号画像（非敏感缓存，主键固定 'current'；token 不入库） */
+export interface AccountTable extends Account {}
+/** 权益快照（服务端权益的本地缓存，主键固定 'current'） */
+export interface EntitlementTable extends Entitlement {}
 /**
  * 同步状态行。全表只有一行（`key === 'state'`），
  * 字段与 `SyncState` 平铺，省掉一层 JSON 序列化。
@@ -63,6 +69,9 @@ export const SYNC_STATE_KEY = 'state';
  * 新增索引不需要数据迁移，Dexie 会自动重建。
  * v7 变更（每日固定任务）：新增 `routines`（例行模板，跨日期复用）与 `routineCompletions`
  * （按 routineId + date 维度的每日完成记录）两张表。同样重申全部既有表。
+ * v8 变更（账号与权益）：新增 `account`（账号画像缓存，主键固定 'current'）与
+ * `entitlements`（权益快照缓存，plan / updatedAt 索引）两张表。同样重申全部既有表。
+ * 🔴 token 不进库：敏感令牌走 platform 安全存储，本库只存非敏感画像与权益快照。
  */
 export const STORES = {
   items: '&id, date, sectionId, parentId, [date+sectionId], deletedAt, updatedAt',
@@ -75,6 +84,8 @@ export const STORES = {
   taskImages: '&id, taskId',
   routines: '&id, order, sectionId, deletedAt, updatedAt',
   routineCompletions: '&id, routineId, date',
+  account: '&id',
+  entitlements: '&id, plan, updatedAt',
   syncMeta: '&key',
 } as const;
 

@@ -1,11 +1,18 @@
 import type {
+  Account,
+  AuthToken,
+  CodeRequestResult,
   DailySelfStatus,
   Day,
+  Entitlement,
   Inspiration,
   Item,
   ItemImage,
+  Plan,
   Routine,
   RoutineCompletion,
+  Session,
+  SignInCredential,
   Task,
   TaskImage,
   TimeSlot,
@@ -191,6 +198,96 @@ export interface SettingsRepository {
 }
 
 /* ------------------------------------------------------------------ */
+/* 账号与权益（独立于业务仓储，但同样走 repositories 这一层）            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 账号画像仓储（缓存当前登录用户的非敏感信息）。
+ *
+ * 与业务仓储同处 `repositories/`：它也是 IndexedDB 的一张表，只是存的不是业务数据。
+ * token 不在这里 —— 见 `TokenStore`（安全存储）。
+ */
+export interface AccountRepository {
+  /** 读取当前账号（无则 undefined） */
+  get(): Promise<Account | undefined>;
+  /** 写入 / 覆盖（主键固定 'current'） */
+  upsert(account: Account): Promise<void>;
+  /** 退出登录时清除 */
+  clear(): Promise<void>;
+}
+
+/** 权益快照仓储（服务端权益的本地缓存） */
+export interface EntitlementRepository {
+  get(): Promise<Entitlement | undefined>;
+  upsert(entitlement: Entitlement): Promise<void>;
+  clear(): Promise<void>;
+}
+
+/**
+ * 鉴权网关（唯一允许打网络的地方，与 SyncGateway 同级的第二条通道）。
+ *
+ * 业务层不直接认识它 —— 只有 `services/authService` 调用。
+ * 当前为本地实现（platform/auth/localAuthGateway.ts：验证码登录 + 本机账号）；
+ * 接 WorkBuddy 云服务 / 微信 / Apple 时仅替换该实现，业务零改动。
+ */
+export interface AuthGateway {
+  /**
+   * 请求登录验证码。
+   * 本地实现是「模拟短信/邮件」：生成 6 位码并通过 `devCode` 回传供 UI 展示；
+   * 真实后端把码发给用户，不回传。
+   */
+  requestCode(identifier: string): Promise<CodeRequestResult>;
+  /** 凭验证码登录（首次登录自动建号），返回完整会话 */
+  signIn(credential: SignInCredential): Promise<Session>;
+  /** 退出登录（清掉对端会话，由调用方负责清本地） */
+  signOut(): Promise<void>;
+  /** 取已存储的会话（冷启动 hydrate 用）；无则返回 null */
+  getStoredSession(): Promise<Session | null>;
+  /** 用 refreshToken 换新的 accessToken */
+  refreshToken(token: AuthToken): Promise<AuthToken>;
+}
+
+/** 登录方式。iOS 若上了第三方登录（如微信），必须同时提供 'apple'（App Store 审核红线） */
+export type AuthProvider = 'apple' | 'email' | 'phone' | 'wechat';
+
+/**
+ * 权益网关：拿着 userId + token 去服务端拉最新权益。
+ * 服务端是真相源；客户端缓存见 `EntitlementRepository`。
+ */
+export interface EntitlementGateway {
+  fetch(userId: string, token: AuthToken): Promise<Entitlement>;
+}
+
+/**
+ * 购买网关：开通 / 续费 / 恢复购买。
+ *
+ * 与 `EntitlementGateway`（只读）分开：一个是「查」，一个是「买」。
+ * 真实实现里购买要走支付渠道（iOS App Store / 微信支付）并由服务端校验回执；
+ * 当前为本地模拟实现（platform/auth/localPurchaseGateway.ts），
+ * 换真实支付时只替换这一个文件，上层 store / UI 零改动。
+ */
+export interface PurchaseGateway {
+  /** 购买 / 续费某套餐，返回新的权益快照（调用方负责落库） */
+  purchase(plan: Plan): Promise<Entitlement>;
+  /** 恢复购买：重放本机已购权益；无购买记录返回免费态 */
+  restore(): Promise<Entitlement>;
+}
+
+/**
+ * 鉴权令牌安全存储。
+ *
+ * 🔴 敏感信息**绝不进 IndexedDB / localStorage 明文**：走平台安全存储
+ *（Capacitor → iOS Keychain / Android EncryptedSharedPreferences）。
+ * 当前 mock 实现用内存 + 可选兜底（platform/auth/secureTokenStore.ts）。
+ * 这一端口本身在 domain 层定义，实现落在 platform 层（只有那里能碰浏览器 / 原生 API）。
+ */
+export interface TokenStore {
+  save(token: AuthToken): Promise<void>;
+  load(): Promise<AuthToken | null>;
+  clear(): Promise<void>;
+}
+
+/* ------------------------------------------------------------------ */
 /* 同步端口（平行于 Repositories 的**第二条**通道）                     */
 /* ------------------------------------------------------------------ */
 
@@ -240,6 +337,8 @@ export interface Repositories {
   taskImages: TaskImageRepository;
   routines: RoutineRepository;
   routineCompletions: RoutineCompletionRepository;
+  account: AccountRepository;
+  entitlements: EntitlementRepository;
   settings: SettingsRepository;
   /**
    * 同步状态（deviceId / 双游标 / 时钟偏移）。

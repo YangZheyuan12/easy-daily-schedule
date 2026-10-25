@@ -1,5 +1,8 @@
 import type {
+  Account,
+  AuthToken,
   DailySelfStatus,
+  Entitlement,
   Inspiration,
   Item,
   Routine,
@@ -118,6 +121,45 @@ export function makeRoutineCompletion(
     routineId: 'rt1',
     date: '2026-10-10',
     done: false,
+    updatedAt: 1000,
+    ...partial,
+  };
+}
+
+/** 测试用账号画像工厂（主键固定 'current'，token 不入库） */
+export function makeAccount(partial: Partial<Account> & { userId: string }): Account {
+  return {
+    id: 'current',
+    phone: null,
+    email: null,
+    displayName: null,
+    avatarUrl: null,
+    createdAt: 1000,
+    updatedAt: 1000,
+    ...partial,
+  };
+}
+
+/** 测试用鉴权令牌工厂（默认 1 小时后过期） */
+export function makeAuthToken(partial: Partial<AuthToken> = {}): AuthToken {
+  return {
+    accessToken: 'access-token',
+    refreshToken: 'refresh-token',
+    expiresAt: 1000 + 60 * 60 * 1000,
+    ...partial,
+  };
+}
+
+/** 测试用权益快照工厂（默认免费 / 未生效） */
+export function makeEntitlement(partial: Partial<Entitlement> = {}): Entitlement {
+  return {
+    id: 'current',
+    plan: 'free',
+    state: 'none',
+    expireAt: null,
+    graceUntil: null,
+    provider: null,
+    receiptRef: null,
     updatedAt: 1000,
     ...partial,
   };

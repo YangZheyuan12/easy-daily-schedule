@@ -1,7 +1,9 @@
 import Dexie, { type EntityTable } from 'dexie';
 import type {
+  Account,
   DailySelfStatus,
   Day,
+  Entitlement,
   Inspiration,
   Item,
   ItemImage,
@@ -33,6 +35,10 @@ export class AppDatabase extends Dexie {
   routines!: EntityTable<Routine, 'id'>;
   /** 每日固定任务的每日完成记录（按 routineId + date 维度） */
   routineCompletions!: EntityTable<RoutineCompletion, 'id'>;
+  /** 账号画像缓存（非敏感，主键固定 'current'；token 不入库） */
+  account!: EntityTable<Account, 'id'>;
+  /** 权益快照缓存（服务端权益的本地缓存，主键固定 'current'） */
+  entitlements!: EntityTable<Entitlement, 'id'>;
   /** 同步状态（单行）。与业务表同库，保证「写完数据 + 推进游标」可在同一事务里做 */
   syncMeta!: EntityTable<SyncMetaTable, 'key'>;
 

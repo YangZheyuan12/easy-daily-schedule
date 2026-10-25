@@ -6,6 +6,8 @@ import { useTaskStore } from '@/store/useTaskStore';
 import { useTimeSlotStore } from '@/store/useTimeSlotStore';
 import { useInspirationStore } from '@/store/useInspirationStore';
 import { useRoutineStore } from '@/store/useRoutineStore';
+import { useAuthStore } from '@/store/useAuthStore';
+import { useEntitlementStore } from '@/store/useEntitlementStore';
 import { useUiStore } from '@/store/useUiStore';
 import { bindLifecycle, onError, persistence, purgeExpiredSoftDeletes, repos } from '@/store/bootstrap';
 import { BottomTabBar } from './BottomTabBar';
@@ -23,6 +25,7 @@ import { useTabSwipe } from '@/hooks/useTabSwipe';
 export function AppShell() {
   const date = useDayStore((s) => s.date);
   const pushToast = useUiStore((s) => s.pushToast);
+  const authStatus = useAuthStore((s) => s.status);
 
   useKeyboardAvoid();
 
@@ -37,11 +40,25 @@ export function AppShell() {
     });
     void purgeExpiredSoftDeletes();
 
+    // 账号会话冷启动恢复；权益缓存并行 hydrate（开机即用，不等登录 ——
+    // 购买记录是本机数据，未登录时 Pro 也应生效）。登录态就绪后的刷新
+    // 交给下面的 authStatus effect，避免这里链式嵌套。
+    void useAuthStore.getState().init();
+    void useEntitlementStore.getState().hydrate();
+
     return () => {
       unbindLifecycle();
       unbindError();
     };
   }, [pushToast]);
+
+  // 登录态每次落定（冷启动恢复 / 现场登录 / 登出）→ 刷新权益。
+  // 权益刷新依赖登录态里的 token，所以挂在这里而不是 init() 的回调里。
+  useEffect(() => {
+    if (authStatus === 'authenticated') {
+      void useEntitlementStore.getState().refresh();
+    }
+  }, [authStatus]);
 
   useEffect(() => {
     // 切日期前先把当前编辑内容落盘，避免切换即丢失

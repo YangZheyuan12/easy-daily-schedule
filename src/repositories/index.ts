@@ -12,6 +12,8 @@ import { IndexedDbItemImageRepository } from './IndexedDbItemImageRepository';
 import { IndexedDbTaskImageRepository } from './IndexedDbTaskImageRepository';
 import { IndexedDbRoutineRepository } from './IndexedDbRoutineRepository';
 import { IndexedDbRoutineCompletionRepository } from './IndexedDbRoutineCompletionRepository';
+import { IndexedDbAccountRepository } from './IndexedDbAccountRepository';
+import { IndexedDbEntitlementRepository } from './IndexedDbEntitlementRepository';
 import { LocalSettingsRepository } from './LocalSettingsRepository';
 import { IndexedDbSyncStateRepository } from './IndexedDbSyncStateRepository';
 
@@ -28,6 +30,8 @@ export { IndexedDbItemImageRepository } from './IndexedDbItemImageRepository';
 export { IndexedDbTaskImageRepository } from './IndexedDbTaskImageRepository';
 export { IndexedDbRoutineRepository } from './IndexedDbRoutineRepository';
 export { IndexedDbRoutineCompletionRepository } from './IndexedDbRoutineCompletionRepository';
+export { IndexedDbAccountRepository } from './IndexedDbAccountRepository';
+export { IndexedDbEntitlementRepository } from './IndexedDbEntitlementRepository';
 export { LocalSettingsRepository, MemorySettingsRepository } from './LocalSettingsRepository';
 export {
   IndexedDbSyncStateRepository,
@@ -53,6 +57,8 @@ export function createRepositories(): Repositories {
     taskImages: new IndexedDbTaskImageRepository(db),
     routines: new IndexedDbRoutineRepository(db),
     routineCompletions: new IndexedDbRoutineCompletionRepository(db),
+    account: new IndexedDbAccountRepository(db),
+    entitlements: new IndexedDbEntitlementRepository(db),
     settings: new LocalSettingsRepository(),
     syncState: new IndexedDbSyncStateRepository(db),
   };
