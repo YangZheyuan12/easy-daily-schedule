@@ -143,27 +143,44 @@ jobs:
 
       # 读取 versionName（android/app/build.gradle 是版本号的唯一来源），
       # 写进 Release body 的 `version:` 行 —— App 端「检查更新」靠这一行解析最新版本号。
+      # 同时推出 `v` 前缀的版本 tag（如 versionName=1.3 → vtag=v1.3），
+      # 用于发布到对应的语义化版本 Release（与 git tag 对齐）。
       - name: Read versionName
         id: version
         if: github.event_name == 'workflow_dispatch' && steps.keystore.outputs.present == 'true'
         run: |
           VERSION="$(sed -nE 's/^[[:space:]]*versionName[[:space:]]+"([^"]+)"/\1/p' android/app/build.gradle | head -n1)"
           echo "name=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
 
-      # 手动发布到 GitHub Release（仅 workflow_dispatch 且配了签名 secrets 时）：
-      # - tag 固定为 `latest`（同名 tag 每次 force 覆盖），于是永远能用一个稳定链接
-      #   下载最新 APK：
+      # 手动发布到 GitHub Release（仅 workflow_dispatch 且配了签名 secrets 时）。
+      # 发布两个 Release，指向同一份签名 APK：
+      # - `latest`：同名 tag 每次 force 覆盖，永远能用一个稳定链接下载最新包：
       #     https://github.com/YangZheyuan12/easy-daily-schedule/releases/latest
-      # - 用官方 softprops/action-gh-release@v2（比手写 gh release 更稳）：
-      #   它自动 force 覆盖同名 tag、自动处理 GITHUB_TOKEN 权限。
-      # - body 首行固定 `version: <versionName>`，App 端据此解析版本号并做新旧比对。
-      # - 只发布 APK 单文件，手机浏览器点开即可下载安装（仍需在手机上允许「未知来源」）。
-      - name: Publish APK to GitHub Release
+      # - `v<versionName>`（如 v1.3）：与语义化 git tag 对齐，用户按版本号找对应包。
+      # 用官方 softprops/action-gh-release@v2（比手写 gh release 更稳）：
+      # 它自动处理 GITHUB_TOKEN 权限；对同名 tag 会 force 覆盖。
+      # body 首行固定 `version: <versionName>`，App 端据此解析版本号并做新旧比对。
+      # 只发布 APK 单文件，手机浏览器点开即可下载安装（仍需在手机上允许「未知来源」）。
+      - name: Publish APK to GitHub Release (latest)
         if: github.event_name == 'workflow_dispatch' && steps.keystore.outputs.present == 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest
           name: latest
+          body: |
+            version: ${{ steps.version.outputs.name }}
+
+            手动发布的签名 APK（versionName ${{ steps.version.outputs.name }}）。
+            覆盖安装保留数据，下载下方 APK 安装即可。
+          files: android/app/build/distributions/ezschedule-daily.apk
+
+      - name: Publish APK to GitHub Release (versioned tag)
+        if: github.event_name == 'workflow_dispatch' && steps.keystore.outputs.present == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: ${{ steps.version.outputs.tag }}
           body: |
             version: ${{ steps.version.outputs.name }}
 
