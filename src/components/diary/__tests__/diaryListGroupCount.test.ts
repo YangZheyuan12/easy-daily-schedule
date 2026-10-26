@@ -128,7 +128,7 @@ describe('DiaryList 组头「N项」— 四板块', () => {
     expect(headerText(container, '灵感')).toContain('0项');
   });
 
-  it('时间段投影计入 N项；未归类（sectionId=null）的时间段不进任何组', () => {
+  it('时间段**不再**投影计入 N项（2026-10-26：只有同步成条目才出现）', () => {
     useItemStore.setState({
       items: [makeItem({ id: 'w1', sectionId: 'work', order: ORDER_STEP })],
       loading: false,
@@ -145,8 +145,8 @@ describe('DiaryList 组头「N项」— 四板块', () => {
 
     const container = renderDiary();
 
-    // 1 条目 + 1 归类时间段 = 2 项；未归类的时间段不属于任何板块
-    expect(headerText(container, '工作')).toContain('2项');
+    // 时间段不再自动投影：N 项只看本板块条目（1 条），归类和未归类的时间段都不计入
+    expect(headerText(container, '工作')).toContain('1项');
     expect(headerText(container, '学习')).toContain('0项');
   });
 

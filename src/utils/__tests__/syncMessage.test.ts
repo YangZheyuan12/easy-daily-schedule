@@ -33,4 +33,10 @@ describe('syncButtonLabel — 确认按钮文案', () => {
   it('负向：什么都动不了时不能写成「同步 0 项」', () => {
     expect(syncButtonLabel({ create: 0, update: 0 })).toBe('今日页已是最新');
   });
+
+  it('未勾选任何任务时提示「请勾选」，不能写「今日页已是最新」', () => {
+    expect(syncButtonLabel({ create: 0, update: 0 }, false)).toBe('请勾选要同步的任务');
+    // 即使有可同步的项，只要还没勾选，也不该用「已是最新」的口吻
+    expect(syncButtonLabel({ create: 3, update: 0 }, false)).toBe('请勾选要同步的任务');
+  });
 });

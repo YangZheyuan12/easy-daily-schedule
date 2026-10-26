@@ -1,7 +1,7 @@
-import type { AiAnalysisRequest, AiAnalysisResult, AiProviderConfig } from '@/domain/types';
+import type { AiAnalysisRequest, AiAnalysisResult, AiChatRequest, AiProviderConfig } from '@/domain/types';
 import type { AiGateway } from '@/domain/ports';
 import { DomainError } from '@/domain/errors';
-import { AI_SYSTEM_PROMPT, buildUserPrompt } from './prompt';
+import { AI_SYSTEM_PROMPT, AI_CHAT_SYSTEM_PROMPT, buildUserPrompt, buildChatUserPrompt } from './prompt';
 import { extractJsonObject, safeErrorText } from './parse';
 
 function joinUrl(base: string, path: string): string {
@@ -46,6 +46,42 @@ export function createAnthropicGateway(): AiGateway {
       const data = await res.json().catch(() => null);
       const content = (data as { content?: { text?: string }[] } | null)?.content?.[0]?.text ?? '';
       return extractJsonObject(content) as AiAnalysisResult;
+    },
+
+    async chat(request: AiChatRequest, config: AiProviderConfig, apiKey: string): Promise<string> {
+      const url = joinUrl(config.baseUrl, '/messages');
+      const messages = [
+        ...request.history.map((m) => ({ role: m.role, content: m.content })),
+        { role: 'user', content: buildChatUserPrompt(request) },
+      ];
+      let res: Response;
+      try {
+        res = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': apiKey,
+            'anthropic-version': '2023-06-01',
+            'anthropic-dangerous-direct-browser-access': 'true',
+          },
+          body: JSON.stringify({
+            model: config.model,
+            max_tokens: 1024,
+            system: AI_CHAT_SYSTEM_PROMPT,
+            messages,
+          }),
+        });
+      } catch {
+        throw new DomainError('无法连接到 Anthropic，请检查 Base URL 与网络');
+      }
+      if (!res.ok) {
+        const detail = await safeErrorText(res);
+        throw new DomainError(`Anthropic 接口返回 ${res.status}${detail ? `：${detail}` : ''}`);
+      }
+      const data = await res.json().catch(() => null);
+      const content = (data as { content?: { text?: string }[] } | null)?.content?.[0]?.text ?? '';
+      if (!content.trim()) throw new DomainError('AI 未返回内容');
+      return content;
     },
 
     async testConnection(config: AiProviderConfig, apiKey: string): Promise<void> {

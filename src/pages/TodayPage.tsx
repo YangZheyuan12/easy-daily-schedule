@@ -11,7 +11,6 @@ import { DateNavigator, type DateViewMode } from '@/components/date/DateNavigato
 import { DatePickerModal } from '@/components/date/DatePickerModal';
 import { SelfStatusCard } from '@/components/selfstatus/SelfStatusCard';
 import { DiaryList } from '@/components/diary/DiaryList';
-import { RoutineSection } from '@/components/routine/RoutineSection';
 import { WeekSectionBoards } from '@/components/diary/WeekSectionBoards';
 import { ReminderBanner } from '@/components/reminder/ReminderBanner';
 import { ItemSheet } from '@/components/item/ItemSheet';
@@ -116,9 +115,6 @@ export function TodayPage() {
           <ReminderBanner />
 
           <div className="m-rise px-5 mt-2.5 space-y-4">
-            {/* 每日固定任务：跨日期复用的例行模板，当天独立勾选 */}
-            <RoutineSection date={date} />
-
             {/* 自我状态（心情 + 身体）— 紧凑单行，点开再编辑 */}
             <SelfStatusCard date={date} />
 

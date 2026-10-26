@@ -1,6 +1,12 @@
 import { create } from 'zustand';
-import type { AiAnalysisRecord, AiAnalysisResult, AiFocus, AiProviderConfig } from '@/domain/types';
+import type { AiAnalysisRecord, AiAnalysisResult, AiChatMessage, AiFocus, AiProviderConfig } from '@/domain/types';
 import { aiService } from './bootstrap';
+
+/** 对话里的展示消息（含「正在输入」占位） */
+export interface ChatItem {
+  role: 'user' | 'assistant';
+  content: string;
+}
 
 interface AiState {
   /** 当前接入配置（不含密钥） */
@@ -13,6 +19,8 @@ interface AiState {
   error: string | null;
   /** 分析历史 */
   history: AiAnalysisRecord[];
+  /** 对话消息列表（我的页 AI 聊天） */
+  chat: ChatItem[];
 
   /** 启动时拉一次配置与密钥标记 */
   load: () => Promise<void>;
@@ -26,14 +34,22 @@ interface AiState {
   runAnalysis: (rangeStart: string, rangeEnd: string, focus: AiFocus) => Promise<AiAnalysisResult>;
   /** 连通性自检 */
   testConnection: () => Promise<void>;
+  /** 清空对话 */
+  clearChat: () => void;
+  /**
+   * 发送一条对话消息，返回 AI 回复文本。
+   * rangeStart/rangeEnd 由调用方给出（默认最近 30 天）。
+   */
+  sendMessage: (message: string, rangeStart: string, rangeEnd: string) => Promise<string>;
 }
 
-export const useAiStore = create<AiState>((set) => ({
+export const useAiStore = create<AiState>((set, get) => ({
   config: null,
   keySet: false,
   busy: false,
   error: null,
   history: [],
+  chat: [],
 
   async load() {
     try {
@@ -99,6 +115,41 @@ export const useAiStore = create<AiState>((set) => ({
       const message = error instanceof Error ? error.message : '连接测试失败';
       set({ busy: false, error: message });
       throw error;
+    }
+  },
+
+  clearChat() {
+    set({ chat: [] });
+  },
+
+  async sendMessage(message, rangeStart, rangeEnd) {
+    const trimmed = message.trim();
+    if (!trimmed) return '';
+    // 当前对话作为历史发给模型（不含刚追加的用户消息）
+    const history: AiChatMessage[] = get().chat.map((m) => ({
+      role: m.role,
+      content: m.content,
+    }));
+    set((state) => ({
+      chat: [...state.chat, { role: 'user', content: trimmed }],
+      busy: true,
+      error: null,
+    }));
+    try {
+      const reply = await aiService.chat(trimmed, history, rangeStart, rangeEnd);
+      set((state) => ({
+        chat: [...state.chat, { role: 'assistant', content: reply }],
+        busy: false,
+      }));
+      return reply;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'AI 回复失败';
+      set((state) => ({
+        chat: [...state.chat, { role: 'assistant', content: `抱歉，出错了：${message}` }],
+        busy: false,
+        error: message,
+      }));
+      return '';
     }
   },
 }));

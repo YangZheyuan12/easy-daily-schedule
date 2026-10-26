@@ -16,3 +16,4 @@ export function newId(prefix = ''): string {
 
 export const newItemId = (): string => newId('it');
 export const newTaskId = (): string => newId('tk');
+export const newPinCompletionId = (taskId: string, date: string): string => `${taskId}@${date}`;

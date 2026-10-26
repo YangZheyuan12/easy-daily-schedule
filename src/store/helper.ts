@@ -1,4 +1,4 @@
-import type { Item, Routine, RoutineCompletion, Task } from '@/domain/types';
+import type { Item, PinCompletion, Task } from '@/domain/types';
 import { persistence } from './bootstrap';
 
 /**
@@ -36,26 +36,11 @@ export function persistTasks(tasks: readonly Task[], ids: readonly string[], imm
   persistence.markTasks(touched);
 }
 
-export function persistRoutines(
-  routines: readonly Routine[],
-  ids: readonly string[],
-  immediate = false,
-): void {
-  const touched = pickTouched(routines, ids);
-  if (touched.length === 0) return;
+export function persistPinCompletion(completion: PinCompletion, immediate = true): void {
   if (immediate) {
-    persistence.markRoutines(touched);
+    persistence.markPinCompletion(completion);
     void persistence.scheduleImmediate();
     return;
   }
-  persistence.markRoutines(touched);
-}
-
-export function persistRoutineCompletion(completion: RoutineCompletion, immediate = true): void {
-  if (immediate) {
-    persistence.markRoutineCompletion(completion);
-    void persistence.scheduleImmediate();
-    return;
-  }
-  persistence.markRoutineCompletion(completion);
+  persistence.markPinCompletion(completion);
 }

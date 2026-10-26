@@ -21,6 +21,7 @@ import {
   type SlotForm,
 } from '@/components/timeline/SlotEditorSheet';
 import { listDueSlots } from '@/services/reminderService';
+import { useDayFestivals } from '@/hooks/useDayFestivals';
 import { buildWeekTimetable } from '@/services/weekViewService';
 import { collectSyncedSlotIds, planSlotSync } from '@/services/slotSyncService';
 import type { SlotSyncPlan } from '@/services/slotSyncService';
@@ -70,16 +71,16 @@ export function TimelinePage() {
   const loadRange = useRangeStore((s) => s.loadRange);
 
   /*
-    「同步到今日」的勾选模式 —— **勾选即对齐**（2026-10-20 改）。
+    「同步到今日」的勾选模式 —— **勾选即对齐**（2026-10-26 改）。
 
-    已同步过的时间段（今日页存在**存活**的 `sourceSlotId` 指向它的条目）进入勾选模式时
-    **默认勾上**：再确认一次是「把今日页那条更新成时间轴现在的样子」，而不是堆出第二条。
+    时间轴时间段**不再自动投影**到今日页（见 `diaryService`）：「同步到今日」按钮
+    是时间段进入今日页的唯一途径。已同步过的时间段（今日页存在**存活**的
+    `sourceSlotId` 指向它的条目）进入勾选模式时**默认勾上**：再确认一次是
+    「把今日页那条更新成时间轴现在的样子」，而不是堆出第二条。
     可以取消勾选 —— 那只是「这一轮不碰它」，不会删掉今日页的条目。
     （今日页那条被删掉后，这里默认不再勾，可以重新同步一次。）
 
-    🔴 去重要靠同一套 `sourceSlotId` 标记，而且**今日页的只读投影也必须排除掉这些时段**
-    （见 `diaryService` / `calendarService` 里的 `collectSyncedSlotIds`），
-    否则一条时段会同时作为「投影」和「条目」各占一个编号。
+    去重靠 `sourceSlotId` 标记：同一个时段勾选再多次也只对应一条条目。
   */
   const [selecting, setSelecting] = useState(false);
   const [checked, setChecked] = useState<ReadonlySet<string>>(new Set());
@@ -255,11 +256,16 @@ export function TimelinePage() {
 
   const weekStep = mode === 'week' ? 7 : 1;
 
+  // 日期下方的农历 / 节日行（与今日页一致）；周视图不显示（范围文案没有单日农历）
+  const { festivalLine, lunarLine } = useDayFestivals(date);
+  const subtitleText = [lunarLine, festivalLine].filter(Boolean).join(' · ');
+
   return (
     <div className="flex flex-col min-h-full pb-28">
       {/* 概念稿 C3：这一屏直接以日期导航开场，不放页面大标题 */}
       <DateNavigator
         date={date}
+        subtitleText={mode === 'day' ? subtitleText || null : null}
         onPrev={() => shiftDate(-weekStep)}
         onNext={() => shiftDate(weekStep)}
         onToday={goToday}
@@ -477,7 +483,7 @@ export function TimelinePage() {
                 data-testid="timeline-sync-confirm"
                 className="press flex-[2] min-h-[46px] rounded-pill bg-accent text-lead text-accent-fg disabled:opacity-50"
               >
-                {syncButtonLabel(planCounts)}
+                {syncButtonLabel(planCounts, checked.size > 0)}
               </button>
             </>
           ) : (

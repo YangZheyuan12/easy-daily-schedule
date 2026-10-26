@@ -3,6 +3,7 @@ import type {
   Day,
   Inspiration,
   Item,
+  PinCompletion,
   Task,
   TimeSlot,
 } from '@/domain/types';
@@ -59,6 +60,11 @@ export interface BackupTables {
    * 解析时缺了按空数组兜底，老备份照样能导进来。
    */
   taskImages?: BackupTaskImage[];
+  /**
+   * 可选：定住任务的每日完成态。**后加的字段**（旧版本备份里没有），
+   * 解析时缺了按空数组兜底。
+   */
+  pinCompletions?: PinCompletion[];
 }
 
 export interface BackupPayload {
@@ -169,7 +175,7 @@ export function parseBackup(text: string): ParseResult {
     return { ok: false, error: '备份文件缺少数据段' };
   }
 
-  // 每张表都必须是数组；缺省的表按空数组处理（老版本备份可能没有 images / taskImages）
+  // 每张表都必须是数组；缺省的表按空数组处理（老版本备份可能没有 images / taskImages / pinCompletions）
   const names: (keyof BackupTables)[] = [
     'items',
     'tasks',
@@ -179,6 +185,7 @@ export function parseBackup(text: string): ParseResult {
     'inspirations',
     'images',
     'taskImages',
+    'pinCompletions',
   ];
   for (const name of names) {
     const value = tables[name];
@@ -196,6 +203,7 @@ export function parseBackup(text: string): ParseResult {
     inspirations: Array.isArray(tables.inspirations) ? tables.inspirations : [],
     images: Array.isArray(tables.images) ? tables.images : [],
     taskImages: Array.isArray(tables.taskImages) ? tables.taskImages : [],
+    pinCompletions: Array.isArray(tables.pinCompletions) ? tables.pinCompletions : [],
   };
 
   // exportedAt 缺失时兜底为 0，不影响导入（只是摘要里显示不出来）

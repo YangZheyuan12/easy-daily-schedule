@@ -8,16 +8,18 @@ import { useTaskStore } from '@/store/useTaskStore';
 import { useItemStore } from '@/store/useItemStore';
 import { useDayStore } from '@/store/useDayStore';
 import { useUiStore } from '@/store/useUiStore';
-import { PageHeader } from '@/components/layout/PageHeader';
+import { ConfirmSheet } from '@/components/ui/ConfirmSheet';
 import { TaskRow } from '@/components/task/TaskRow';
+import { DateNavigator } from '@/components/date/DateNavigator';
 import { DatePickerModal } from '@/components/date/DatePickerModal';
 import { useDragSort } from '@/hooks/useDragSort';
 import { DeadlineCard } from '@/components/task/DeadlineCard';
 import { GoalCard } from '@/components/task/GoalCard';
-import { RoutineSection } from '@/components/routine/RoutineSection';
 import { EmptyState } from '@/components/feedback/EmptyState';
 import { computeTaskProgress, toPercent } from '@/services/progressService';
 import { collectSyncedTaskIds, planTaskSync } from '@/services/taskSyncService';
+import { isPinProjection, isActivelyPinned } from '@/services/pinProjectionService';
+import { useDayFestivals } from '@/hooks/useDayFestivals';
 import { formatShortDate, isToday } from '@/utils/date';
 import { describeSyncCounts, syncButtonLabel } from '@/utils/syncMessage';
 import { useKeyboardVisible, KEYBOARD_HIDDEN_CLASS } from '@/hooks/useKeyboardVisible';
@@ -35,17 +37,22 @@ import { useKeyboardVisible, KEYBOARD_HIDDEN_CLASS } from '@/hooks/useKeyboardVi
 export function TasksPage() {
   const date = useDayStore((s) => s.date);
   const setDate = useDayStore((s) => s.setDate);
+  const shiftDate = useDayStore((s) => s.shiftDate);
   const goToday = useDayStore((s) => s.goToday);
   const tasks = useTaskStore((s) => s.tasks);
   const add = useTaskStore((s) => s.add);
   const setSection = useTaskStore((s) => s.setSection);
   const inherit = useTaskStore((s) => s.inheritFromYesterday);
   const reorderIds = useTaskStore((s) => s.reorderIds);
+  const pin = useTaskStore((s) => s.pin);
+  const unpin = useTaskStore((s) => s.unpin);
   const pushToast = useUiStore((s) => s.pushToast);
 
   const [focusId, setFocusId] = useState<string | null>(null);
   /** 正在改分组的任务 id（气泡由那一行自己挂，页面只记「哪一行开着」） */
   const [pickingId, setPickingId] = useState<string | null>(null);
+  /** 点了「定住」按钮、正在等确认的任务 id（确认框只在有值时打开） */
+  const [pinConfirmId, setPinConfirmId] = useState<string | null>(null);
 
   /*
     「同步到今日」的勾选模式（2026-10-20 改，与时间轴页同构）。
@@ -82,6 +89,12 @@ export function TasksPage() {
     [tasks],
   );
   const progress = useMemo(() => computeTaskProgress(dailyAlive), [dailyAlive]);
+  /** 点了「定住」按钮、正在等确认的任务（确认框只在有值时打开） */
+  const pinConfirmTask = pinConfirmId ? dailyAlive.find((t) => t.id === pinConfirmId) : undefined;
+
+  // 日期下方的农历 / 节日行（与今日页一致）
+  const { festivalLine, lunarLine } = useDayFestivals(date);
+  const subtitleText = [lunarLine, festivalLine].filter(Boolean).join(' · ');
 
   /*
     拖拽排序。
@@ -110,9 +123,15 @@ export function TasksPage() {
     pushToast(`已继承 ${created} 项未完成任务`);
   };
 
-  /** 这条任务能不能同步：必须**已分组（非「其他」）且写了内容** */
+  /**
+   * 这条任务能不能同步：必须**已分组（非「其他」）且写了内容**，
+   * 且不是「定住投影」（定住任务每天自动重复，其 date 是定住当天而非今天，
+   * 无法同步到今日页，故显式排除，避免计数与实际同步不符）。
+   */
   const isSyncable = (task: Task) =>
-    isSyncableSection(task.sectionId) && task.content.trim().length > 0;
+    isSyncableSection(task.sectionId) &&
+    task.content.trim().length > 0 &&
+    !isPinProjection(task, date);
 
   const syncableCount = useMemo(() => dailyAlive.filter(isSyncable).length, [dailyAlive]);
 
@@ -166,51 +185,29 @@ export function TasksPage() {
 
   return (
     <div className="flex flex-col min-h-full">
-      <PageHeader
-        title="每日任务"
-        /*
-          右上角「回到今日」：只在看的不是今天时出现。
-          在日历里挑了别的日子之后，任务页会一直停在那一天 —— 而任务页的日期入口
-          在**副标题里**（很小），没有任何一步到位的返回。今天时不需要它，显示即噪音。
-        */
-        right={
-          isToday(date) ? undefined : (
-            <button
-              type="button"
-              onClick={goToday}
-              data-testid="back-to-today"
-              className="press min-h-[34px] px-3 rounded-pill bg-accent text-meta text-accent-fg shadow-glow inline-flex items-center gap-1"
-              aria-label="回到今日"
-            >
-              <Icon name="undo" size={13} />
-              回到今日
-            </button>
-          )
-        }
-        subtitle={
-          <>
-            {/* 日期可点 → 就地弹出日期选择卡片（不切 Tab，见 DatePickerModal） */}
-            <button
-              type="button"
-              onClick={() => setDatePickerOpen(true)}
-              className="press -my-2 py-2 pr-0.5 inline-flex items-center gap-0.5 active:opacity-60"
-              aria-label="选择日期"
-            >
-              {formatShortDate(date)}
-              <Icon name="chevron-right" size={13} />
-            </button>
-            <span> · 完成 {progress.done}/{progress.total}（{toPercent(progress.ratio)}%）</span>
-          </>
-        }
+      {/* 表头改用与今日 / 时间轴一致的日期导航（2026-10-26 改）：
+          左右箭头切日子、点中间日期弹出选日期卡片、看非今天时右上角给「回到今天」。 */}
+      <DateNavigator
+        date={date}
+        subtitleText={subtitleText || null}
+        onPrev={() => shiftDate(-1)}
+        onNext={() => shiftDate(1)}
+        onToday={goToday}
+        onDateClick={() => setDatePickerOpen(true)}
       />
 
       <div className="m-rise px-5 mt-1">
         {/* 进度条：粗实心条（概念稿 C2），不要描边。宽度用动效而非瞬变 —— 勾一条就能看见它前进 */}
-        <div className="h-[6px] rounded-pill bg-surface-sunken overflow-hidden">
-          <div
-            className="h-full bg-accent rounded-pill transition-[width] duration-[var(--m-dur-3)] ease-[var(--m-ease-out)]"
-            style={{ width: `${toPercent(progress.ratio)}%` }}
-          />
+        <div className="flex items-center gap-2">
+          <div className="flex-1 h-[6px] rounded-pill bg-surface-sunken overflow-hidden">
+            <div
+              className="h-full bg-accent rounded-pill transition-[width] duration-[var(--m-dur-3)] ease-[var(--m-ease-out)]"
+              style={{ width: `${toPercent(progress.ratio)}%` }}
+            />
+          </div>
+          <span className="shrink-0 text-caption text-ink-faint tabular-nums">
+            完成 {progress.done}/{progress.total}
+          </span>
         </div>
 
         {/* 两个批量操作并排：继承昨日（拉进来）与同步到今日（推过去）。
@@ -243,8 +240,6 @@ export function TasksPage() {
           </div>
         )}
       </div>
-
-      <RoutineSection date={date} className="px-5 mt-4" />
 
       <div className="m-rise flex-1 px-5 pt-3 pb-24" style={{ animationDelay: '60ms' }}>
         {dailyAlive.length === 0 ? (
@@ -286,6 +281,7 @@ export function TasksPage() {
                   }
                   handleProps={selecting ? undefined : drag.handleProps(task.id, index)}
                   onFocus={() => setFocusId(task.id)}
+                  onTogglePin={() => setPinConfirmId(task.id)}
                   onEnter={() => {
                     const id = add(date, '');
                     if (id) setFocusId(id);
@@ -342,7 +338,7 @@ export function TasksPage() {
                 data-testid="task-sync-confirm"
                 className="press flex-[2] min-h-[46px] rounded-pill bg-accent text-lead text-accent-fg disabled:opacity-50"
               >
-                {syncButtonLabel(planCounts)}
+                {syncButtonLabel(planCounts, checked.size > 0)}
               </button>
             </>
           ) : (
@@ -365,6 +361,38 @@ export function TasksPage() {
         value={date}
         onSelect={(d) => setDate(d)}
         onClose={() => setDatePickerOpen(false)}
+      />
+
+      {/*
+        「定住 / 取消定住」确认框（2026-10-26 加）。
+        点图钉按钮不再直接生效 —— 定住会让任务从当天起每天重复出现、
+        取消会让它从次日起不再出现，属于影响未来多天的动作，值得多问一句。
+        🔴 判断「是否定住」用 `isActivelyPinned`（已定住且未取消），
+        而非 `pinFrom !== null`：取消后 pinFrom 仍在、只多设了 pinUntil，
+        若只看 pinFrom 会把「已取消」误判成「仍定住」，取消后图钉纹丝不动。
+      */}
+      <ConfirmSheet
+        open={pinConfirmId !== null}
+        title={pinConfirmTask && isActivelyPinned(pinConfirmTask) ? '取消长期任务？' : '设为长期任务？'}
+        message={
+          pinConfirmTask && isActivelyPinned(pinConfirmTask)
+            ? '取消后，这条任务从明天起不再每天重复出现（今天已经有的会保留）。'
+            : '设为长期任务后，这条任务会从今天起每天重复出现；每天的完成状态相互独立。'
+        }
+        confirmText={
+          pinConfirmTask && isActivelyPinned(pinConfirmTask) ? '取消长期任务' : '设为长期任务'
+        }
+        onConfirm={() => {
+          if (!pinConfirmTask) return;
+          if (isActivelyPinned(pinConfirmTask)) {
+            unpin(pinConfirmTask.id);
+            pushToast('已取消长期任务，次日起不再重复');
+          } else {
+            pin(pinConfirmTask.id);
+            pushToast('已设为长期任务，从今天起每天重复');
+          }
+        }}
+        onClose={() => setPinConfirmId(null)}
       />
     </div>
   );

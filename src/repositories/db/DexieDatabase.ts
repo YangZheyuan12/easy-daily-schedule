@@ -8,8 +8,7 @@ import type {
   Inspiration,
   Item,
   ItemImage,
-  Routine,
-  RoutineCompletion,
+  PinCompletion,
   Task,
   TaskImage,
   TimeSlot,
@@ -32,10 +31,8 @@ export class AppDatabase extends Dexie {
   inspirations!: EntityTable<Inspiration, 'id'>;
   itemImages!: EntityTable<ItemImage, 'id'>;
   taskImages!: EntityTable<TaskImage, 'id'>;
-  /** 每日固定任务：跨日期复用的例行模板 */
-  routines!: EntityTable<Routine, 'id'>;
-  /** 每日固定任务的每日完成记录（按 routineId + date 维度） */
-  routineCompletions!: EntityTable<RoutineCompletion, 'id'>;
+  /** 定住任务的每日完成态（按 taskId + date 维度） */
+  pinCompletions!: EntityTable<PinCompletion, 'id'>;
   /** 账号画像缓存（非敏感，主键固定 'current'；token 不入库） */
   account!: EntityTable<Account, 'id'>;
   /** 权益快照缓存（服务端权益的本地缓存，主键固定 'current'） */

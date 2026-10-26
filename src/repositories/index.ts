@@ -10,8 +10,7 @@ import { IndexedDbTimeSlotRepository } from './IndexedDbTimeSlotRepository';
 import { IndexedDbInspirationRepository } from './IndexedDbInspirationRepository';
 import { IndexedDbItemImageRepository } from './IndexedDbItemImageRepository';
 import { IndexedDbTaskImageRepository } from './IndexedDbTaskImageRepository';
-import { IndexedDbRoutineRepository } from './IndexedDbRoutineRepository';
-import { IndexedDbRoutineCompletionRepository } from './IndexedDbRoutineCompletionRepository';
+import { IndexedDbPinCompletionRepository } from './IndexedDbPinCompletionRepository';
 import { IndexedDbAccountRepository } from './IndexedDbAccountRepository';
 import { IndexedDbEntitlementRepository } from './IndexedDbEntitlementRepository';
 import { IndexedDbAiAnalysisRepository } from './IndexedDbAiAnalysisRepository';
@@ -29,8 +28,7 @@ export { IndexedDbTimeSlotRepository } from './IndexedDbTimeSlotRepository';
 export { IndexedDbInspirationRepository } from './IndexedDbInspirationRepository';
 export { IndexedDbItemImageRepository } from './IndexedDbItemImageRepository';
 export { IndexedDbTaskImageRepository } from './IndexedDbTaskImageRepository';
-export { IndexedDbRoutineRepository } from './IndexedDbRoutineRepository';
-export { IndexedDbRoutineCompletionRepository } from './IndexedDbRoutineCompletionRepository';
+export { IndexedDbPinCompletionRepository } from './IndexedDbPinCompletionRepository';
 export { IndexedDbAccountRepository } from './IndexedDbAccountRepository';
 export { IndexedDbEntitlementRepository } from './IndexedDbEntitlementRepository';
 export { IndexedDbAiAnalysisRepository } from './IndexedDbAiAnalysisRepository';
@@ -57,8 +55,7 @@ export function createRepositories(): Repositories {
     inspirations: new IndexedDbInspirationRepository(db),
     itemImages: new IndexedDbItemImageRepository(db),
     taskImages: new IndexedDbTaskImageRepository(db),
-    routines: new IndexedDbRoutineRepository(db),
-    routineCompletions: new IndexedDbRoutineCompletionRepository(db),
+    pinCompletions: new IndexedDbPinCompletionRepository(db),
     account: new IndexedDbAccountRepository(db),
     entitlements: new IndexedDbEntitlementRepository(db),
     settings: new LocalSettingsRepository(),

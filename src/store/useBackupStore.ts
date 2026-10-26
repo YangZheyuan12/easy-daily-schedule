@@ -26,7 +26,6 @@ import { useItemStore } from './useItemStore';
 import { useTaskStore } from './useTaskStore';
 import { useTimeSlotStore } from './useTimeSlotStore';
 import { useInspirationStore } from './useInspirationStore';
-import { useRoutineStore } from './useRoutineStore';
 import { useDayStore } from './useDayStore';
 import { toDateKey } from '@/utils/date';
 
@@ -144,6 +143,7 @@ export const useBackupStore = create<BackupState>((set, get) => ({
         repos.selfStatus.upsertMany(t.selfStatus),
         repos.timeSlots.upsertMany(t.timeSlots),
         repos.inspirations.upsertMany(t.inspirations),
+        repos.pinCompletions.upsertMany(t.pinCompletions ?? []),
       ]);
 
       // 图片：base64 还原成 Blob；坏数据跳过而不是整份失败
@@ -258,6 +258,7 @@ async function collectBackupPayload(includeImages: boolean): Promise<BackupPaylo
     inspirationsRaw,
     imagesRaw,
     taskImagesRaw,
+    pinCompletionsRaw,
   ] = await Promise.all([
     repos.items.listAll(),
     repos.tasks.listAll(),
@@ -267,6 +268,7 @@ async function collectBackupPayload(includeImages: boolean): Promise<BackupPaylo
     repos.inspirations.listAll(),
     includeImages ? repos.itemImages.listAll() : Promise.resolve<ItemImage[]>([]),
     includeImages ? repos.taskImages.listAll() : Promise.resolve<TaskImage[]>([]),
+    repos.pinCompletions.listAll(),
   ]);
 
   const aliveTaskIds = new Set(
@@ -282,6 +284,8 @@ async function collectBackupPayload(includeImages: boolean): Promise<BackupPaylo
     inspirations: filterAlive(inspirationsRaw),
     images: [],
     taskImages: [],
+    // 定住完成态只带「仍活着的任务模板」的记录，孤儿完成态不背出去
+    pinCompletions: pinCompletionsRaw.filter((c) => aliveTaskIds.has(c.taskId)),
   };
 
   // 图片：只带「仍然活着的条目」挂着的附件，避免把已删条目的图也背出去
@@ -351,13 +355,14 @@ async function isLibraryEmpty(): Promise<boolean> {
 
 /** 覆盖导入：把当前库清干净（含软删记录，它们本来也不该留在「回到某时刻」的结果里） */
 async function clearEverything(): Promise<void> {
-  const [items, tasks, slots, inspirations, images, taskImages] = await Promise.all([
+  const [items, tasks, slots, inspirations, images, taskImages, pinCompletions] = await Promise.all([
     repos.items.listAll(),
     repos.tasks.listAll(),
     repos.timeSlots.listAll(),
     repos.inspirations.listAll(),
     repos.itemImages.listAll(),
     repos.taskImages.listAll(),
+    repos.pinCompletions.listAll(),
   ]);
 
   await Promise.all([
@@ -365,6 +370,7 @@ async function clearEverything(): Promise<void> {
     repos.tasks.hardDeleteMany(tasks.map((row) => row.id)),
     repos.timeSlots.hardDeleteMany(slots.map((row) => row.id)),
     repos.inspirations.hardDeleteMany(inspirations.map((row) => row.id)),
+    repos.pinCompletions.hardDeleteMany(pinCompletions.map((row) => row.id)),
     repos.days.clearAll(),
     repos.selfStatus.clearAll(),
   ]);
@@ -386,6 +392,5 @@ async function refreshStores(): Promise<void> {
     useTaskStore.getState().loadDate(date),
     useTimeSlotStore.getState().loadDate(date),
     useInspirationStore.getState().loadDate(date),
-    useRoutineStore.getState().loadDate(date),
   ]);
 }

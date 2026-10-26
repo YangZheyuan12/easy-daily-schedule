@@ -3,6 +3,7 @@ import type {
   AiAnalysisRecord,
   AiAnalysisRequest,
   AiAnalysisResult,
+  AiChatRequest,
   AiProviderConfig,
   AuthToken,
   CodeRequestResult,
@@ -12,9 +13,8 @@ import type {
   Inspiration,
   Item,
   ItemImage,
+  PinCompletion,
   Plan,
-  Routine,
-  RoutineCompletion,
   Session,
   SignInCredential,
   Task,
@@ -61,6 +61,27 @@ export interface TaskRepository {
   listAll(): Promise<Task[]>;
   upsertMany(tasks: Task[]): Promise<void>;
   hardDeleteMany(ids: string[]): Promise<void>;
+}
+
+/**
+ * 定住任务的每日完成态仓储（按 taskId + date 维度）。
+ *
+ * 完成态按 `taskId@date` 存 `pinCompletions` 表，投影任务勾选时直接 upsert，
+ * 天然幂等；模板被删后其完成记录成孤儿，由 `purgeOrphans` 清理。
+ */
+export interface PinCompletionRepository {
+  /** 某天的全部完成记录 */
+  listByDate(date: string): Promise<PinCompletion[]>;
+  /** 若干模板的完成记录（清理用） */
+  listByTaskIds(taskIds: string[]): Promise<PinCompletion[]>;
+  /** 全表拉取（清理用） */
+  listAll(): Promise<PinCompletion[]>;
+  /** 批量写入（新增或更新），单事务 */
+  upsertMany(rows: PinCompletion[]): Promise<void>;
+  /** 物理删除 */
+  hardDeleteMany(ids: string[]): Promise<void>;
+  /** 清理孤儿：所属模板已不存在的完成记录一并删除，返回清理条数 */
+  purgeOrphans(existingTaskIds: Set<string>): Promise<number>;
 }
 
 export interface DayRepository {
@@ -112,49 +133,6 @@ export interface InspirationRepository {
   upsertMany(rows: Inspiration[]): Promise<void>;
   /** 物理删除（仅用于软删记录到期清理） */
   hardDeleteMany(ids: string[]): Promise<void>;
-}
-
-/**
- * 每日固定任务（例行模板）仓储。
- *
- * 模板是**跨日期复用**的，因此没有 `listByDate` —— 取的是全量存活模板，
- * 完成态另存 `routineCompletions` 按日期维度。删除走软删（架构红线），
- * 到期由 `purgeExpired` 物理清理（固定任务不参与同步，忽略 syncedThrough）。
- */
-export interface RoutineRepository {
-  /** 全部存活模板（按 order 升序） */
-  listAlive(): Promise<Routine[]>;
-  /** 全表（含软删，清理用） */
-  listAll(): Promise<Routine[]>;
-  /** 批量写入（新增或更新），单事务 */
-  upsertMany(routines: Routine[]): Promise<void>;
-  /** 物理删除（仅用于软删记录到期清理或级联清理） */
-  hardDeleteMany(ids: string[]): Promise<void>;
-  /** 软删清理：删除早于 cutoff 的 tombstone（固定任务不参与同步，忽略 syncedThrough） */
-  purgeExpired(cutoff: number, syncedThrough?: number | null): Promise<number>;
-}
-
-/**
- * 每日固定任务的每日完成记录仓储。
- *
- * 完成记录按 `routineId + date` 维度存在 `routineCompletions` 表，
- * 主键 `id = routineId@date`。模板被删后，其完成记录即成孤儿，由 `purgeOrphans` 清理。
- */
-export interface RoutineCompletionRepository {
-  /** 某天的全部完成记录 */
-  listByDate(date: string): Promise<RoutineCompletion[]>;
-  /** 区间批量拉取（AI 分析用），走 `date` 索引 */
-  listByDateRange(startDate: string, endDate: string): Promise<RoutineCompletion[]>;
-  /** 若干模板的完成记录（级联 / 清理用） */
-  listByRoutineIds(routineIds: string[]): Promise<RoutineCompletion[]>;
-  /** 全表拉取（清理用） */
-  listAll(): Promise<RoutineCompletion[]>;
-  /** 批量写入（新增或更新），单事务 */
-  upsertMany(rows: RoutineCompletion[]): Promise<void>;
-  /** 物理删除 */
-  hardDeleteMany(ids: string[]): Promise<void>;
-  /** 清理孤儿：所属模板已不存在的完成记录一并删除，返回清理条数 */
-  purgeOrphans(existingRoutineIds: Set<string>): Promise<number>;
 }
 
 /**
@@ -353,6 +331,15 @@ export interface AiGateway {
     apiKey: string,
   ): Promise<AiAnalysisResult>;
   /**
+   * 对话式问答：把快照 + 用户消息 + 历史发给模型，返回纯文本回答。
+   * 与 analyze 的区别：回答是自然语言而非结构化 JSON，用于「我的」页 AI 对话。
+   */
+  chat(
+    request: AiChatRequest,
+    config: AiProviderConfig,
+    apiKey: string,
+  ): Promise<string>;
+  /**
    * 连通性自检：发一个最小请求确认 Base URL / 密钥可用。
    * 网络不通抛「无法连接」；能连但鉴权失败抛「密钥或地址可能不正确」。
    */
@@ -380,14 +367,13 @@ export interface AiAnalysisRepository {
 export interface Repositories {
   items: ItemRepository;
   tasks: TaskRepository;
+  pinCompletions: PinCompletionRepository;
   days: DayRepository;
   selfStatus: SelfStatusRepository;
   timeSlots: TimeSlotRepository;
   inspirations: InspirationRepository;
   itemImages: ItemImageRepository;
   taskImages: TaskImageRepository;
-  routines: RoutineRepository;
-  routineCompletions: RoutineCompletionRepository;
   account: AccountRepository;
   entitlements: EntitlementRepository;
   settings: SettingsRepository;

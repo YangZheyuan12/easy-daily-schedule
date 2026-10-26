@@ -109,7 +109,7 @@ describe('今日页 — 主页直接编辑', () => {
     expect(dialog!.textContent).toContain('删除');
   });
 
-  it('时间段投影行没有「⋯」（时间轴导入过来的不改，只读）', () => {
+  it('时间段**不再**投影到今日页（2026-10-26：只有同步成条目才出现）', () => {
     useTimeSlotStore.setState({
       slots: [makeSlot({ id: 's1', date: DATE, sectionId: 'work', content: '游泳课' })],
       date: DATE,
@@ -117,15 +117,16 @@ describe('今日页 — 主页直接编辑', () => {
     });
     const container = render();
 
+    // 没有「⋯」编辑按钮（投影行已移除）
     expect(container.querySelector('button[aria-label^="编辑「"]')).toBeNull();
-    // 投影行仍在（只读），点它去时间轴
+    // 时间段不再自动投影：页面上不应该出现「游泳课」这条时间段行
     const slotButton = Array.from(container.querySelectorAll('button')).find(
       (b) => (b.textContent ?? '').includes('游泳课'),
     );
-    expect(slotButton).toBeTruthy();
+    expect(slotButton).toBeUndefined();
   });
 
-  it('已同步的时间段：投影行让位给同步成的条目（不会一页两条）', () => {
+  it('已同步成条目的时间段：作为正常条目显示（不投影，只此一条）', () => {
     useTimeSlotStore.setState({
       slots: [makeSlot({ id: 's1', date: DATE, sectionId: 'work', content: '游泳课' })],
       date: DATE,
@@ -145,7 +146,7 @@ describe('今日页 — 主页直接编辑', () => {
     });
     const container = render();
 
-    // 「游泳课」只出现一次（作为条目，带「⋯」可编辑）
+    // 「游泳课」只出现一次（作为同步成的条目，带「⋯」可编辑）
     const occurrences = Array.from(container.querySelectorAll('button')).filter(
       (b) => (b.textContent ?? '').includes('游泳课'),
     );

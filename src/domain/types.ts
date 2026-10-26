@@ -93,6 +93,39 @@ export interface Task {
   deletedAt: number | null;
   /** 「继承昨日」时记录的来源任务 id，用于幂等去重 */
   inheritedFrom: string | null;
+  /**
+   * 「定住」起始日（YYYY-MM-DD 本地时区）。null = 未定住。
+   *
+   * 定住后这条任务从 `pinFrom` 当天起、**之后的每一天**都自动出现（跨日期复用，
+   * 类似一个「每日模板」）。加载任意日期 D 时，凡 `pinFrom <= D` 且未取消
+   * （`pinUntil === null || D < pinUntil`）的定住模板都会被投影成 D 当天的任务。
+   */
+  pinFrom: string | null;
+  /**
+   * 「取消定住」的生效日（YYYY-MM-DD）。null = 未取消。
+   *
+   * 取消定住时设成「取消操作那天的**第二天**」：取消当天这条还保留，
+   * 从次日起不再投影。历史日子（date < pinUntil）仍照常投影、保留当时的完成态。
+   */
+  pinUntil: string | null;
+}
+
+/**
+ * 定住任务在某一天的完成态（按 `taskId + date` 维度，每天独立勾选）。
+ *
+ * 定住任务是跨日期复用的模板，但「今天勾没勾」是**每天一份**的，不能塞进模板本身
+ * —— 否则勾掉今天，昨天 / 明天也一起被改了。拆成独立表后，投影任务勾选时直接
+ * `bulkPut` 一条 `taskId@date` 记录即可，天然幂等。
+ */
+export interface PinCompletion {
+  /** 主键 = `${taskId}@${date}`，唯一且可反查两个维度 */
+  id: string;
+  taskId: string;
+  /** 日期键 YYYY-MM-DD（本地时区） */
+  date: string;
+  /** 当天是否已完成 */
+  done: boolean;
+  updatedAt: number;
 }
 
 /**
@@ -212,52 +245,6 @@ export interface Inspiration {
 }
 
 /**
- * 每日固定任务（例行模板）。
- *
- * 与「每日任务」的核心区别：每日任务**按日期各存一份**，固定任务是**跨日期复用的模板**
- * —— 只存一份定义，每天独立勾选完成（完成情况落在 `RoutineCompletion`，按 routineId + date 维度）。
- * 选「自动生成的例行模板」方案正是此意：模板本身不随日期变化，但每一天的勾选彼此独立。
- */
-export interface Routine {
-  id: string;
-  title: string;
-  /**
-   * 所属分组：四大板块 +「其他」。沿用任务的分组键，复用着色与「同步到今日」的口径。
-   * 老数据缺该字段，仓储读取时归一化为 `'other'`。
-   */
-  sectionId: TaskSectionKey;
-  /** 同组排序值，步长 1000，支持中点插入（与任务页同套坐标系） */
-  order: number;
-  /** 任务描述（长文本，可选） */
-  description?: string;
-  createdAt: number;
-  updatedAt: number;
-  /** 软删时间戳；null 表示未删除 */
-  deletedAt: number | null;
-}
-
-/**
- * 每日固定任务的每日完成记录（按 routineId + date 维度，独立勾选）。
- *
- * 不把「完成态」塞进 Routine 模板：模板是跨日期共享的，而勾选是**每天一份**的，
- * 二者生命周期不同。拆成独立表后，「切到某天、勾掉某条」直接拼 `routineId@date` 命中，
- * 不必先查再写，也不存在「改了今天、昨天被改」的串味。
- */
-export interface RoutineCompletion {
-  /**
-   * 主键 = `${routineId}@${date}`，天然唯一且可反查两个维度。
-   * 用复合主键而不是自增 id，是为了落库时直接 `bulkPut`，无需先读后写。
-   */
-  id: string;
-  routineId: string;
-  /** 日期键 YYYY-MM-DD（本地时区） */
-  date: string;
-  /** 当天是否已完成 */
-  done: boolean;
-  updatedAt: number;
-}
-
-/**
  * 条目图片附件。
  *
  * 单独成表存 Blob（不塞进 Item 记录，否则 `listByDate` 会把图片二进制一起捞上来，
@@ -367,29 +354,16 @@ export interface DiaryGroup {
   entries: DiaryEntry[];
 }
 
-/** 主页日记体列表里的一行（顶层条目 / 子项 / 灵感 / 时间轴时间段） */
+/** 主页日记体列表里的一行（顶层条目 / 子项 / 灵感） */
 export interface DiaryEntry {
   /**
-   * 展示编号：四板块的**顶层条目**与**归类到该板块的时间段**跨组连续 1~N；
-   * 子项与灵感恒为 null。
-   *
-   * 时间段也编号，是因为它既然计入该板块的完成率（`DaySummary.sections` 已如此），
-   * 就等价于该板块的一件「顶层要做的事」；若不给编号，会出现组头写着 3 项、
-   * 列表里却只有 2 个编号的错位。
+   * 展示编号：四板块的**顶层条目**跨组连续 1~N；子项与灵感恒为 null。
    */
   displayNo: number | null;
-  kind: 'item' | 'child' | 'inspiration' | 'timeSlot';
+  kind: 'item' | 'child' | 'inspiration';
   item?: Item;
   inspiration?: Inspiration;
-  /**
-   * `kind === 'timeSlot'` 时的源时间段。
-   *
-   * 🔴 这是**只读投影**，不是复制出来的 Item：今日页展示的是时间轴那条数据的
-   * 一个视图，勾选直接写回 `TimeSlot.done`。不落第二条记录，就不存在
-   * 「改了标题这边、那边没跟着变」的双向同步问题，撤销语义也保持单一。
-   */
-  timeSlot?: TimeSlot;
-  /** 缩进深度（item/child/timeSlot），0 = 顶层 */
+  /** 缩进深度（item/child），0 = 顶层 */
   depth: number;
 }
 
@@ -537,9 +511,6 @@ export interface DailyCompletionStat {
   /** 当日任务完成 / 总数 */
   taskDone: number;
   taskTotal: number;
-  /** 固定任务完成 / 总数 */
-  routineDone: number;
-  routineTotal: number;
   /** 心情 / 身体星级（0 = 未记录） */
   mood: Rating;
   body: Rating;
@@ -550,8 +521,6 @@ export interface CompletionSnapshot {
   rangeStart: string;
   rangeEnd: string;
   daily: DailyCompletionStat[];
-  /** 固定任务累计完成短板（按完成率升序，取最弱若干） */
-  routineSummary: { routineId: string; title: string; done: number; total: number }[];
   /** 期限 / 长时目标任务的进度 */
   taskSummary: { id: string; content: string; done: boolean; kind?: TaskKind }[];
   /** 整体统计（供模型把握全局，不必逐日扫描） */
@@ -562,8 +531,6 @@ export interface CompletionSnapshot {
     totalSectionTotal: number;
     totalTaskDone: number;
     totalTaskTotal: number;
-    totalRoutineDone: number;
-    totalRoutineTotal: number;
     avgMood: number;
     avgBody: number;
   };
@@ -597,6 +564,24 @@ export interface AiAnalysisResult {
 export interface AiAnalysisRequest {
   snapshot: CompletionSnapshot;
   focus: AiFocus;
+  /** 输出语言，固定简体中文 */
+  language: 'zh';
+}
+
+/** 对话式问答的一条历史消息 */
+export interface AiChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+/** 发给网关的对话请求（基于快照的问答，返回纯文本） */
+export interface AiChatRequest {
+  /** 完成情况聚合快照（与 analyze 同源，护隐私） */
+  snapshot: CompletionSnapshot;
+  /** 用户最新一条消息 */
+  message: string;
+  /** 之前的对话历史（不含最新 message） */
+  history: AiChatMessage[];
   /** 输出语言，固定简体中文 */
   language: 'zh';
 }

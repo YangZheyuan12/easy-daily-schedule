@@ -15,6 +15,8 @@ import { Capacitor } from '@capacitor/core';
  * 但「添加到主屏幕」的图标 / 全屏 / 独立窗口这些**不依赖 SW**，照样生效。
  */
 export function registerServiceWorker(): void {
+  // 小工具容器无 Service Worker，且禁止 serviceWorker.register —— 直接跳过
+  if (import.meta.env.VITE_MINITOOL) return;
   if (Capacitor.isNativePlatform()) return;
   if (!import.meta.env.PROD) return;
   if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;

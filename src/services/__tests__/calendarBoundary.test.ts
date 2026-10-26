@@ -119,14 +119,14 @@ describe('口径真实性 Assert — 日历 vs 首页环形图', () => {
     expect(computeRingData(items).overall).toBe(1);
   });
 
-  it('归入板块的时间段参与 overall（与 sections 同源）', () => {
-    // work 原本 1/1 = 100%；加一条未完成的 work 时间段 → 1/2 = 50%
+  it('归入板块的时间段**不再**参与 overall（2026-10-26：只有同步成条目才计入）', () => {
+    // work 原本 1/1 = 100%；加一条未完成的 work 时间段 → 仍为 1/1 = 100%（时间段不再并入）
     const items = [makeItem({ id: 'w1', date: DAY, sectionId: 'work', done: true })];
     const slots = [makeSlot({ id: 's1', date: DAY, sectionId: 'work', done: false })];
     const summary = buildDaySummary(DAY, items, [], slots, NO_INSPIRATIONS, null);
 
-    expect(summary.sections.work).toEqual({ done: 1, total: 2 });
-    expect(summary.overall).toBeCloseTo(0.5, 10);
+    expect(summary.sections.work).toEqual({ done: 1, total: 1 });
+    expect(summary.overall).toBeCloseTo(1, 10);
   });
 
   it('混入其它日期的条目不会算进当天（调用方漏过滤也不出错）', () => {

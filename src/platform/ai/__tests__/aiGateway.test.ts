@@ -27,7 +27,6 @@ const REQUEST: AiAnalysisRequest = {
     rangeStart: '2026-01-01',
     rangeEnd: '2026-01-07',
     daily: [],
-    routineSummary: [],
     taskSummary: [],
     totals: {
       daysWithData: 0,
@@ -36,8 +35,6 @@ const REQUEST: AiAnalysisRequest = {
       totalSectionTotal: 0,
       totalTaskDone: 0,
       totalTaskTotal: 0,
-      totalRoutineDone: 0,
-      totalRoutineTotal: 0,
       avgMood: 0,
       avgBody: 0,
     },
@@ -56,7 +53,7 @@ function mockFetch(payload: unknown, { ok = true, status = 200 } = {}) {
   vi.stubGlobal('fetch', vi.fn(async () => res));
 }
 
-const JSON_BODY = '{"summary":"完成不错","completionRate":0.8,"insights":[{"category":"streak","title":"坚持打卡","detail":"连续完成固定任务","severity":"good"}]}';
+const JSON_BODY = '{"summary":"完成不错","completionRate":0.8,"insights":[{"category":"streak","title":"坚持打卡","detail":"连续完成任务","severity":"good"}]}';
 
 describe('extractJsonObject', () => {
   it('strips ```json fences', () => {

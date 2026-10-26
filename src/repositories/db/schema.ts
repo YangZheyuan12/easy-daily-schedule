@@ -17,8 +17,7 @@ import type {
   Inspiration,
   Item,
   ItemImage,
-  Routine,
-  RoutineCompletion,
+  PinCompletion,
   Task,
   TaskImage,
   TimeSlot,
@@ -26,7 +25,7 @@ import type {
 import type { SyncState } from '@/domain/sync';
 
 export const DB_NAME = 'daily-schedule';
-export const DB_VERSION = 9;
+export const DB_VERSION = 11;
 
 export interface ItemTable extends Item {}
 export interface TaskTable extends Task {}
@@ -36,8 +35,16 @@ export interface TimeSlotTable extends TimeSlot {}
 export interface InspirationTable extends Inspiration {}
 export interface ItemImageTable extends ItemImage {}
 export interface TaskImageTable extends TaskImage {}
-export interface RoutineTable extends Routine {}
-export interface RoutineCompletionTable extends RoutineCompletion {}
+/**
+ * 已废弃的「每日固定任务」两张表（功能已下线，schema 保留空表避免版本红线）。
+ * 不再定义实体类型——业务代码已不读写这两张表，仅保留 STORES 声明让老库能打开。
+ */
+/**
+ * 已废弃的「常用任务」表（功能已下线，schema 保留空表避免版本红线）。
+ * 不再定义实体类型——业务代码已不读写这张表，仅保留 STORES 声明让老库能打开。
+ */
+/** 定住任务的每日完成态（按 taskId + date 维度） */
+export interface PinCompletionTable extends PinCompletion {}
 /** 账号画像（非敏感缓存，主键固定 'current'；token 不入库） */
 export interface AccountTable extends Account {}
 /** 权益快照（服务端权益的本地缓存，主键固定 'current'） */
@@ -79,6 +86,11 @@ export const SYNC_STATE_KEY = 'state';
  * 同样重申全部既有表。🔴 必须保留 v8 全部 schema —— Dexie 不允许低版本 schema 打开
  * 已升级的库，本机库一旦升到 v9 就再也不能降级，schema 删不得。
  * 🔴 token 不进库：敏感令牌走 platform 安全存储，本库只存非敏感画像与权益快照。
+ * v10 变更（常用任务）：新增 `commonTasks`（常用任务模板，跨日期复用）。
+ * `routines` / `routineCompletions` 两张表已随「每日固定任务」功能下线而废弃，
+ * 但 schema **保留空表**（版本红线：Dexie 一旦升版本就无法降级，删表会让老库打不开）。
+ * v11 变更（定住任务）：新增 `pinCompletions`（定住任务的每日完成态，按 taskId + date）。
+ * `commonTasks` 表已随「常用任务」功能下线而废弃，schema **保留空表**（版本红线同上）。
  */
 export const STORES = {
   items: '&id, date, sectionId, parentId, [date+sectionId], deletedAt, updatedAt',
@@ -91,6 +103,8 @@ export const STORES = {
   taskImages: '&id, taskId',
   routines: '&id, order, sectionId, deletedAt, updatedAt',
   routineCompletions: '&id, routineId, date',
+  commonTasks: '&id, order, sectionId, deletedAt, updatedAt',
+  pinCompletions: '&id, taskId, date',
   account: '&id',
   entitlements: '&id, plan, updatedAt',
   syncMeta: '&key',

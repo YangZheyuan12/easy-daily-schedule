@@ -1,5 +1,4 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { Icon } from '@/components/ui/Icon';
 import clsx from 'clsx';
 import { PageHeader } from '@/components/layout/PageHeader';
@@ -18,6 +17,7 @@ import { getCurrentVersion } from '@/platform/appInfo';
 import { fetchLatestRelease, openExternalUrl } from '@/platform/updateBridge';
 import { AI_PROVIDER_DEFAULTS } from '@/platform/ai';
 import { useAiStore } from '@/store/useAiStore';
+import { AiChatPanel } from '@/components/ai/AiChatPanel';
 import type { AiProvider } from '@/domain/types';
 import { formatShortDate, toDateKey } from '@/utils/date';
 
@@ -40,9 +40,20 @@ export function MePage() {
   */
   return (
     <div className="flex flex-col min-h-full">
-      <PageHeader title="我的" subtitle="设置 · 主题 · 板块 · 数据" />
+      <PageHeader title="我的" subtitle="AI 助手 · 设置" />
 
       <div className="m-rise px-5 pt-4 space-y-3.5">
+        {/* 上半屏：AI 对话 */}
+        <div className="rounded-card border border-surface-line bg-surface p-4">
+          <AiChatPanel />
+        </div>
+
+        {/* 下半屏：设置模块 */}
+        <div className="flex items-center gap-2 pt-2">
+          <span className="text-caption text-ink-faint">设置</span>
+          <div className="flex-1 h-px bg-surface-line" />
+        </div>
+
         <CollapsibleCard title="外观主题" expandKey="me:appearance" hint={getThemeMeta(theme).label}>
           <ThemeSwitcher />
         </CollapsibleCard>
@@ -548,7 +559,6 @@ function AiSettingsCard() {
   const clearKey = useAiStore((s) => s.clearKey);
   const testConnection = useAiStore((s) => s.testConnection);
   const load = useAiStore((s) => s.load);
-  const navigate = useNavigate();
 
   const [provider, setProvider] = useState<AiProvider>('openai-compatible');
   const [baseUrl, setBaseUrl] = useState('');
@@ -683,13 +693,6 @@ function AiSettingsCard() {
       <div className="flex gap-2">
         <button
           type="button"
-          onClick={() => navigate('/ai/analysis')}
-          className="press flex-1 min-h-[42px] rounded-card bg-accent-soft text-body text-accent"
-        >
-          去分析
-        </button>
-        <button
-          type="button"
           onClick={() => void handleTest()}
           disabled={busy}
           className="press flex-1 min-h-[42px] rounded-card border border-surface-line text-body text-ink-soft disabled:opacity-50"
@@ -699,7 +702,7 @@ function AiSettingsCard() {
       </div>
 
       <p className="text-caption leading-5 text-ink-faint">
-        分析在本地完成：只把聚合统计发给所选厂商，不传任何原始内容；密钥仅存于本设备。
+        配置后即可在上方与 AI 对话，说「分析日程」即可基于最近 30 天数据生成分析；密钥仅存于本设备，只发聚合统计给所选厂商。
       </p>
     </div>
   );

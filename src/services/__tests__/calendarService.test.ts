@@ -75,12 +75,13 @@ describe('buildWeekSummaries — 给定日期集合逐日聚合', () => {
     expect(summaries['2026-10-19']).toBeUndefined();
   });
 
-  it('归入板块的时间段并入该板块完成度（与 buildDaySummary 同一口径）', () => {
+  it('归入板块的时间段**不再并入**该板块完成度（2026-10-26：只有同步成条目才算），但仍算「有数据」', () => {
     const slots = [
       makeSlot({ id: 's1', date: '2026-10-14', startMin: 9 * 60, endMin: 10 * 60, sectionId: 'study', done: true }),
     ];
     const summary = buildWeekSummaries(WEEK, NO_ITEMS, NO_TASKS, slots, NO_INSPIRATIONS, NO_SELF)['2026-10-14'];
-    expect(summary?.sections.study).toEqual({ done: 1, total: 1 });
+    // 时间段不再自动并入板块完成度 —— 只有通过「同步到今日」变成条目才计入
+    expect(summary?.sections.study).toEqual({ done: 0, total: 0 });
     expect(summary?.hasData).toBe(true);
   });
 });
@@ -166,7 +167,7 @@ describe('buildMonthSummaries — 任务 / 时间段 / 自我状态', () => {
     expect(summary?.overall).toBe(1);
   });
 
-  it('归入板块的时间段会并入该板块完成度（done 才计入）', () => {
+  it('归入板块的时间段**不再并入**该板块完成度（2026-10-26：只有同步成条目才算）', () => {
     const slots = [
       makeSlot({ id: 's1', date: '2026-10-09', sectionId: 'work', done: true }),
       makeSlot({ id: 's2', date: '2026-10-09', sectionId: 'work', done: false }),
@@ -176,24 +177,27 @@ describe('buildMonthSummaries — 任务 / 时间段 / 自我状态', () => {
     ];
     const summary = buildMonthSummaries(NO_ITEMS, NO_TASKS, slots, NO_INSPIRATIONS, NO_SELF, MONTH)['2026-10-09'];
 
-    expect(summary?.sections.work).toEqual({ done: 1, total: 2 });
-    expect(summary?.sections.study).toEqual({ done: 1, total: 1 });
-    // 未归类的时间段不计入 sections
+    // 时间段都不再自动并入完成度：只有同步成条目（sourceSlotId）才计入
+    expect(summary?.sections.work).toEqual({ done: 0, total: 0 });
+    expect(summary?.sections.study).toEqual({ done: 0, total: 0 });
     expect(summary?.sections.life).toEqual({ done: 0, total: 0 });
+    // 但它们仍让这一天「有数据」
+    expect(summary?.hasData).toBe(true);
   });
 
-  it('🔴 已同步成条目的时间段不重复计入完成度（同一件事只算一次）', () => {
-    // 与「编号跳号」是同一个 bug 的另一面：不做排除的话，分母会凭空 +1
+  it('🔴 同步成条目的时间段只计一次（条目计入完成度，时间段本身不再重复并入）', () => {
+    // 2026-10-26 改：时间段不再自动并入，唯一的计数来源是同步成的条目本身
     const items = [makeItem({ id: 'i1', date: '2026-10-09', sectionId: 'work', sourceSlotId: 's1' })];
     const slots = [makeSlot({ id: 's1', date: '2026-10-09', sectionId: 'work', done: true })];
 
     const summary = buildMonthSummaries(items, NO_TASKS, slots, NO_INSPIRATIONS, NO_SELF, MONTH)['2026-10-09'];
 
+    // 条目（未完成）算 1；时间段本身不再并入
     expect(summary?.sections.work).toEqual({ done: 0, total: 1 });
   });
 
-  it('同一天里板块条目与时间段共存：两边都算数，互不覆盖', () => {
-    // 产品口径：分类模式与时间轴模式不是互斥的，一天可以既有条目又有时间段
+  it('同一天里板块条目与时间段共存：只有条目计入完成度，时间段不再并入', () => {
+    // 2026-10-26 改：时间段不再自动计入，完成度只看条目（含同步来的条目）
     const items = [
       makeItem({ id: 'i1', date: '2026-10-09', sectionId: 'work', done: true }),
       makeItem({ id: 'i2', date: '2026-10-09', sectionId: 'work', done: false }),
@@ -206,8 +210,8 @@ describe('buildMonthSummaries — 任务 / 时间段 / 自我状态', () => {
 
     const summary = buildMonthSummaries(items, NO_TASKS, slots, NO_INSPIRATIONS, NO_SELF, MONTH)['2026-10-09'];
 
-    // work：2 条顶层条目 + 1 条归入 work 的时间段 = total 3，done = 1 + 1 = 2
-    expect(summary?.sections.work).toEqual({ done: 2, total: 3 });
+    // work：只有 2 条顶层条目 = total 2，done = 1
+    expect(summary?.sections.work).toEqual({ done: 1, total: 2 });
     expect(summary?.hasData).toBe(true);
     // 未归类时间段所在板块（life）不受影响
     expect(summary?.sections.life).toEqual({ done: 0, total: 0 });
@@ -365,7 +369,8 @@ describe('buildYearSummaries — 整年聚合', () => {
     expect(oct.daysWithData).toBe(4);
     expect(oct.hasAny).toBe(true);
     expect(oct.sections.work).toEqual({ done: 1, total: 2 });
-    expect(oct.sections.study).toEqual({ done: 1, total: 1 });
+    // 🔴 时间段不再并入板块完成度（2026-10-26）：study 的 sl1 只贡献「有数据」，不计入 sections
+    expect(oct.sections.study).toEqual({ done: 0, total: 0 });
 
     // 3 月：只有身体 5 分 → daysWithData=1，body 不影响 sections
     const mar = year['2026-03']!;

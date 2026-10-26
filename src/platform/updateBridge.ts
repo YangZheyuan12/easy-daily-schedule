@@ -26,6 +26,8 @@ export interface LatestRelease {
  * 都返回 `null` —— 检查更新失败不该让「我的」页崩掉，交给 UI 提示即可。
  */
 export async function fetchLatestRelease(): Promise<LatestRelease | null> {
+  // 小工具容器禁止联网（fetch）与 window.open，本函数整体降级为空操作
+  if (import.meta.env.VITE_MINITOOL) return null;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
@@ -62,5 +64,6 @@ export async function fetchLatestRelease(): Promise<LatestRelease | null> {
  */
 export function openExternalUrl(url: string): void {
   if (!url) return;
+  if (import.meta.env.VITE_MINITOOL) return;
   window.open(url, '_blank', 'noopener,noreferrer');
 }

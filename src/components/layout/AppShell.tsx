@@ -5,7 +5,6 @@ import { useItemStore } from '@/store/useItemStore';
 import { useTaskStore } from '@/store/useTaskStore';
 import { useTimeSlotStore } from '@/store/useTimeSlotStore';
 import { useInspirationStore } from '@/store/useInspirationStore';
-import { useRoutineStore } from '@/store/useRoutineStore';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useEntitlementStore } from '@/store/useEntitlementStore';
 import { useUiStore } from '@/store/useUiStore';
@@ -67,7 +66,6 @@ export function AppShell() {
     void useTaskStore.getState().loadDate(date);
     void useTimeSlotStore.getState().loadDate(date);
     void useInspirationStore.getState().loadDate(date);
-    void useRoutineStore.getState().loadDate(date);
     void useDayStore.getState().loadSelfStatus(date);
     void repos.days.ensure(date);
   }, [date]);

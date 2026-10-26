@@ -6,6 +6,8 @@ import type {
 import type {
   AiAnalysisRecord,
   AiAnalysisResult,
+  AiChatMessage,
+  AiChatRequest,
   AiFocus,
   AiInsightCategory,
   AiProvider,
@@ -19,9 +21,6 @@ import { shiftDateKey } from '@/utils/date';
 
 /** 固定分析配置的本地偏好键 */
 const AI_CONFIG_KEY = 'ai.config';
-
-/** 固定任务短板最多展示几条 */
-const ROUTINE_WEAKSPOT_LIMIT = 6;
 
 /**
  * AI 分析服务（纯逻辑，可单测）。
@@ -93,31 +92,18 @@ export class AiService {
   async buildSnapshot(rangeStart: string, rangeEnd: string): Promise<CompletionSnapshot> {
     const dates = enumerateDates(rangeStart, rangeEnd);
 
-    const [items, tasks, completions, selfStatusList, routines] = await Promise.all([
+    const [items, tasks, selfStatusList] = await Promise.all([
       this.repos.items.listByDateRange(rangeStart, rangeEnd),
       this.repos.tasks.listByDateRange(rangeStart, rangeEnd),
-      this.repos.routineCompletions.listByDateRange(rangeStart, rangeEnd),
       this.repos.selfStatus.listBetween(rangeStart, rangeEnd),
-      this.repos.routines.listAlive(),
     ]);
 
     const aliveItems = items.filter((item) => item.deletedAt === null);
     const aliveTasks = tasks.filter((task) => task.deletedAt === null);
-    const routineIds = new Set(routines.map((routine) => routine.id));
 
     // 按日期分组
     const itemsByDate = groupBy(aliveItems, (item) => item.date);
     const tasksByDate = groupBy(aliveTasks, (task) => task.date);
-    const doneRoutineByDate = new Map<string, Set<string>>();
-    for (const completion of completions) {
-      if (!completion.done || !routineIds.has(completion.routineId)) continue;
-      let set = doneRoutineByDate.get(completion.date);
-      if (!set) {
-        set = new Set<string>();
-        doneRoutineByDate.set(completion.date, set);
-      }
-      set.add(completion.routineId);
-    }
     const statusByDate = new Map(selfStatusList.map((status) => [status.date, status]));
 
     // 逐日统计
@@ -129,9 +115,6 @@ export class AiService {
       const dayTasks = tasksByDate.get(date) ?? [];
       const taskDone = dayTasks.filter((task) => task.done).length;
       const taskTotal = dayTasks.length;
-      const doneRoutines = doneRoutineByDate.get(date);
-      const routineDone = doneRoutines ? doneRoutines.size : 0;
-      const routineTotal = routines.length;
       const status = statusByDate.get(date);
       return {
         date,
@@ -140,22 +123,10 @@ export class AiService {
         overall: sectionTotal > 0 ? sectionDone / sectionTotal : 0,
         taskDone,
         taskTotal,
-        routineDone,
-        routineTotal,
         mood: status?.mood ?? 0,
         body: status?.body ?? 0,
       };
     });
-
-    // 固定任务累计短板（按完成天数升序，取最弱若干）
-    const dayCount = dates.length;
-    const routineSummary = routines
-      .map((routine) => {
-        const done = dates.filter((date) => doneRoutineByDate.get(date)?.has(routine.id)).length;
-        return { routineId: routine.id, title: routine.title, done, total: dayCount };
-      })
-      .sort((a, b) => a.done / Math.max(a.total, 1) - b.done / Math.max(b.total, 1))
-      .slice(0, ROUTINE_WEAKSPOT_LIMIT);
 
     // 期限 / 长时目标进度
     const taskSummary = aliveTasks.map((task) => ({
@@ -170,7 +141,6 @@ export class AiService {
       (stat) =>
         stat.sectionTotal > 0 ||
         stat.taskTotal > 0 ||
-        stat.routineDone > 0 ||
         stat.mood > 0 ||
         stat.body > 0,
     ).length;
@@ -182,13 +152,11 @@ export class AiService {
       totalSectionTotal: daily.reduce((acc, stat) => acc + stat.sectionTotal, 0),
       totalTaskDone: daily.reduce((acc, stat) => acc + stat.taskDone, 0),
       totalTaskTotal: daily.reduce((acc, stat) => acc + stat.taskTotal, 0),
-      totalRoutineDone: daily.reduce((acc, stat) => acc + stat.routineDone, 0),
-      totalRoutineTotal: daily.reduce((acc, stat) => acc + stat.routineTotal, 0),
       avgMood: average(daily.map((stat) => stat.mood)),
       avgBody: average(daily.map((stat) => stat.body)),
     };
 
-    return { rangeStart, rangeEnd, daily, routineSummary, taskSummary, totals };
+    return { rangeStart, rangeEnd, daily, taskSummary, totals };
   }
 
   /**
@@ -227,6 +195,37 @@ export class AiService {
     };
     await this.repos.aiAnalyses.put(record);
     return validated;
+  }
+
+  /**
+   * 对话式问答：基于指定日期范围的完成快照，回应用户的自然语言消息。
+   *
+   * 与分析（analyze）的区别：返回纯文本而非结构化 JSON，用于「我的」页 AI 对话。
+   * 快照范围默认取最近 30 天（够覆盖「最近表现如何」这类问题），
+   * 历史消息由调用方维护，这里只负责拼请求 + 调网关。
+   */
+  async chat(
+    message: string,
+    history: AiChatMessage[],
+    rangeStart: string,
+    rangeEnd: string,
+  ): Promise<string> {
+    const config = await this.getConfig();
+    if (!config) throw new DomainError('尚未配置 AI 接入：请先选择厂商并填入密钥');
+    const key = await this.keyStore.load();
+    if (!key || key.trim().length === 0) {
+      throw new DomainError('缺少 API Key：请先填入密钥');
+    }
+
+    const snapshot = await this.buildSnapshot(rangeStart, rangeEnd);
+    const request: AiChatRequest = {
+      snapshot,
+      message,
+      history,
+      language: 'zh',
+    };
+    const gateway = this.createGateway(config);
+    return gateway.chat(request, config, key);
   }
 }
 

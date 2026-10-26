@@ -22,9 +22,21 @@ export interface SyncPlanCounts {
   update: number;
 }
 
-/** 确认按钮的文案。为 null（不在勾选模式）时给个兜底标签 */
-export function syncButtonLabel(counts: SyncPlanCounts | null): string {
+/**
+ * 确认按钮的文案。为 null（不在勾选模式）时给个兜底标签。
+ *
+ * `hasSelection` 区分「勾选模式里**一个都没勾**」与「勾了但确实没变化」：
+ * - 前者是「用户还没选」，按钮 disabled 时若写「今日页已是最新」会让人误以为
+ *   已经同步完了（真 bug：用户报「显示今日页已是最新，但今日页没更新」）；
+ * - 后者才是真正「勾了、也算了、没东西要动」。
+ * 所以未勾选时明确提示「请勾选要同步的任务」，不要用「已是最新」这种收尾口吻。
+ */
+export function syncButtonLabel(
+  counts: SyncPlanCounts | null,
+  hasSelection = true,
+): string {
   if (counts === null) return '同步到今日';
+  if (!hasSelection) return '请勾选要同步的任务';
   if (counts.create > 0 && counts.update > 0) {
     return `新建 ${counts.create} 项、更新 ${counts.update} 项`;
   }

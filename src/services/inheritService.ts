@@ -75,6 +75,8 @@ export function inheritUnfinishedTasks(
       updatedAt: now,
       deletedAt: null,
       inheritedFrom: source.id,
+      pinFrom: null,
+      pinUntil: null,
     });
     orderCursor += 1000;
     todayContentKeys.add(key);

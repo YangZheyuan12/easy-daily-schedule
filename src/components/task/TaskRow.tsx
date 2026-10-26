@@ -11,6 +11,7 @@ import { useTaskSectionConfig } from '@/hooks/useSectionConfigs';
 import { useTaskStore } from '@/store/useTaskStore';
 import { useAutoResizeTextarea } from '@/hooks/useAutoResizeTextarea';
 import { SectionPickerPopover } from '@/components/task/SectionPickerPopover';
+import { isActivelyPinned } from '@/services/pinProjectionService';
 
 interface TaskRowProps {
   task: Task;
@@ -41,6 +42,8 @@ interface TaskRowProps {
   sync?: { checked: boolean; disabled: boolean; onToggle: () => void };
   /** 这条任务已经同步到今日页（显示「已同步」标记） */
   synced?: boolean;
+  /** 点「定住」按钮 → 切换这条任务是否每天重复出现 */
+  onTogglePin?: () => void;
 }
 
 /** 退场动效时长：与 `.m-row-exit` 的 `--m-dur-3` 对齐（JS 读不到 CSS 变量） */
@@ -67,6 +70,7 @@ export function TaskRow({
   dragging = false,
   sync,
   synced = false,
+  onTogglePin,
 }: TaskRowProps) {
   const setContent = useTaskStore((s) => s.setContent);
   const setDescription = useTaskStore((s) => s.setDescription);
@@ -116,6 +120,8 @@ export function TaskRow({
   /** 「其他」= 没分组：画成空心圈，跟四个板块的实心色点在形态上就区分开 */
   const ungrouped = task.sectionId === OTHER_KEY;
   const label = ungrouped ? '未分组' : section.name;
+  /** 是否「活跃定住中」：决定图钉是实心竖直（定住）还是空心斜向（未定住/已取消） */
+  const pinned = isActivelyPinned(task);
 
   /*
     第二行的显示时机：聚焦 / 已有描述 / 已归到某个具体分组。
@@ -180,6 +186,36 @@ export function TaskRow({
             data-done={task.done}
             enterKeyHint="enter"
           />
+
+          {/*
+            「定住」按钮（2026-10-26 改显示逻辑 + 朝向区分）：
+            - 活跃定住中（`isActivelyPinned`）→ 始终显示**竖直实心**图钉；
+            - 未定住 / 已取消 → 只在编辑（聚焦）时显示**斜向（45°）空心**图钉。
+              朝向参照 B 站置顶：斜着 = 「还没钉进去」、竖直 = 「已钉牢」。
+            点它不直接定住 / 取消，而是先弹「是否设为长期任务 / 是否取消」确认框
+            （确认逻辑在页面层，这里只上报点击）。
+          */}
+          {onTogglePin && (pinned || focused) && (
+            <button
+              type="button"
+              onClick={onTogglePin}
+              title={pinned ? '取消长期任务' : '设为长期任务'}
+              aria-pressed={pinned}
+              aria-label={pinned ? '取消长期任务' : '设为长期任务'}
+              className={clsx(
+                'press shrink-0 min-w-[32px] min-h-tap flex items-center justify-center',
+                pinned ? 'text-accent' : 'text-ink-faint',
+              )}
+            >
+              <Icon
+                name="pin"
+                size={16}
+                filled={pinned}
+                /* 未定住：顺时针转 45°（斜放），与竖直的定住态形成朝向差异 */
+                className={pinned ? undefined : 'rotate-45'}
+              />
+            </button>
+          )}
 
           {/*
             拖拽手柄。放在删除按钮左边、始终可见（不像删除那样只在聚焦时出现）——

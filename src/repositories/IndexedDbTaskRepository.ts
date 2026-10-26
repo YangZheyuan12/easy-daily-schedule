@@ -15,6 +15,11 @@ import { filterAlive, filterPurgeable } from './mappers';
  *
  * 同时归一化 `kind`（缺省按每日任务）与 `description`（缺省空串），
  * 让业务层永远拿不到 undefined，避免到处写 `?? 'daily'` / `?? ''`。
+ *
+ * 🔴 `pinFrom` / `pinUntil` 也必须归一化为 `null`：老数据（定住功能上线前的任务）
+ * 缺这两个字段，读出来是 `undefined`。而业务层用 `pinFrom !== null` 判断「是否已定住」，
+ * `undefined !== null` 恒为 true，会把所有老任务误判成「已定住」——
+ * 表现就是图钉恒实心、点它只能「取消」不能「设为」（`pin()` 里 `pinFrom !== null` 直接 return）。
  */
 function normalizeTask(task: Task): Task {
   return {
@@ -22,6 +27,8 @@ function normalizeTask(task: Task): Task {
     sectionId: task.sectionId ?? OTHER_KEY,
     kind: task.kind ?? 'daily',
     description: task.description ?? '',
+    pinFrom: task.pinFrom ?? null,
+    pinUntil: task.pinUntil ?? null,
   };
 }
 

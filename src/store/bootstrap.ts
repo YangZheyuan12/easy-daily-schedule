@@ -123,7 +123,6 @@ export async function purgeExpiredSoftDeletes(): Promise<void> {
       repos.tasks,
       repos.timeSlots,
       repos.inspirations,
-      repos.routines,
     ];
     for (const repo of purgeable) {
       const candidate = repo as {
@@ -140,10 +139,9 @@ export async function purgeExpiredSoftDeletes(): Promise<void> {
     // 任务图片按 tasks 表判定存活（两张表互不干涉，不能混用同一个 id 集合）
     const existingTaskIds = new Set((await repos.tasks.listAll()).map((t) => t.id));
     await repos.taskImages.purgeOrphans(existingTaskIds);
-    // 固定任务完成记录：模板被物理清理后，其完成记录即成孤儿，一并删除。
-    // 传 routines 表**全部** id（含软删未到期），保证「还能撤销」的模板完成记录不被误删。
-    const existingRoutineIds = new Set((await repos.routines.listAll()).map((r) => r.id));
-    await repos.routineCompletions.purgeOrphans(existingRoutineIds);
+    // 定住完成记录：模板被物理清理后，其完成记录即成孤儿，一并删除。
+    // 传 tasks 表**全部** id（含软删未到期），保证「还能撤销」的模板完成记录不被误删。
+    await repos.pinCompletions.purgeOrphans(existingTaskIds);
   } catch (error) {
     // 清理失败不影响启动，静默即可
     emitError(error);

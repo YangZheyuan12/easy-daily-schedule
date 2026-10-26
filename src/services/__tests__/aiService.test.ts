@@ -10,16 +10,12 @@ import type { Clock } from '@/services/clock';
 function buildService(overrides: {
   items?: unknown[];
   tasks?: unknown[];
-  completions?: unknown[];
   statuses?: unknown[];
-  routines?: unknown[];
 }) {
   const fakeRepos = {
     items: { listByDateRange: async () => overrides.items ?? [] },
     tasks: { listByDateRange: async () => overrides.tasks ?? [] },
-    routineCompletions: { listByDateRange: async () => overrides.completions ?? [] },
     selfStatus: { listBetween: async () => overrides.statuses ?? [] },
-    routines: { listAlive: async () => overrides.routines ?? [] },
     settings: { get: async () => null, set: async () => undefined },
     aiAnalyses: { put: async () => undefined, listRecent: async () => [], get: async () => undefined },
   } as unknown as Repositories;
@@ -38,6 +34,7 @@ function buildService(overrides: {
       model: 'test',
       generatedAt: 0,
     }),
+    chat: async () => '好的',
     testConnection: async () => undefined,
   });
 
@@ -60,11 +57,6 @@ describe('AiService.buildSnapshot', () => {
         { date: '2026-10-01', done: true, deletedAt: null, content: 't1' },
         { date: '2026-10-02', done: false, deletedAt: null, content: 't2' },
       ],
-      routines: [{ id: 'r1', title: '晨跑', deletedAt: null }],
-      completions: [
-        // 10-01 完成 r1
-        { date: '2026-10-01', routineId: 'r1', done: true },
-      ],
       statuses: [{ date: '2026-10-01', mood: 4, body: 3 }],
     });
 
@@ -79,13 +71,7 @@ describe('AiService.buildSnapshot', () => {
     expect(d1?.sectionTotal).toBe(2);
     expect(d1?.overall).toBeCloseTo(0.5);
     expect(d1?.taskDone).toBe(1);
-    expect(d1?.routineDone).toBe(1);
-    expect(d1?.routineTotal).toBe(1);
     expect(d1?.mood).toBe(4);
-
-    // 固定任务短板：r1 在 3 天里完成 1 天
-    expect(snapshot.routineSummary).toHaveLength(1);
-    expect(snapshot.routineSummary[0]).toMatchObject({ routineId: 'r1', done: 1, total: 3 });
 
     // 整体统计：section 完成 1 / 总数 2（跨三天）
     expect(snapshot.totals.totalSectionDone).toBe(1);

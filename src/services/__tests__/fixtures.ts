@@ -5,8 +5,6 @@ import type {
   Entitlement,
   Inspiration,
   Item,
-  Routine,
-  RoutineCompletion,
   Task,
   TimeSlot,
 } from '@/domain/types';
@@ -49,6 +47,8 @@ export function makeTask(partial: Partial<Task> & { id: string }): Task {
     updatedAt: 1000,
     deletedAt: null,
     inheritedFrom: null,
+    pinFrom: null,
+    pinUntil: null,
     ...partial,
   };
 }
@@ -95,33 +95,6 @@ export function makeInspiration(partial: Partial<Inspiration> & { id: string }):
     createdAt: 1000,
     updatedAt: 1000,
     deletedAt: null,
-    ...partial,
-  };
-}
-
-/** 测试用每日固定任务（例行模板）工厂 */
-export function makeRoutine(partial: Partial<Routine> & { id: string }): Routine {
-  return {
-    title: partial.id,
-    sectionId: OTHER_KEY,
-    order: ORDER_STEP,
-    description: '',
-    createdAt: 1000,
-    updatedAt: 1000,
-    deletedAt: null,
-    ...partial,
-  };
-}
-
-/** 测试用每日固定任务完成记录工厂 */
-export function makeRoutineCompletion(
-  partial: Partial<RoutineCompletion> & { id: string },
-): RoutineCompletion {
-  return {
-    routineId: 'rt1',
-    date: '2026-10-10',
-    done: false,
-    updatedAt: 1000,
     ...partial,
   };
 }

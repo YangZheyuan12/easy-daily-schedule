@@ -1,11 +1,12 @@
 import { create } from 'zustand';
-import type { Task } from '@/domain/types';
+import type { PinCompletion, Task } from '@/domain/types';
 import type { TaskSectionKey, RelativeDeadline } from '@/domain/enums';
 import { OTHER_KEY, isDailyTask } from '@/domain/enums';
 import { clock, repos } from './bootstrap';
-import { persistTasks } from './helper';
-import { newTaskId } from '@/services/idService';
+import { persistPinCompletion, persistTasks } from './helper';
+import { newPinCompletionId, newTaskId } from '@/services/idService';
 import { inheritUnfinishedTasks } from '@/services/inheritService';
+import { composeDailyTasks } from '@/services/pinProjectionService';
 import { undoLabel } from '@/services/undoService';
 import { shiftDateKey } from '@/utils/date';
 import { compareByOrder, ORDER_STEP } from '@/domain/constants';
@@ -29,8 +30,13 @@ interface TaskState {
    * 当前页面持有的全部任务：**当日每日任务** + **跨日期的持久任务**（期限任务 / 长时目标）。
    * 持久任务与页面选中的日期无关，但为减少读取次数，这里一次性合并持有，
    * 渲染时再按 `kind` 分流。`loadDate` 负责把两边拼起来。
+   *
+   * 每日任务里**已混入「定住」投影**（`composeDailyTasks` 合成）—— 定住模板
+   * 会按当前日期投影成一条虚拟任务，与真实任务同列渲染。
    */
   tasks: Task[];
+  /** 当前加载的日期键（定住完成态的写入维度、投影的目标日期） */
+  currentDate: string;
   loading: boolean;
   lastCreatedId: string | null;
   pendingUndo: { ids: string[]; label: string; deletedAt: number; snapshot: Task[] } | null;
@@ -63,6 +69,13 @@ interface TaskState {
   dismissUndo: () => void;
   /** 继承昨日的未完成任务。date 由调用方传入（今日无任务时也要能继承） */
   inheritFromYesterday: (date: string) => Promise<{ created: number; skipped: number }>;
+
+  /** 定住：把一条普通每日任务设为「从它的日期起每天重复出现」 */
+  pin: (id: string) => void;
+  /** 取消定住：从「当前日期 + 1 天」起不再投影（历史日子保留） */
+  unpin: (id: string) => void;
+  /** 切换定住任务在某天的完成态（每天独立勾选） */
+  togglePinDone: (id: string) => void;
 }
 
 export const useTaskStore = create<TaskState>((set, get) => {
@@ -76,6 +89,7 @@ export const useTaskStore = create<TaskState>((set, get) => {
 
   return {
     tasks: [],
+    currentDate: '',
     loading: false,
     lastCreatedId: null,
     pendingUndo: null,
@@ -85,15 +99,17 @@ export const useTaskStore = create<TaskState>((set, get) => {
       try {
         // 一次性把「当日每日任务」与「跨日期持久任务」合并持有，
         // 渲染时再按 kind 分流。持久任务用 listAll 取出 deadline/goal 两种。
-        const [daily, all] = await Promise.all([
-          repos.tasks.listByDate(date),
+        const [all, completions] = await Promise.all([
           repos.tasks.listAll(),
+          repos.pinCompletions.listByDate(date),
         ]);
-        const dailyOnly = daily.filter((t) => isDailyTask(t));
+        // 每日任务（含「定住」投影）用 composeDailyTasks 合成
+        const composed = composeDailyTasks(all, date, completions);
+        const dailyOnly = composed.filter((t) => isDailyTask(t));
         const persistent = all.filter((t) => t.kind === 'deadline' || t.kind === 'goal');
-        set({ tasks: [...dailyOnly, ...persistent], loading: false });
+        set({ tasks: [...dailyOnly, ...persistent], currentDate: date, loading: false });
       } catch {
-        set({ tasks: [], loading: false });
+        set({ tasks: [], currentDate: date, loading: false });
       }
     },
 
@@ -114,6 +130,8 @@ export const useTaskStore = create<TaskState>((set, get) => {
         updatedAt: now,
         deletedAt: null,
         inheritedFrom: null,
+        pinFrom: null,
+        pinUntil: null,
       };
       commit([...get().tasks, task], [task.id], true);
       set({ lastCreatedId: task.id });
@@ -137,6 +155,8 @@ export const useTaskStore = create<TaskState>((set, get) => {
         updatedAt: now,
         deletedAt: null,
         inheritedFrom: null,
+        pinFrom: null,
+        pinUntil: null,
       };
       commit([...get().tasks, task], [task.id], true);
       set({ lastCreatedId: task.id });
@@ -158,6 +178,8 @@ export const useTaskStore = create<TaskState>((set, get) => {
         updatedAt: now,
         deletedAt: null,
         inheritedFrom: null,
+        pinFrom: null,
+        pinUntil: null,
       };
       commit([...get().tasks, task], [task.id], true);
       set({ lastCreatedId: task.id });
@@ -198,6 +220,13 @@ export const useTaskStore = create<TaskState>((set, get) => {
     },
 
     toggleDone(id) {
+      const task = get().tasks.find((t) => t.id === id);
+      if (!task) return;
+      // 定住任务（pinFrom 非空）的完成态每天独立，走 pinCompletions 而不是改模板 done
+      if (task.pinFrom !== null) {
+        get().togglePinDone(id);
+        return;
+      }
       const now = clock.now();
       const tasks = get().tasks.map((t) => (t.id === id ? { ...t, done: !t.done, updatedAt: now } : t));
       commit(tasks, [id], true);
@@ -306,6 +335,64 @@ export const useTaskStore = create<TaskState>((set, get) => {
       } catch {
         return { created: 0, skipped: 0 };
       }
+    },
+
+    pin(id) {
+      const task = get().tasks.find((t) => t.id === id);
+      if (!task) return;
+      const now = clock.now();
+      /*
+        🔴 重新定住：若这条任务之前被「取消」过（pinFrom 非空、但 pinUntil 已设），
+        再点「设为长期任务」要**清掉 pinUntil** 让它恢复活跃定住，而不是被下面的
+        `pinFrom !== null` 判断拦住 —— 否则「取消 → 再设回」永远走不通。
+        真正不该进来的只有「本来就活跃定住中」的任务（此刻点的是「取消」分支）。
+      */
+      if (task.pinFrom !== null) {
+        if (task.pinUntil === null) return; // 已活跃定住，无需再设
+        // 已取消 → 清除 pinUntil，恢复定住（pinFrom 保持原来的起始日）
+        const tasks = get().tasks.map((t) =>
+          t.id === id ? { ...t, pinUntil: null, updatedAt: now } : t,
+        );
+        commit(tasks, [id], true);
+        return;
+      }
+      // 全新定住：起始日 = 这条任务所属的那天（date 字段）
+      const tasks = get().tasks.map((t) =>
+        t.id === id ? { ...t, pinFrom: t.date, pinUntil: null, updatedAt: now } : t,
+      );
+      commit(tasks, [id], true);
+    },
+
+    unpin(id) {
+      const task = get().tasks.find((t) => t.id === id);
+      if (!task || task.pinFrom === null) return;
+      const now = clock.now();
+      const date = get().currentDate;
+      // 取消生效日 = 当前查看日期 + 1 天（当天保留，次日及以后不再投影）
+      const pinUntil = shiftDateKey(date, 1);
+      const tasks = get().tasks.map((t) =>
+        t.id === id ? { ...t, pinUntil, updatedAt: now } : t,
+      );
+      commit(tasks, [id], true);
+    },
+
+    togglePinDone(id) {
+      const task = get().tasks.find((t) => t.id === id);
+      if (!task) return;
+      const date = get().currentDate;
+      const now = clock.now();
+      const nextDone = !task.done;
+      const completion: PinCompletion = {
+        id: newPinCompletionId(id, date),
+        taskId: id,
+        date,
+        done: nextDone,
+        updatedAt: now,
+      };
+      persistPinCompletion(completion);
+      // 就地翻转这条投影/本体的 done，让 UI 立即刷新
+      const tasks = get().tasks.map((t) => (t.id === id ? { ...t, done: nextDone } : t));
+      set({ tasks });
     },
   };
 });

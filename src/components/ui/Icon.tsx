@@ -48,7 +48,9 @@ export type IconName =
   /** 重置（刷新箭头） */
   | 'reset'
   /** 编辑（铅笔） */
-  | 'edit';
+  | 'edit'
+  /** 图钉（定住） */
+  | 'pin';
 
 interface IconProps {
   name: IconName;
@@ -60,7 +62,7 @@ interface IconProps {
   strokeWidth?: number;
 }
 
-const STROKE: Record<Exclude<IconName, 'heart' | 'star' | 'dot' | 'grip'>, ReactNode> = {
+const STROKE: Record<Exclude<IconName, 'heart' | 'star' | 'dot' | 'grip' | 'pin'>, ReactNode> = {
   home: (
     <>
       <path d="M3 10.6 12 3.4l9 7.2" />
@@ -232,11 +234,13 @@ const STROKE: Record<Exclude<IconName, 'heart' | 'star' | 'dot' | 'grip'>, React
   ),
 };
 
-/** 心 / 星：空心描边与实心两套（评分的「已选 / 未选」要靠它区分） */
+/** 心 / 星 / 图钉：空心描边与实心两套（评分的「已选 / 未选」、定住态要靠它区分） */
 const HEART_PATH =
   'M20.6 5.5a4.9 4.9 0 0 0-6.9 0L12 7.2l-1.7-1.7a4.9 4.9 0 1 0-6.9 6.9L12 21.3l8.6-8.9a4.9 4.9 0 0 0 0-6.9Z';
 const STAR_PATH =
   'M12 3.6l2.7 5.5 6 .9-4.35 4.24 1.03 6-5.38-2.83L6.62 20.2l1.03-6L3.3 10l6-.9Z';
+const PIN_PATH =
+  'M12 17.5v3.2M9 13.5 5.5 11V8.5L8 6h8l2.5 2.5v2.5L15 13.5l-1 6h-4Z';
 
 export function Icon({ name, size = 20, className, filled = false, strokeWidth = 1.8 }: IconProps) {
   // 子项圆点是纯填充的小圆，不参与描边体系
@@ -266,7 +270,7 @@ export function Icon({ name, size = 20, className, filled = false, strokeWidth =
     );
   }
 
-  if (name === 'heart' || name === 'star') {
+  if (name === 'heart' || name === 'star' || name === 'pin') {
     return (
       <svg
         width={size}
@@ -280,7 +284,7 @@ export function Icon({ name, size = 20, className, filled = false, strokeWidth =
         strokeLinecap="round"
         strokeLinejoin="round"
       >
-        <path d={name === 'heart' ? HEART_PATH : STAR_PATH} />
+        <path d={name === 'heart' ? HEART_PATH : name === 'star' ? STAR_PATH : PIN_PATH} />
       </svg>
     );
   }
