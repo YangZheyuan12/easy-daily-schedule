@@ -501,3 +501,116 @@ export interface DaySummary {
   /** 加权完成率 0–1；四板块无条目时为 0（不会是 NaN） */
   overall: number;
 }
+
+/* ------------------------------------------------------------------ */
+/* AI 模块（用户自带 API，本地优先，纯前端分析）                        */
+/* ------------------------------------------------------------------ */
+
+/** 支持的 AI 厂商接入方式 */
+export type AiProvider = 'openai-compatible' | 'anthropic' | 'gemini';
+
+/** 用户选择的接入配置（不含密钥，密钥走安全存储） */
+export interface AiProviderConfig {
+  provider: AiProvider;
+  /**
+   * API Base URL。
+   * - openai-compatible：默认 https://api.openai.com/v1（国产模型填对应地址，如 DeepSeek / GLM / 通义 / Kimi）
+   * - anthropic：https://api.anthropic.com/v1
+   * - gemini：https://generativelanguage.googleapis.com/v1beta
+   */
+  baseUrl: string;
+  /** 模型名，如 gpt-4o-mini / claude-3-5-sonnet-latest / gemini-1.5-flash */
+  model: string;
+}
+
+/** 分析聚焦维度 */
+export type AiFocus = 'general' | 'weekly' | 'monthly';
+
+/** 发给 AI 的「某一天」聚合统计（非原始内容，省 token 也护隐私） */
+export interface DailyCompletionStat {
+  date: string;
+  /** 四板块顶层条目完成数 / 总数 */
+  sectionDone: number;
+  sectionTotal: number;
+  /** 加权完成率 0–1 */
+  overall: number;
+  /** 当日任务完成 / 总数 */
+  taskDone: number;
+  taskTotal: number;
+  /** 固定任务完成 / 总数 */
+  routineDone: number;
+  routineTotal: number;
+  /** 心情 / 身体星级（0 = 未记录） */
+  mood: Rating;
+  body: Rating;
+}
+
+/** 发给 AI 的聚合快照（按日期范围统计，模型据此推理，不接触原始条目文本） */
+export interface CompletionSnapshot {
+  rangeStart: string;
+  rangeEnd: string;
+  daily: DailyCompletionStat[];
+  /** 固定任务累计完成短板（按完成率升序，取最弱若干） */
+  routineSummary: { routineId: string; title: string; done: number; total: number }[];
+  /** 期限 / 长时目标任务的进度 */
+  taskSummary: { id: string; content: string; done: boolean; kind?: TaskKind }[];
+  /** 整体统计（供模型把握全局，不必逐日扫描） */
+  totals: {
+    daysWithData: number;
+    avgOverall: number;
+    totalSectionDone: number;
+    totalSectionTotal: number;
+    totalTaskDone: number;
+    totalTaskTotal: number;
+    totalRoutineDone: number;
+    totalRoutineTotal: number;
+    avgMood: number;
+    avgBody: number;
+  };
+}
+
+export type AiInsightCategory = 'rate' | 'trend' | 'weakspot' | 'suggestion' | 'streak';
+export type AiInsightSeverity = 'info' | 'good' | 'warn';
+
+/** 一条 AI 洞察 */
+export interface AiInsight {
+  category: AiInsightCategory;
+  title: string;
+  detail: string;
+  severity: AiInsightSeverity;
+}
+
+/** 模型返回的结构化分析结果 */
+export interface AiAnalysisResult {
+  /** 一句话总结 */
+  summary: string;
+  /** 整体完成率 0–1 */
+  completionRate: number;
+  insights: AiInsight[];
+  /** 实际使用的模型名（回显用） */
+  model: string;
+  /** 生成时间戳（ms） */
+  generatedAt: number;
+}
+
+/** 发给网关的分析请求 */
+export interface AiAnalysisRequest {
+  snapshot: CompletionSnapshot;
+  focus: AiFocus;
+  /** 输出语言，固定简体中文 */
+  language: 'zh';
+}
+
+/** AI 分析历史缓存（落本地，便于复查与展示历史） */
+export interface AiAnalysisRecord {
+  id: string;
+  rangeStart: string;
+  rangeEnd: string;
+  focus: AiFocus;
+  provider: AiProvider;
+  model: string;
+  summary: string;
+  completionRate: number;
+  insights: AiInsight[];
+  generatedAt: number;
+}

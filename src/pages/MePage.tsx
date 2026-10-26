@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Icon } from '@/components/ui/Icon';
 import clsx from 'clsx';
 import { PageHeader } from '@/components/layout/PageHeader';
@@ -15,6 +16,9 @@ import { parseBackup, summarizeBackup, describeSummary } from '@/services/backup
 import { evaluateUpdate } from '@/services/updateService';
 import { getCurrentVersion } from '@/platform/appInfo';
 import { fetchLatestRelease, openExternalUrl } from '@/platform/updateBridge';
+import { AI_PROVIDER_DEFAULTS } from '@/platform/ai';
+import { useAiStore } from '@/store/useAiStore';
+import type { AiProvider } from '@/domain/types';
 import { formatShortDate, toDateKey } from '@/utils/date';
 
 /** 我的（P1，当前为占位 + 版本信息） */
@@ -25,6 +29,7 @@ export function MePage() {
   const setTickHours = useTimelineWindowStore((s) => s.setTickHours);
   const resetWindow = useTimelineWindowStore((s) => s.reset);
   const theme = useThemeStore((s) => s.theme);
+  const aiKeySet = useAiStore((s) => s.keySet);
 
   /*
     每一卡都能折叠，且**默认全部收起**（用户要求）：设置页一屏只剩六行标题，
@@ -88,6 +93,10 @@ export function MePage() {
             <Row label="数据存放" value="本机浏览器（IndexedDB）" />
             <Row label="账号同步" value="规划中" />
           </div>
+        </CollapsibleCard>
+
+        <CollapsibleCard title="AI 助手" expandKey="me:ai" hint={aiKeySet ? '已配置' : '未配置'}>
+          <AiSettingsCard />
         </CollapsibleCard>
 
         <CollapsibleCard title="数据备份" expandKey="me:backup">
@@ -517,5 +526,181 @@ function HourSelect({
         </option>
       ))}
     </select>
+  );
+}
+
+/**
+ * AI 接入设置卡。
+ *
+ * 用户自带 API：选厂商（OpenAI 兼容 / Anthropic / Gemini）→ 填 Base URL / 模型 /
+ * API Key。配置（非敏感）存 SettingsRepository，密钥走 `SecureAiKeyStore`（AES-GCM 信封），
+ * 与账号 token 同等级。密钥**只在点「生成分析」时**发往所选厂商，不进任何本机明文库。
+ *
+ * 第二阶段才接入真正的分析网关；此卡先把「接入配置」这层跑通。
+ */
+function AiSettingsCard() {
+  const pushToast = useUiStore((s) => s.pushToast);
+  const config = useAiStore((s) => s.config);
+  const keySet = useAiStore((s) => s.keySet);
+  const busy = useAiStore((s) => s.busy);
+  const error = useAiStore((s) => s.error);
+  const saveConfig = useAiStore((s) => s.saveConfig);
+  const clearKey = useAiStore((s) => s.clearKey);
+  const testConnection = useAiStore((s) => s.testConnection);
+  const load = useAiStore((s) => s.load);
+  const navigate = useNavigate();
+
+  const [provider, setProvider] = useState<AiProvider>('openai-compatible');
+  const [baseUrl, setBaseUrl] = useState('');
+  const [model, setModel] = useState('');
+  const [key, setKey] = useState('');
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  // 已存配置回填
+  useEffect(() => {
+    if (config) {
+      setProvider(config.provider);
+      setBaseUrl(config.baseUrl);
+      setModel(config.model);
+    }
+  }, [config]);
+
+  const handleProviderChange = (next: AiProvider) => {
+    setProvider(next);
+    const preset = AI_PROVIDER_DEFAULTS[next];
+    setBaseUrl(preset.baseUrl);
+    setModel(preset.model);
+  };
+
+  const handleSave = async () => {
+    if (!baseUrl.trim() || !model.trim()) {
+      pushToast('请填写 Base URL 与模型名', 'error');
+      return;
+    }
+    await saveConfig(
+      { provider, baseUrl: baseUrl.trim(), model: model.trim() },
+      key.trim() || undefined,
+    );
+    setKey('');
+    pushToast('已保存 AI 接入配置');
+  };
+
+  const handleClearKey = async () => {
+    await clearKey();
+    setKey('');
+    pushToast('已清除密钥');
+  };
+
+  const handleTest = async () => {
+    try {
+      await testConnection();
+      pushToast('连接成功：密钥与地址可用');
+    } catch {
+      pushToast(error ?? '连接测试失败', 'error');
+    }
+  };
+
+  return (
+    <div className="space-y-3">
+      <p className="text-caption leading-5 text-ink-faint">
+        自带 API Key 即可用 AI 分析完成情况。密钥只存在这台设备，仅在你点「生成分析」时发往所选厂商，
+        不会上传到本应用任何服务器。
+      </p>
+
+      <SettingRow label="厂商">
+        <select
+          value={provider}
+          onChange={(e) => handleProviderChange(e.target.value as AiProvider)}
+          className="bg-surface-sunken rounded-sm border border-surface-line px-3 py-2 text-body text-ink outline-none"
+        >
+          {(Object.keys(AI_PROVIDER_DEFAULTS) as AiProvider[]).map((id) => (
+            <option key={id} value={id}>
+              {AI_PROVIDER_DEFAULTS[id].label}
+            </option>
+          ))}
+        </select>
+      </SettingRow>
+
+      <div className="space-y-1">
+        <span className="block text-body text-ink">API Base URL</span>
+        <input
+          type="text"
+          value={baseUrl}
+          onChange={(e) => setBaseUrl(e.target.value)}
+          placeholder={AI_PROVIDER_DEFAULTS[provider].baseUrl}
+          className="w-full bg-surface-sunken rounded-sm border border-surface-line px-3 py-2 text-body text-ink outline-none"
+        />
+      </div>
+
+      <div className="space-y-1">
+        <span className="block text-body text-ink">模型名</span>
+        <input
+          type="text"
+          value={model}
+          onChange={(e) => setModel(e.target.value)}
+          placeholder={AI_PROVIDER_DEFAULTS[provider].model}
+          className="w-full bg-surface-sunken rounded-sm border border-surface-line px-3 py-2 text-body text-ink outline-none"
+        />
+      </div>
+
+      <div className="space-y-1">
+        <span className="block text-body text-ink">API Key</span>
+        <input
+          type="password"
+          value={key}
+          onChange={(e) => setKey(e.target.value)}
+          placeholder={keySet ? '已保存（留空则不修改）' : 'sk-...'}
+          autoComplete="off"
+          className="w-full bg-surface-sunken rounded-sm border border-surface-line px-3 py-2 text-body text-ink outline-none"
+        />
+      </div>
+
+      {error && <p className="text-caption text-heart">{error}</p>}
+
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={() => void handleSave()}
+          disabled={busy}
+          className="press flex-1 min-h-[42px] rounded-card bg-accent text-lead text-accent-fg disabled:opacity-50"
+        >
+          {busy ? '保存中…' : '保存配置'}
+        </button>
+        {keySet && (
+          <button
+            type="button"
+            onClick={() => void handleClearKey()}
+            className="press min-h-[42px] rounded-card border border-surface-line text-body text-ink-faint"
+          >
+            清除密钥
+          </button>
+        )}
+      </div>
+
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={() => navigate('/ai/analysis')}
+          className="press flex-1 min-h-[42px] rounded-card bg-accent-soft text-body text-accent"
+        >
+          去分析
+        </button>
+        <button
+          type="button"
+          onClick={() => void handleTest()}
+          disabled={busy}
+          className="press flex-1 min-h-[42px] rounded-card border border-surface-line text-body text-ink-soft disabled:opacity-50"
+        >
+          {busy ? '测试中…' : '测试连接'}
+        </button>
+      </div>
+
+      <p className="text-caption leading-5 text-ink-faint">
+        分析在本地完成：只把聚合统计发给所选厂商，不传任何原始内容；密钥仅存于本设备。
+      </p>
+    </div>
   );
 }

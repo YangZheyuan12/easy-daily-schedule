@@ -9,6 +9,7 @@ import { TimelinePage } from '@/pages/TimelinePage';
 import { TimetableImportPage } from '@/pages/TimetableImportPage';
 import { CalendarPage } from '@/pages/CalendarPage';
 import { MePage } from '@/pages/MePage';
+import { AiAnalysisPage } from '@/pages/AiAnalysisPage';
 
 /**
  * 路由。
@@ -32,6 +33,7 @@ export function AppRouter() {
           <Route path="/timetable/import" element={<TimetableImportPage />} />
           <Route path="/calendar" element={<CalendarPage />} />
           <Route path="/me" element={<MePage />} />
+          <Route path="/ai/analysis" element={<AiAnalysisPage />} />
           <Route path="*" element={<Navigate to="/today" replace />} />
         </Route>
       </Routes>

@@ -10,6 +10,9 @@ import { SecureTokenStore } from '@/platform/auth/secureTokenStore';
 import { PersistenceService } from '@/services/persistenceService';
 import { toLocalTime } from '@/services/syncService';
 import { UndoService } from '@/services/undoService';
+import { AiService } from '@/services/aiService';
+import { createAiGateway } from '@/platform/ai';
+import { SecureAiKeyStore } from '@/platform/ai/secureAiKeyStore';
 import { PURGE_AFTER_MS } from '@/domain/constants';
 
 /**
@@ -39,6 +42,16 @@ export const entitlementGateway = new LocalEntitlementGateway(repos.entitlements
 export const purchaseGateway = new LocalPurchaseGateway(repos.entitlements, clock);
 export const tokenStore = new SecureTokenStore();
 export const authService = new AuthService(authGateway, tokenStore, repos.account, clock);
+
+/*
+ * AI 模块装配（本地优先：用户自带 API，无后端）。
+ *
+ * - `SecureAiKeyStore`：API Key 走 AES-GCM 信封安全存储（与 token 同等级）；
+ * - `aiService`：纯逻辑服务，网关通过 `createAiGateway` 注入（第二阶段挂真实实现）。
+ * 业务层只认识 `aiService`，不认识具体厂商，换接入方式零改动。
+ */
+export const aiKeyStore = new SecureAiKeyStore();
+export const aiService = new AiService(repos, aiKeyStore, clock, createAiGateway);
 
 type ErrorHandler = (error: unknown) => void;
 

@@ -1,5 +1,9 @@
 import type {
   Account,
+  AiAnalysisRecord,
+  AiAnalysisRequest,
+  AiAnalysisResult,
+  AiProviderConfig,
   AuthToken,
   CodeRequestResult,
   DailySelfStatus,
@@ -139,6 +143,8 @@ export interface RoutineRepository {
 export interface RoutineCompletionRepository {
   /** 某天的全部完成记录 */
   listByDate(date: string): Promise<RoutineCompletion[]>;
+  /** 区间批量拉取（AI 分析用），走 `date` 索引 */
+  listByDateRange(startDate: string, endDate: string): Promise<RoutineCompletion[]>;
   /** 若干模板的完成记录（级联 / 清理用） */
   listByRoutineIds(routineIds: string[]): Promise<RoutineCompletion[]>;
   /** 全表拉取（清理用） */
@@ -325,6 +331,51 @@ export interface SyncStateRepository {
   reset(): Promise<SyncState>;
 }
 
+/* ------------------------------------------------------------------ */
+/* AI 模块（用户自带 API，本地优先）                                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * AI 网关：唯一允许打网络的地方（与 AuthGateway / SyncGateway 同级）。
+ *
+ * 业务层不认识具体实现 —— 只有 `services/aiService` 调用。
+ * 当前为占位实现（platform/ai/index.ts 返回未就绪网关），第二阶段接入
+ * OpenAI 兼容 / Anthropic / Gemini 的具体实现，业务零改动。
+ */
+export interface AiGateway {
+  /**
+   * 把聚合统计发给模型，返回结构化分析。
+   * 密钥不进 config：由网关自行从安全存储取，避免明文在内存里满天飞。
+   */
+  analyze(
+    request: AiAnalysisRequest,
+    config: AiProviderConfig,
+    apiKey: string,
+  ): Promise<AiAnalysisResult>;
+  /**
+   * 连通性自检：发一个最小请求确认 Base URL / 密钥可用。
+   * 网络不通抛「无法连接」；能连但鉴权失败抛「密钥或地址可能不正确」。
+   */
+  testConnection(config: AiProviderConfig, apiKey: string): Promise<void>;
+}
+
+/** API Key 安全存储（与 TokenStore 同等级，AES-GCM 信封） */
+export interface AiKeyStore {
+  save(key: string): Promise<void>;
+  load(): Promise<string | null>;
+  clear(): Promise<void>;
+}
+
+/** AI 分析历史缓存仓储 */
+export interface AiAnalysisRepository {
+  /** 写入 / 覆盖一条分析记录（主键 id） */
+  put(record: AiAnalysisRecord): Promise<void>;
+  /** 最近 N 条（按 generatedAt 降序） */
+  listRecent(limit?: number): Promise<AiAnalysisRecord[]>;
+  /** 取单条；不存在返回 undefined */
+  get(id: string): Promise<AiAnalysisRecord | undefined>;
+}
+
 /** 全部仓储的集合，由 repositories/index.ts 装配后注入 */
 export interface Repositories {
   items: ItemRepository;
@@ -340,6 +391,10 @@ export interface Repositories {
   account: AccountRepository;
   entitlements: EntitlementRepository;
   settings: SettingsRepository;
+  /**
+   * AI 分析历史缓存（落本地，便于复查；不参与同步，属纯本机数据）。
+   */
+  aiAnalyses: AiAnalysisRepository;
   /**
    * 同步状态（deviceId / 双游标 / 时钟偏移）。
    *

@@ -1,6 +1,7 @@
 import Dexie, { type EntityTable } from 'dexie';
 import type {
   Account,
+  AiAnalysisRecord,
   DailySelfStatus,
   Day,
   Entitlement,
@@ -41,6 +42,8 @@ export class AppDatabase extends Dexie {
   entitlements!: EntityTable<Entitlement, 'id'>;
   /** 同步状态（单行）。与业务表同库，保证「写完数据 + 推进游标」可在同一事务里做 */
   syncMeta!: EntityTable<SyncMetaTable, 'key'>;
+  /** AI 分析历史缓存（落本地，便于复查；纯本机数据） */
+  aiAnalyses!: EntityTable<AiAnalysisRecord, 'id'>;
 
   constructor(name: string = DB_NAME) {
     super(name);

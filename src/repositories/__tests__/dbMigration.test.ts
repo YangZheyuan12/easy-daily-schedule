@@ -89,15 +89,15 @@ async function makeV4(): Promise<string> {
 }
 
 describe('Dexie v1 → v8 迁移', () => {
-  it('当前 schema 版本号是 7', () => {
-    expect(DB_VERSION).toBe(8);
+  it('当前 schema 版本号是 9', () => {
+    expect(DB_VERSION).toBe(9);
   });
 
   it('v1 的三个老表（items / tasks / days）数据全部保留', async () => {
     const db = new AppDatabase(await makeV1());
     await db.open();
 
-    expect(db.verno).toBe(8);
+    expect(db.verno).toBe(9);
 
     const items = await db.items.toArray();
     const tasks = await db.tasks.toArray();
@@ -156,9 +156,10 @@ describe('Dexie v1 → v8 迁移', () => {
     const db = new AppDatabase(`fresh-install-${counter++}`);
     await db.open();
 
-    expect(db.verno).toBe(8);
+    expect(db.verno).toBe(9);
     expect(db.tables.map((table) => table.name).sort()).toEqual([
       'account',
+      'aiAnalyses',
       'days',
       'entitlements',
       'inspirations',
@@ -185,7 +186,7 @@ describe('Dexie v1 → v8 迁移', () => {
     const db = new AppDatabase(await makeV4());
     await db.open();
 
-    expect(db.verno).toBe(8);
+    expect(db.verno).toBe(9);
     expect(db.tables.map((table) => table.name)).toContain('taskImages');
 
     const images = await db.itemImages.toArray();
@@ -214,7 +215,7 @@ describe('Dexie v1 → v8 迁移', () => {
     const db = new AppDatabase(await makeV4());
     await db.open();
 
-    expect(db.verno).toBe(8);
+    expect(db.verno).toBe(9);
     expect(db.tables.map((table) => table.name)).toContain('syncMeta');
 
     await db.syncMeta.put({

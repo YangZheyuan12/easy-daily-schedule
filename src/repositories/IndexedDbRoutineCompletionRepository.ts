@@ -22,6 +22,18 @@ export class IndexedDbRoutineCompletionRepository implements RoutineCompletionRe
     }
   }
 
+  /** 区间批量拉取（AI 分析用），走 `date` 索引的 between 查询 */
+  async listByDateRange(startDate: string, endDate: string): Promise<RoutineCompletion[]> {
+    try {
+      return await this.db.routineCompletions
+        .where('date')
+        .between(startDate, endDate, true, true)
+        .toArray();
+    } catch (error) {
+      throw new StorageError('读取固定任务完成记录失败', error);
+    }
+  }
+
   /** 若干模板的完成记录（级联 / 清理用） */
   async listByRoutineIds(routineIds: string[]): Promise<RoutineCompletion[]> {
     if (routineIds.length === 0) return [];

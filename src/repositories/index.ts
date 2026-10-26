@@ -14,6 +14,7 @@ import { IndexedDbRoutineRepository } from './IndexedDbRoutineRepository';
 import { IndexedDbRoutineCompletionRepository } from './IndexedDbRoutineCompletionRepository';
 import { IndexedDbAccountRepository } from './IndexedDbAccountRepository';
 import { IndexedDbEntitlementRepository } from './IndexedDbEntitlementRepository';
+import { IndexedDbAiAnalysisRepository } from './IndexedDbAiAnalysisRepository';
 import { LocalSettingsRepository } from './LocalSettingsRepository';
 import { IndexedDbSyncStateRepository } from './IndexedDbSyncStateRepository';
 
@@ -32,6 +33,7 @@ export { IndexedDbRoutineRepository } from './IndexedDbRoutineRepository';
 export { IndexedDbRoutineCompletionRepository } from './IndexedDbRoutineCompletionRepository';
 export { IndexedDbAccountRepository } from './IndexedDbAccountRepository';
 export { IndexedDbEntitlementRepository } from './IndexedDbEntitlementRepository';
+export { IndexedDbAiAnalysisRepository } from './IndexedDbAiAnalysisRepository';
 export { LocalSettingsRepository, MemorySettingsRepository } from './LocalSettingsRepository';
 export {
   IndexedDbSyncStateRepository,
@@ -60,6 +62,7 @@ export function createRepositories(): Repositories {
     account: new IndexedDbAccountRepository(db),
     entitlements: new IndexedDbEntitlementRepository(db),
     settings: new LocalSettingsRepository(),
+    aiAnalyses: new IndexedDbAiAnalysisRepository(db),
     syncState: new IndexedDbSyncStateRepository(db),
   };
 }

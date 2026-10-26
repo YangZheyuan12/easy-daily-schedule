@@ -10,6 +10,7 @@
  */
 import type {
   Account,
+  AiAnalysisRecord,
   DailySelfStatus,
   Day,
   Entitlement,
@@ -25,7 +26,7 @@ import type {
 import type { SyncState } from '@/domain/sync';
 
 export const DB_NAME = 'daily-schedule';
-export const DB_VERSION = 8;
+export const DB_VERSION = 9;
 
 export interface ItemTable extends Item {}
 export interface TaskTable extends Task {}
@@ -49,6 +50,9 @@ export interface SyncMetaTable extends SyncState {
   key: string;
 }
 
+/** AI 分析历史缓存（落本地，便于复查；纯本机数据，不参与同步） */
+export interface AiAnalysisTable extends AiAnalysisRecord {}
+
 /** syncMeta 表的主键常量 —— 目前只有同步状态这一行 */
 export const SYNC_STATE_KEY = 'state';
 
@@ -71,6 +75,9 @@ export const SYNC_STATE_KEY = 'state';
  * （按 routineId + date 维度的每日完成记录）两张表。同样重申全部既有表。
  * v8 变更（账号与权益）：新增 `account`（账号画像缓存，主键固定 'current'）与
  * `entitlements`（权益快照缓存，plan / updatedAt 索引）两张表。同样重申全部既有表。
+ * v9 变更（AI 模块）：新增 `aiAnalyses`（分析历史缓存，主键 id、generatedAt 索引）。
+ * 同样重申全部既有表。🔴 必须保留 v8 全部 schema —— Dexie 不允许低版本 schema 打开
+ * 已升级的库，本机库一旦升到 v9 就再也不能降级，schema 删不得。
  * 🔴 token 不进库：敏感令牌走 platform 安全存储，本库只存非敏感画像与权益快照。
  */
 export const STORES = {
@@ -87,6 +94,7 @@ export const STORES = {
   account: '&id',
   entitlements: '&id, plan, updatedAt',
   syncMeta: '&key',
+  aiAnalyses: '&id, generatedAt',
 } as const;
 
 export type StoreName = keyof typeof STORES;
