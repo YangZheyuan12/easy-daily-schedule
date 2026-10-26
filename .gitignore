@@ -54,3 +54,14 @@ vite.config.ts.timestamp-*.mjs
 # .workbuddy/tmp 是 scratch：截图、导出的 jsonl、html 板子等一次性产物，不入库。
 #   长期有用的验证脚本已迁出到 scripts/tools/（入库，见其 README），不再是 tmp 的例外。
 .workbuddy/tmp/*
+
+# ---------- 小程序（minitool）打包的临时产物 ----------
+# 这是另一个「把 H5 打包成小程序」任务的 scratch，与日程表 App 本身无关：
+# skill 包、打包脚本、zip 产物、shim 与构建输出都不入库。
+.skill/
+dist-minitool/
+minitool-daily-schedule.zip
+scripts/minitool-postprocess.mjs
+src/minitool-shims/
+vite.minitool.config.ts
+
