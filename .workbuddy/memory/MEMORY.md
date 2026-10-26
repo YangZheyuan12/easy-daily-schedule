@@ -49,6 +49,7 @@ ID nanoid；日期用自写 `utils/date.ts`。
   - UI：`components/auth/LoginSheet`（验证码+60s 冷却+本地码展示）、`components/auth/PaywallSheet`（权益对比表/开通/续费/恢复购买/模拟支付声明）、`components/me/AccountCard`（我的页「账号与会员」卡）；无 autoFocus（键盘红线）。
   - 🔴 WorkBuddy 云服务：本会话 `workbuddy_cloud_service activate` 弹窗被关闭（cancelled+useLocalImplementation）→ 全部走本地实现；用户想接云端时重跑 activate 再换 4 个 platform 文件即可。
 - 待办：WorkBuddy 云服务真实 `AuthGateway`/`EntitlementGateway`（换 platform/auth 四个文件）、真实支付（iOS 内购/微信支付，换 `LocalPurchaseGateway`）、iOS 第三方登录红线（Sign in with Apple + 账号删除入口 + 隐私政策）。
+- **2026-10-26 用户决策：暂不做付费**。产品表面已摘净入口——`MePage` 删「账号与会员」卡（`AccountCard` + `me:account` 折叠键），「账号同步」行改回「规划中」；底层全保留（端口/服务/store/网关/v8 两表/全部测试），静默 hydrate 不打扰用户。想重开 = MePage 加回两行。⚠️ 不可 revert `140e5cc`：Dexie 不允许低版本 schema 打开已升级的 v8 库（本机库会打不开），彻底删也必须保留 v8 schema。另确认：Android 真实支付对个人不可行（微信/支付宝商户号需企业/个体资质；Google Play 中国区需企业资质且国内无 GMS），继续用 `LocalPurchaseGateway` 模拟。
 
 ## 任务页 / 时间轴（2026-10-17 功能）
 - 🔴 每日任务列表**行尾拖拽手柄**（自写 `hooks/useDragSort`，零依赖 pointer events）上下重排 →
