@@ -129,16 +129,23 @@ export function AiChatPanel() {
           <Icon name="sparkle" size={22} />
         </div>
         <div className="min-w-0">
-          <div className="text-lead font-semibold leading-5 text-ink">AI 助手</div>
+          <div className="flex items-center gap-1.5">
+            <span className="text-lead font-semibold leading-5 text-ink">AI 助手</span>
+            {/*
+              已接入徽标紧跟标题右侧（横版小字），不再用 ml-auto 顶到最右 ——
+              右上角要留给全屏按钮，状态标记贴着它所描述的主体才是它该在的位置。
+            */}
+            {keySet && (
+              <span className="shrink-0 inline-flex items-center gap-0.5 rounded-pill bg-accent-soft px-1.5 py-0.5 text-micro text-accent">
+                {/* 图标走深色（text-ink）：浅重音底上深色勾更沉稳，不与标题抢视线 */}
+                <Icon name="check" size={11} strokeWidth={2.8} className="text-ink" />
+                已接入
+              </span>
+            )}
+          </div>
           <div className="text-caption text-ink-faint">基于你的日程数据 · 本地隐私</div>
         </div>
         <div className="ml-auto flex items-center gap-2">
-          {keySet && (
-            <span className="flex items-center gap-1 rounded-pill bg-accent-soft px-2.5 py-1 text-micro text-accent">
-              <Icon name="check" size={12} strokeWidth={2.6} />
-              已接入
-            </span>
-          )}
           <button
             type="button"
             onClick={() => setFullscreen((v) => !v)}

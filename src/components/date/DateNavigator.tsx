@@ -189,17 +189,7 @@ export function DateNavigator({
           无障碍名与浮层里那一行仍然写完整的「回到今天」。
         */
         showBackToToday ? (
-          <button
-            type="button"
-            onClick={onToday}
-            className="press shrink-0 min-h-[34px] px-3.5 rounded-pill bg-accent text-meta text-accent-fg shadow-glow inline-flex items-center gap-1 whitespace-nowrap"
-            aria-label="回到今天"
-            title="回到今天"
-            data-testid="back-to-today"
-          >
-            <Icon name="undo" size={13} />
-            今天
-          </button>
+          <BackToTodayPill onClick={onToday} />
         ) : (
           <div className="relative shrink-0">
             <button
@@ -216,8 +206,14 @@ export function DateNavigator({
             <Popover
               open={switchOpen}
               onClose={() => setSwitchOpen(false)}
-              /* 只有两项时收窄：150px 是为「回到今天 + 日期」那一行留的 */
-              width={today ? '104px' : '150px'}
+              /*
+                只有两项时收窄到 104px；多出「回到今天」那一行要放宽。
+                🔴 184px 是量出来的，不是拍的：面板 `p-1`(8px) + 行 `px-2`(16px)
+                吃掉 24px，剩给文字 160px；而「回到今天」(body 15px×4 字≈60px)
+                +「10月28日 周三」(caption 13px≈84px) 约 144px —— 150px 时
+                超出约 18px，正好把最后一个字挤到下一行。
+              */
+              width={today ? '104px' : '184px'}
               label="视图范围"
             >
               {(
@@ -259,11 +255,12 @@ export function DateNavigator({
                       onToday();
                       setSwitchOpen(false);
                     }}
-                    className="press w-full min-h-[40px] px-2 rounded-sm flex items-center justify-between text-ink"
+                    className="press w-full min-h-[40px] px-2 rounded-sm flex items-center justify-between gap-2 text-ink"
                   >
-                    <span className="text-body">回到今天</span>
+                    {/* nowrap 兜底：万一字号/字体在不同机型上变宽，宁可顶到边缘也不要折行 */}
+                    <span className="text-body whitespace-nowrap">回到今天</span>
                     {/* 🔴 严禁 toISOString().slice(0,10)（UTC 推移会差一天）—— 一律走 todayKey */}
-                    <span className="text-caption text-ink-faint tabular-nums">
+                    <span className="text-caption text-ink-faint tabular-nums whitespace-nowrap">
                       {formatDateLabel(todayKey())}
                     </span>
                   </button>
@@ -272,7 +269,7 @@ export function DateNavigator({
             </Popover>
           </div>
         )
-      ) : (
+      ) : today ? (
         <button
           type="button"
           onClick={onToday}
@@ -281,8 +278,38 @@ export function DateNavigator({
         >
           今天
         </button>
+      ) : (
+        /*
+          无视图切换的用法（任务页）：看的就是今天时保持中性灰胶囊（点了没变化，
+          不该抢主操作的视觉重量）；一旦翻到别的日子，右上角换成与今日页一致的
+          「回到今天」重音胶囊 —— 此时回今天就是用户最可能做的事。
+        */
+        <BackToTodayPill onClick={onToday} />
       )}
-
     </div>
+  );
+}
+
+/**
+ * 「回到今天」重音胶囊（↺ + 今天）。
+ *
+ * 文案固定写「今天」而不是「回到今天」：导航条这一行的横向预算是死的
+ * （‹ › 各 44px + 日期最多约 152px），360px 宽的机器上四个字会把日期挤到
+ * 只剩省略号 —— 反过来才是「排版乱」。回到今天的语义由 ↺ 图标表达，
+ * 无障碍名与 title 仍然写完整的「回到今天」。
+ */
+function BackToTodayPill({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="press shrink-0 min-h-[34px] px-3.5 rounded-pill bg-accent text-meta text-accent-fg shadow-glow inline-flex items-center gap-1 whitespace-nowrap"
+      aria-label="回到今天"
+      title="回到今天"
+      data-testid="back-to-today"
+    >
+      <Icon name="undo" size={13} />
+      今天
+    </button>
   );
 }
