@@ -58,6 +58,24 @@ export class AiService {
     await this.keyStore.clear();
   }
 
+  /**
+   * 拉取模型列表（UI「获取模型」用）。
+   *
+   * 仅依赖 Base URL + 密钥，不需要先填模型名。密钥优先用传入值，
+   * 没传则回退到已安全存储的密钥（已保存过密钥时无需重复输入）。
+   */
+  async listModels(config: AiProviderConfig, apiKey?: string): Promise<string[]> {
+    if (!config.baseUrl || !config.baseUrl.trim()) {
+      throw new DomainError('请先填写 Base URL');
+    }
+    const key = (apiKey && apiKey.trim()) || (await this.keyStore.load()) || '';
+    if (!key.trim()) {
+      throw new DomainError('请先填写或保存 API Key（获取模型列表需要鉴权）');
+    }
+    const gateway = this.createGateway(config);
+    return gateway.listModels(config, key);
+  }
+
   /** 是否已具备分析条件：有配置且密钥非空 */
   async isConfigured(): Promise<boolean> {
     const config = await this.getConfig();

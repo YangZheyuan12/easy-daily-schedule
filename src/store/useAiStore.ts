@@ -17,6 +17,12 @@ interface AiState {
   busy: boolean;
   /** 最近一次错误（已归一化为用户可读文案） */
   error: string | null;
+  /** 拉取到的模型名列表（「获取模型」结果） */
+  models: string[];
+  /** 正在获取模型列表 */
+  fetchingModels: boolean;
+  /** 获取模型列表时的错误 */
+  modelError: string | null;
   /** 分析历史 */
   history: AiAnalysisRecord[];
   /** 对话消息列表（我的页 AI 聊天） */
@@ -34,6 +40,10 @@ interface AiState {
   runAnalysis: (rangeStart: string, rangeEnd: string, focus: AiFocus) => Promise<AiAnalysisResult>;
   /** 连通性自检 */
   testConnection: () => Promise<void>;
+  /** 拉取模型列表（「获取模型」按钮） */
+  fetchModels: (config: AiProviderConfig, apiKey?: string) => Promise<string[]>;
+  /** 清空已拉取的模型列表（切换厂商 / 改地址时调用） */
+  clearModels: () => void;
   /** 清空对话 */
   clearChat: () => void;
   /**
@@ -48,6 +58,9 @@ export const useAiStore = create<AiState>((set, get) => ({
   keySet: false,
   busy: false,
   error: null,
+  models: [],
+  fetchingModels: false,
+  modelError: null,
   history: [],
   chat: [],
 
@@ -116,6 +129,23 @@ export const useAiStore = create<AiState>((set, get) => ({
       set({ busy: false, error: message });
       throw error;
     }
+  },
+
+  async fetchModels(config, apiKey) {
+    set({ fetchingModels: true, modelError: null });
+    try {
+      const models = await aiService.listModels(config, apiKey);
+      set({ models, fetchingModels: false });
+      return models;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '获取模型列表失败';
+      set({ fetchingModels: false, modelError: message });
+      throw error;
+    }
+  },
+
+  clearModels() {
+    set({ models: [], modelError: null });
   },
 
   clearChat() {

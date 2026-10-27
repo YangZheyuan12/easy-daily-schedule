@@ -18,6 +18,7 @@ export function createAiGateway(config: AiProviderConfig): AiGateway {
       return createAnthropicGateway();
     case 'gemini':
       return createGeminiGateway();
+    case 'custom':
     case 'openai-compatible':
     default:
       return createOpenAiCompatibleGateway();
@@ -43,5 +44,10 @@ export const AI_PROVIDER_DEFAULTS: Record<
     baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
     model: 'gemini-1.5-flash',
     label: 'Google Gemini',
+  },
+  custom: {
+    baseUrl: '',
+    model: '',
+    label: '自定义（任意 OpenAI 兼容端点）',
   },
 };

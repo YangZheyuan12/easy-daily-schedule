@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import type { AiAnalysisRequest, AiProviderConfig } from '@/domain/types';
+import { createAiGateway } from '../index';
 import { createOpenAiCompatibleGateway } from '../openAiCompatibleGateway';
 import { createAnthropicGateway } from '../anthropicGateway';
 import { createGeminiGateway } from '../geminiGateway';
@@ -89,6 +90,34 @@ describe('OpenAI 兼容网关', () => {
   it('testConnection：200 通过', async () => {
     mockFetch({}, { ok: true, status: 200 });
     await expect(createOpenAiCompatibleGateway().testConnection(CONFIG_OPENAI, KEY)).resolves.toBeUndefined();
+  });
+
+  it('listModels：从 /models 的 data[].id 取出模型名并带鉴权头', async () => {
+    mockFetch({ data: [{ id: 'gpt-4o' }, { id: 'gpt-4o-mini' }] });
+    const models = await createOpenAiCompatibleGateway().listModels(CONFIG_OPENAI, KEY);
+    expect(models).toEqual(['gpt-4o', 'gpt-4o-mini']);
+    const fetchMock = (globalThis as unknown as { fetch: ReturnType<typeof vi.fn> }).fetch;
+    const [url, opts] = fetchMock.mock.calls[0];
+    expect(url).toContain('/models');
+    expect(opts.headers.Authorization).toBe(`Bearer ${KEY}`);
+  });
+
+  it('listModels：401 抛「密钥无效」', async () => {
+    mockFetch({}, { ok: false, status: 401 });
+    await expect(createOpenAiCompatibleGateway().listModels(CONFIG_OPENAI, KEY)).rejects.toThrow(/401/);
+  });
+});
+
+describe('createAiGateway 路由', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('custom 路由到 OpenAI 兼容网关（请求 /chat/completions）', async () => {
+    mockFetch({ choices: [{ message: { content: JSON_BODY } }] });
+    const config: AiProviderConfig = { provider: 'custom', baseUrl: 'https://x/v1', model: 'm' };
+    const res = await createAiGateway(config).analyze(REQUEST, config, KEY);
+    expect(res.completionRate).toBe(0.8);
+    const fetchMock = (globalThis as unknown as { fetch: ReturnType<typeof vi.fn> }).fetch;
+    expect(fetchMock.mock.calls[0][0]).toContain('/chat/completions');
   });
 });
 

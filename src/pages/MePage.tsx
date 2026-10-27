@@ -558,6 +558,11 @@ function AiSettingsCard() {
   const saveConfig = useAiStore((s) => s.saveConfig);
   const clearKey = useAiStore((s) => s.clearKey);
   const testConnection = useAiStore((s) => s.testConnection);
+  const fetchModels = useAiStore((s) => s.fetchModels);
+  const models = useAiStore((s) => s.models);
+  const fetchingModels = useAiStore((s) => s.fetchingModels);
+  const modelError = useAiStore((s) => s.modelError);
+  const clearModels = useAiStore((s) => s.clearModels);
   const load = useAiStore((s) => s.load);
 
   const [provider, setProvider] = useState<AiProvider>('openai-compatible');
@@ -583,6 +588,27 @@ function AiSettingsCard() {
     const preset = AI_PROVIDER_DEFAULTS[next];
     setBaseUrl(preset.baseUrl);
     setModel(preset.model);
+    clearModels();
+  };
+
+  const handleFetchModels = async () => {
+    if (!baseUrl.trim()) {
+      pushToast('请先填写 Base URL', 'error');
+      return;
+    }
+    try {
+      const fetched = await fetchModels(
+        { provider, baseUrl: baseUrl.trim(), model: '' },
+        key.trim() || undefined,
+      );
+      if (fetched.length === 0) {
+        pushToast('该地址未返回模型列表，请手动填写模型名', 'error');
+      } else {
+        pushToast(`已获取 ${fetched.length} 个模型，请在下方选择`);
+      }
+    } catch {
+      pushToast(modelError ?? '获取模型列表失败', 'error');
+    }
   };
 
   const handleSave = async () => {
@@ -616,8 +642,9 @@ function AiSettingsCard() {
   return (
     <div className="space-y-3">
       <p className="text-caption leading-5 text-ink-faint">
-        自带 API Key 即可用 AI 分析完成情况。密钥只存在这台设备，仅在你点「生成分析」时发往所选厂商，
-        不会上传到本应用任何服务器。
+        自带 API Key 即可用 AI 分析完成情况。选「自定义」可填任意 OpenAI 兼容端点（如 DeepSeek 的
+        https://api.deepseek.com/v1），点「获取模型」自动拉取模型名，免手填。密钥只存在这台设备，
+        仅在点「生成分析」时发往所选厂商，不会上传到本应用任何服务器。
       </p>
 
       <SettingRow label="厂商">
@@ -639,8 +666,11 @@ function AiSettingsCard() {
         <input
           type="text"
           value={baseUrl}
-          onChange={(e) => setBaseUrl(e.target.value)}
-          placeholder={AI_PROVIDER_DEFAULTS[provider].baseUrl}
+          onChange={(e) => {
+            setBaseUrl(e.target.value);
+            clearModels();
+          }}
+          placeholder={AI_PROVIDER_DEFAULTS[provider].baseUrl || 'https://your-endpoint/v1'}
           className="w-full bg-surface-sunken rounded-sm border border-surface-line px-3 py-2 text-body text-ink outline-none"
         />
       </div>
@@ -651,9 +681,35 @@ function AiSettingsCard() {
           type="text"
           value={model}
           onChange={(e) => setModel(e.target.value)}
-          placeholder={AI_PROVIDER_DEFAULTS[provider].model}
+          placeholder={AI_PROVIDER_DEFAULTS[provider].model || '从「获取模型」选择，或手动填写'}
           className="w-full bg-surface-sunken rounded-sm border border-surface-line px-3 py-2 text-body text-ink outline-none"
         />
+        <div className="flex items-center gap-2 pt-1">
+          <button
+            type="button"
+            onClick={() => void handleFetchModels()}
+            disabled={fetchingModels}
+            className="press flex-1 min-h-[38px] rounded-sm border border-surface-line text-caption text-ink-soft disabled:opacity-50"
+          >
+            {fetchingModels ? '获取中…' : '获取模型'}
+          </button>
+          {models.length > 0 && (
+            <select
+              value={models.includes(model) ? model : ''}
+              onChange={(e) => setModel(e.target.value)}
+              className="flex-1 bg-surface-sunken rounded-sm border border-surface-line px-3 py-2 text-body text-ink outline-none"
+            >
+              <option value="" disabled>
+                从列表选择（可选）
+              </option>
+              {models.map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
       </div>
 
       <div className="space-y-1">

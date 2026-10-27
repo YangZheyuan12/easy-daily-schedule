@@ -113,5 +113,35 @@ export function createAnthropicGateway(): AiGateway {
         throw new DomainError(`连接成功，但返回 ${res.status}${detail ? `：${detail}` : '（地址或密钥可能不正确）'}`);
       }
     },
+
+    async listModels(config: AiProviderConfig, apiKey: string): Promise<string[]> {
+      const url = joinUrl(config.baseUrl, '/models');
+      let res: Response;
+      try {
+        res = await fetch(url, {
+          method: 'GET',
+          headers: {
+            'x-api-key': apiKey,
+            'anthropic-version': '2023-06-01',
+            'anthropic-dangerous-direct-browser-access': 'true',
+          },
+        });
+      } catch {
+        throw new DomainError('无法连接到 Anthropic，请检查 Base URL 与网络');
+      }
+      if (!res.ok) {
+        const detail = await safeErrorText(res);
+        throw new DomainError(
+          res.status === 401
+            ? '密钥无效（401），无法获取模型列表'
+            : `获取模型列表失败：${res.status}${detail ? `（${detail}）` : ''}`,
+        );
+      }
+      const data = await res.json().catch(() => null);
+      const list = (data as { data?: unknown[] } | null)?.data ?? [];
+      return list
+        .map((m) => (typeof m === 'string' ? m : (m as { id?: string })?.id ?? ''))
+        .filter((id): id is string => typeof id === 'string' && id.length > 0);
+    },
   };
 }

@@ -344,6 +344,12 @@ export interface AiGateway {
    * 网络不通抛「无法连接」；能连但鉴权失败抛「密钥或地址可能不正确」。
    */
   testConnection(config: AiProviderConfig, apiKey: string): Promise<void>;
+  /**
+   * 拉取该端点可用的模型名列表（供 UI「获取模型」使用，省去手填）。
+   * OpenAI 兼容端点走 GET /models；Gemini / Anthropic 走各自列表接口。
+   * 鉴权失败 / 地址无列表能力时抛 DomainError（UI 转 toast）。
+   */
+  listModels(config: AiProviderConfig, apiKey: string): Promise<string[]>;
 }
 
 /** API Key 安全存储（与 TokenStore 同等级，AES-GCM 信封） */

@@ -36,6 +36,7 @@ function buildService(overrides: {
     }),
     chat: async () => '好的',
     testConnection: async () => undefined,
+    listModels: async () => ['model-a', 'model-b'],
   });
 
   return new AiService(fakeRepos, keyStore, clock, createGateway);
@@ -86,5 +87,23 @@ describe('AiService.buildSnapshot', () => {
     expect(snapshot.daily).toHaveLength(0);
     expect(snapshot.totals.totalSectionTotal).toBe(0);
     expect(snapshot.totals.avgOverall).toBe(0);
+  });
+});
+
+describe('AiService.listModels', () => {
+  it('未填 Base URL 抛错', async () => {
+    const service = buildService({});
+    await expect(
+      service.listModels({ provider: 'openai-compatible', baseUrl: '', model: '' }, 'k'),
+    ).rejects.toThrow(/Base URL/);
+  });
+
+  it('有 URL 与密钥时透传网关结果', async () => {
+    const service = buildService({});
+    const models = await service.listModels(
+      { provider: 'openai-compatible', baseUrl: 'https://x/v1', model: '' },
+      'k',
+    );
+    expect(models).toEqual(['model-a', 'model-b']);
   });
 });

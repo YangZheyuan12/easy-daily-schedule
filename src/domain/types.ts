@@ -481,7 +481,7 @@ export interface DaySummary {
 /* ------------------------------------------------------------------ */
 
 /** 支持的 AI 厂商接入方式 */
-export type AiProvider = 'openai-compatible' | 'anthropic' | 'gemini';
+export type AiProvider = 'openai-compatible' | 'anthropic' | 'gemini' | 'custom';
 
 /** 用户选择的接入配置（不含密钥，密钥走安全存储） */
 export interface AiProviderConfig {
@@ -491,6 +491,7 @@ export interface AiProviderConfig {
    * - openai-compatible：默认 https://api.openai.com/v1（国产模型填对应地址，如 DeepSeek / GLM / 通义 / Kimi）
    * - anthropic：https://api.anthropic.com/v1
    * - gemini：https://generativelanguage.googleapis.com/v1beta
+   * - custom：任意 OpenAI 兼容端点（自己填 Base URL，如 DeepSeek 的 https://api.deepseek.com/v1）
    */
   baseUrl: string;
   /** 模型名，如 gpt-4o-mini / claude-3-5-sonnet-latest / gemini-1.5-flash */

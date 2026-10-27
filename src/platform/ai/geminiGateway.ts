@@ -100,5 +100,31 @@ export function createGeminiGateway(): AiGateway {
         throw new DomainError(`连接成功，但返回 ${res.status}${detail ? `：${detail}` : '（地址或密钥可能不正确）'}`);
       }
     },
+
+    async listModels(config: AiProviderConfig, apiKey: string): Promise<string[]> {
+      const url = `${joinUrl(config.baseUrl, '/models')}?key=${encodeURIComponent(apiKey)}`;
+      let res: Response;
+      try {
+        res = await fetch(url, { method: 'GET' });
+      } catch {
+        throw new DomainError('无法连接到 Gemini，请检查 Base URL 与网络');
+      }
+      if (!res.ok) {
+        const detail = await safeErrorText(res);
+        throw new DomainError(
+          res.status === 400 || res.status === 403
+            ? '密钥无效（400/403），无法获取模型列表'
+            : `获取模型列表失败：${res.status}${detail ? `（${detail}）` : ''}`,
+        );
+      }
+      const data = await res.json().catch(() => null);
+      const models = (data as { models?: unknown[] } | null)?.models ?? [];
+      return models
+        .map((m) => {
+          const name = typeof m === 'string' ? m : (m as { name?: string })?.name ?? '';
+          return name.replace(/^models\//, '');
+        })
+        .filter((n): n is string => n.length > 0);
+    },
   };
 }
