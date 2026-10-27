@@ -512,6 +512,16 @@ function SettingRow({ label, children }: { label: string; children: ReactNode })
   );
 }
 
+/** 字段：标签在上、控件在下（移动端更顺手，且统一聚焦高亮） */
+function Field({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="space-y-1.5">
+      <span className="block text-meta text-ink-soft">{label}</span>
+      {children}
+    </div>
+  );
+}
+
 /** 整点选择器（0–23 / 1–24），显示为 HH:00 */
 function HourSelect({
   value,
@@ -647,19 +657,36 @@ function AiSettingsCard() {
   };
 
   return (
-    <div className="space-y-3">
-      <p className="text-caption leading-5 text-ink-faint">
-        自带 API Key 即可用 AI 分析完成情况。常用厂商（OpenAI / DeepSeek / Kimi / 智谱 GLM /
-        豆包 / 通义千问 / Claude / Gemini）已预填好地址，直接选即可；选「自定义」可填任意 OpenAI
-        兼容端点。填好 Key 后点「获取模型」自动拉取模型名，免手填。密钥只存在这台设备，
-        仅在点「生成分析」时发往所选厂商，不会上传到本应用任何服务器。
-      </p>
+    <div className="space-y-4">
+      {/* 接入状态条 */}
+      <div className="flex items-center justify-between rounded-card bg-surface-sunken px-3 py-2.5">
+        <div className="flex items-center gap-2 text-body text-ink">
+          <Icon name="sparkle" size={16} className={keySet ? 'text-accent' : 'text-ink-faint'} />
+          接入状态
+        </div>
+        {keySet ? (
+          <span className="flex items-center gap-1 text-caption text-accent">
+            <Icon name="check" size={13} strokeWidth={2.6} />
+            已配置
+          </span>
+        ) : (
+          <span className="text-caption text-ink-faint">未配置</span>
+        )}
+      </div>
 
-      <SettingRow label="厂商">
+      {/* 说明提示框 */}
+      <div className="flex gap-2.5 rounded-card bg-accent-soft px-3 py-2.5">
+        <Icon name="sparkle" size={16} className="mt-0.5 shrink-0 text-accent" />
+        <p className="text-caption leading-5 text-ink-muted">
+          常用厂商（OpenAI / DeepSeek / Kimi / 智谱 GLM / 豆包 / 通义千问 / Claude / Gemini）已预填地址，直接选即可；选「自定义」可填任意 OpenAI 兼容端点。填好 Key 后点「获取模型」自动拉取模型名，免手填。密钥只存本设备，仅在你对话时发往所选厂商。
+        </p>
+      </div>
+
+      <Field label="厂商">
         <select
           value={vendorKey}
           onChange={(e) => handleVendorChange(e.target.value)}
-          className="bg-surface-sunken rounded-sm border border-surface-line px-3 py-2 text-body text-ink outline-none"
+          className="w-full bg-surface-sunken rounded-card border border-surface-line px-3 py-2.5 text-body text-ink outline-none focus:border-accent/60 focus:ring-2 focus:ring-accent/15 transition-colors"
         >
           {AI_VENDOR_PRESETS.map((p) => (
             <option key={p.key} value={p.key}>
@@ -667,10 +694,9 @@ function AiSettingsCard() {
             </option>
           ))}
         </select>
-      </SettingRow>
+      </Field>
 
-      <div className="space-y-1">
-        <span className="block text-body text-ink">API Base URL</span>
+      <Field label="API Base URL">
         <input
           type="text"
           value={baseUrl}
@@ -679,25 +705,24 @@ function AiSettingsCard() {
             clearModels();
           }}
           placeholder={AI_VENDOR_PRESETS.find((p) => p.key === vendorKey)?.baseUrl || 'https://your-endpoint/v1'}
-          className="w-full bg-surface-sunken rounded-sm border border-surface-line px-3 py-2 text-body text-ink outline-none"
+          className="w-full bg-surface-sunken rounded-card border border-surface-line px-3 py-2.5 text-body text-ink outline-none focus:border-accent/60 focus:ring-2 focus:ring-accent/15 transition-colors"
         />
-      </div>
+      </Field>
 
-      <div className="space-y-1">
-        <span className="block text-body text-ink">模型名</span>
+      <Field label="模型名">
         <input
           type="text"
           value={model}
           onChange={(e) => setModel(e.target.value)}
           placeholder={AI_VENDOR_PRESETS.find((p) => p.key === vendorKey)?.model || '从「获取模型」选择，或手动填写'}
-          className="w-full bg-surface-sunken rounded-sm border border-surface-line px-3 py-2 text-body text-ink outline-none"
+          className="w-full bg-surface-sunken rounded-card border border-surface-line px-3 py-2.5 text-body text-ink outline-none focus:border-accent/60 focus:ring-2 focus:ring-accent/15 transition-colors"
         />
         <div className="flex items-center gap-2 pt-1">
           <button
             type="button"
             onClick={() => void handleFetchModels()}
             disabled={fetchingModels}
-            className="press flex-1 min-h-[38px] rounded-sm border border-surface-line text-caption text-ink-soft disabled:opacity-50"
+            className="press flex-1 min-h-[40px] rounded-card bg-accent-soft text-caption text-accent transition-colors disabled:opacity-50"
           >
             {fetchingModels ? '获取中…' : '获取模型'}
           </button>
@@ -705,7 +730,7 @@ function AiSettingsCard() {
             <select
               value={models.includes(model) ? model : ''}
               onChange={(e) => setModel(e.target.value)}
-              className="flex-1 bg-surface-sunken rounded-sm border border-surface-line px-3 py-2 text-body text-ink outline-none"
+              className="flex-1 bg-surface-sunken rounded-card border border-surface-line px-3 py-2.5 text-body text-ink outline-none focus:border-accent/60 focus:ring-2 focus:ring-accent/15 transition-colors"
             >
               <option value="" disabled>
                 从列表选择（可选）
@@ -718,28 +743,29 @@ function AiSettingsCard() {
             </select>
           )}
         </div>
-      </div>
+      </Field>
 
-      <div className="space-y-1">
-        <span className="block text-body text-ink">API Key</span>
+      <Field label="API Key">
         <input
           type="password"
           value={key}
           onChange={(e) => setKey(e.target.value)}
           placeholder={keySet ? '已保存（留空则不修改）' : 'sk-...'}
           autoComplete="off"
-          className="w-full bg-surface-sunken rounded-sm border border-surface-line px-3 py-2 text-body text-ink outline-none"
+          className="w-full bg-surface-sunken rounded-card border border-surface-line px-3 py-2.5 text-body text-ink outline-none focus:border-accent/60 focus:ring-2 focus:ring-accent/15 transition-colors"
         />
-      </div>
+      </Field>
 
-      {error && <p className="text-caption text-heart">{error}</p>}
+      {error && (
+        <p className="rounded-card bg-heart/10 px-3 py-2 text-caption text-heart">{error}</p>
+      )}
 
-      <div className="flex gap-2">
+      <div className="flex gap-2 pt-1">
         <button
           type="button"
           onClick={() => void handleSave()}
           disabled={busy}
-          className="press flex-1 min-h-[42px] rounded-card bg-accent text-lead text-accent-fg disabled:opacity-50"
+          className="press flex-1 min-h-[44px] rounded-card bg-accent text-lead text-accent-fg transition-colors disabled:opacity-50"
         >
           {busy ? '保存中…' : '保存配置'}
         </button>
@@ -747,25 +773,23 @@ function AiSettingsCard() {
           <button
             type="button"
             onClick={() => void handleClearKey()}
-            className="press min-h-[42px] rounded-card border border-surface-line text-body text-ink-faint"
+            className="press min-h-[44px] rounded-card border border-surface-line px-4 text-body text-ink-faint transition-colors hover:text-heart"
           >
             清除密钥
           </button>
         )}
       </div>
 
-      <div className="flex gap-2">
-        <button
-          type="button"
-          onClick={() => void handleTest()}
-          disabled={busy}
-          className="press flex-1 min-h-[42px] rounded-card border border-surface-line text-body text-ink-soft disabled:opacity-50"
-        >
-          {busy ? '测试中…' : '测试连接'}
-        </button>
-      </div>
+      <button
+        type="button"
+        onClick={() => void handleTest()}
+        disabled={busy}
+        className="press w-full min-h-[44px] rounded-card border border-surface-line text-body text-ink-soft transition-colors disabled:opacity-50"
+      >
+        {busy ? '测试中…' : '测试连接'}
+      </button>
 
-      <p className="text-caption leading-5 text-ink-faint">
+      <p className="text-micro leading-5 text-ink-faint">
         配置后即可在上方与 AI 对话，说「分析日程」即可基于最近 30 天数据生成分析；密钥仅存于本设备，只发聚合统计给所选厂商。
       </p>
     </div>

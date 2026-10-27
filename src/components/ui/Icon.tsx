@@ -50,7 +50,15 @@ export type IconName =
   /** 编辑（铅笔） */
   | 'edit'
   /** 图钉（定住） */
-  | 'pin';
+  | 'pin'
+  /** AI 标识：四角星芒 */
+  | 'sparkle'
+  /** 发送（纸飞机） */
+  | 'send'
+  /** 全屏（四角外扩） */
+  | 'maximize'
+  /** 退出全屏（四角内收） */
+  | 'minimize';
 
 interface IconProps {
   name: IconName;
@@ -230,6 +238,46 @@ const STROKE: Record<Exclude<IconName, 'heart' | 'star' | 'dot' | 'grip' | 'pin'
     <>
       <path d="M4 20h4L19 9l-4-4L4 16v4Z" />
       <path d="M14.5 5.5l4 4" />
+    </>
+  ),
+  /*
+    AI 标识：四角星芒。区别于「灯泡（ideas）」，专用于 AI 助手身份。
+  */
+  sparkle: (
+    <>
+      <path d="M12 3.2 13.9 9.1 19.8 11 13.9 12.9 12 18.8 10.1 12.9 4.2 11 10.1 9.1Z" />
+    </>
+  ),
+  /*
+    发送：纸飞机。机身一笔 + 折痕一笔，圆角连接，各端稳定。
+  */
+  send: (
+    <>
+      <path d="M21.5 3.2 2.5 11l6.8 2.5 2.4 6.8 9.8-17.1Z" />
+      <path d="M9.7 13.5 21.5 3.2" />
+    </>
+  ),
+  /*
+    全屏：四角外扩的框角。
+    与「zoom-in（放大镜）」区分 —— 这里是「占满屏幕」而非「放大查看」。
+  */
+  maximize: (
+    <>
+      <path d="M4 9V5a1 1 0 0 1 1-1h4" />
+      <path d="M20 9V5a1 1 0 0 0-1-1h-4" />
+      <path d="M4 15v4a1 1 0 0 0 1 1h4" />
+      <path d="M20 15v4a1 1 0 0 1-1 1h-4" />
+    </>
+  ),
+  /*
+    退出全屏：四角内收的框角（maximize 的反向）。
+  */
+  minimize: (
+    <>
+      <path d="M9 4v4a1 1 0 0 1-1 1H4" />
+      <path d="M20 9h-4a1 1 0 0 1-1-1V4" />
+      <path d="M9 20v-4a1 1 0 0 1-1-1H4" />
+      <path d="M20 15h-4a1 1 0 0 1-1 1v4" />
     </>
   ),
 };
