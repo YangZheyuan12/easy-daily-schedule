@@ -301,6 +301,16 @@ function DiaryRow({ entry, index, onViewImage }: DiaryRowProps) {
 
   const done = item.done;
 
+  /*
+    来源同步的条目（任务页 / 时间轴「同步到今日」产生的，带 sourceTaskId / sourceSlotId）：
+    完成情况以来源为准，今日页这条只是「影子」—— 今日页没有单独的完成开关，
+    也不该把来源任务的完成态画成删除线（否则来源任务一勾完，今日页这条就永久置灰且无处可取消）。
+    故这里按「未完」展示：不画删除线、字重不淡化。底层 `done` 数据不动，
+    日历完成度等统计仍照常计入来源完成情况。
+  */
+  const isSynced = item.sourceTaskId !== null || item.sourceSlotId !== null;
+  const displayDone = done && !isSynced;
+
   if (entry.kind === 'child') {
     const hasDesc = item.description.trim().length > 0;
     return (
@@ -310,7 +320,12 @@ function DiaryRow({ entry, index, onViewImage }: DiaryRowProps) {
       >
         <div className="flex items-center gap-2.5">
           {/* 子项前面**没有**圆圈（用户要求）：缩进本身就是层级，再画一圈等于每层多一个控件 */}
-          <EditableTitle item={item} sizeClass="text-body leading-5" tone={done ? 'text-ink-faint' : 'text-ink-muted'} />
+          <EditableTitle
+            item={item}
+            sizeClass="text-body leading-5"
+            tone={displayDone ? 'text-ink-faint' : 'text-ink-muted'}
+            done={displayDone}
+          />
           <MoreButton item={item} />
         </div>
         {/*
@@ -341,7 +356,12 @@ function DiaryRow({ entry, index, onViewImage }: DiaryRowProps) {
           一圈圈勾选框会把视线切碎。完成态改用删除线 + 淡化字重表达，
           要切换完成/未成就点行尾「⋯」进详情。
         */}
-        <EditableTitle item={item} sizeClass="text-lead leading-6" tone={done ? 'text-ink-faint' : 'text-ink'} />
+        <EditableTitle
+          item={item}
+          sizeClass="text-lead leading-6"
+          tone={displayDone ? 'text-ink-faint' : 'text-ink'}
+          done={displayDone}
+        />
         <MoreButton item={item} />
       </div>
       {/*
@@ -400,10 +420,13 @@ function EditableTitle({
   item,
   sizeClass,
   tone,
+  done,
 }: {
   item: Item;
   sizeClass: string;
   tone: string;
+  /** 展示用的完成态：今日页对「同步来源」的条目强制为 false（见 DiaryRow） */
+  done: boolean;
 }) {
   const setTitle = useItemStore((s) => s.setTitle);
   const [editing, setEditing] = useState(false);
@@ -429,7 +452,7 @@ function EditableTitle({
         }}
         className={clsx('flex-1 min-w-0 text-left truncate', sizeClass, tone)}
       >
-        <span className="m-strike" data-done={item.done}>
+        <span className="m-strike" data-done={done}>
           {item.title || '未命名条目'}
         </span>
       </button>
