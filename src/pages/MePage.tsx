@@ -15,10 +15,10 @@ import { parseBackup, summarizeBackup, describeSummary } from '@/services/backup
 import { evaluateUpdate } from '@/services/updateService';
 import { getCurrentVersion } from '@/platform/appInfo';
 import { fetchLatestRelease, openExternalUrl } from '@/platform/updateBridge';
-import { AI_PROVIDER_DEFAULTS } from '@/platform/ai';
+import { AI_VENDOR_PRESETS, findVendorPreset } from '@/platform/ai';
 import { useAiStore } from '@/store/useAiStore';
 import { AiChatPanel } from '@/components/ai/AiChatPanel';
-import type { AiProvider } from '@/domain/types';
+import type { AiProviderConfig } from '@/domain/types';
 import { formatShortDate, toDateKey } from '@/utils/date';
 
 /** 我的（P1，当前为占位 + 版本信息） */
@@ -565,7 +565,7 @@ function AiSettingsCard() {
   const clearModels = useAiStore((s) => s.clearModels);
   const load = useAiStore((s) => s.load);
 
-  const [provider, setProvider] = useState<AiProvider>('openai-compatible');
+  const [vendorKey, setVendorKey] = useState('openai');
   const [baseUrl, setBaseUrl] = useState('');
   const [model, setModel] = useState('');
   const [key, setKey] = useState('');
@@ -574,21 +574,28 @@ function AiSettingsCard() {
     void load();
   }, [load]);
 
-  // 已存配置回填
+  // 已存配置回填（按 Base URL 反查厂商预设）
   useEffect(() => {
     if (config) {
-      setProvider(config.provider);
+      setVendorKey(findVendorPreset(config).key);
       setBaseUrl(config.baseUrl);
       setModel(config.model);
     }
   }, [config]);
 
-  const handleProviderChange = (next: AiProvider) => {
-    setProvider(next);
-    const preset = AI_PROVIDER_DEFAULTS[next];
-    setBaseUrl(preset.baseUrl);
-    setModel(preset.model);
+  const handleVendorChange = (nextKey: string) => {
+    setVendorKey(nextKey);
+    const preset = AI_VENDOR_PRESETS.find((p) => p.key === nextKey);
+    if (preset) {
+      setBaseUrl(preset.baseUrl);
+      setModel(preset.model);
+    }
     clearModels();
+  };
+
+  const currentGatewayProvider = (): AiProviderConfig['provider'] => {
+    const preset = AI_VENDOR_PRESETS.find((p) => p.key === vendorKey);
+    return preset?.gatewayProvider ?? 'openai-compatible';
   };
 
   const handleFetchModels = async () => {
@@ -598,7 +605,7 @@ function AiSettingsCard() {
     }
     try {
       const fetched = await fetchModels(
-        { provider, baseUrl: baseUrl.trim(), model: '' },
+        { provider: currentGatewayProvider(), baseUrl: baseUrl.trim(), model: '' },
         key.trim() || undefined,
       );
       if (fetched.length === 0) {
@@ -617,7 +624,7 @@ function AiSettingsCard() {
       return;
     }
     await saveConfig(
-      { provider, baseUrl: baseUrl.trim(), model: model.trim() },
+      { provider: currentGatewayProvider(), baseUrl: baseUrl.trim(), model: model.trim() },
       key.trim() || undefined,
     );
     setKey('');
@@ -642,20 +649,21 @@ function AiSettingsCard() {
   return (
     <div className="space-y-3">
       <p className="text-caption leading-5 text-ink-faint">
-        自带 API Key 即可用 AI 分析完成情况。选「自定义」可填任意 OpenAI 兼容端点（如 DeepSeek 的
-        https://api.deepseek.com/v1），点「获取模型」自动拉取模型名，免手填。密钥只存在这台设备，
+        自带 API Key 即可用 AI 分析完成情况。常用厂商（OpenAI / DeepSeek / Kimi / 智谱 GLM /
+        豆包 / 通义千问 / Claude / Gemini）已预填好地址，直接选即可；选「自定义」可填任意 OpenAI
+        兼容端点。填好 Key 后点「获取模型」自动拉取模型名，免手填。密钥只存在这台设备，
         仅在点「生成分析」时发往所选厂商，不会上传到本应用任何服务器。
       </p>
 
       <SettingRow label="厂商">
         <select
-          value={provider}
-          onChange={(e) => handleProviderChange(e.target.value as AiProvider)}
+          value={vendorKey}
+          onChange={(e) => handleVendorChange(e.target.value)}
           className="bg-surface-sunken rounded-sm border border-surface-line px-3 py-2 text-body text-ink outline-none"
         >
-          {(Object.keys(AI_PROVIDER_DEFAULTS) as AiProvider[]).map((id) => (
-            <option key={id} value={id}>
-              {AI_PROVIDER_DEFAULTS[id].label}
+          {AI_VENDOR_PRESETS.map((p) => (
+            <option key={p.key} value={p.key}>
+              {p.label}
             </option>
           ))}
         </select>
@@ -670,7 +678,7 @@ function AiSettingsCard() {
             setBaseUrl(e.target.value);
             clearModels();
           }}
-          placeholder={AI_PROVIDER_DEFAULTS[provider].baseUrl || 'https://your-endpoint/v1'}
+          placeholder={AI_VENDOR_PRESETS.find((p) => p.key === vendorKey)?.baseUrl || 'https://your-endpoint/v1'}
           className="w-full bg-surface-sunken rounded-sm border border-surface-line px-3 py-2 text-body text-ink outline-none"
         />
       </div>
@@ -681,7 +689,7 @@ function AiSettingsCard() {
           type="text"
           value={model}
           onChange={(e) => setModel(e.target.value)}
-          placeholder={AI_PROVIDER_DEFAULTS[provider].model || '从「获取模型」选择，或手动填写'}
+          placeholder={AI_VENDOR_PRESETS.find((p) => p.key === vendorKey)?.model || '从「获取模型」选择，或手动填写'}
           className="w-full bg-surface-sunken rounded-sm border border-surface-line px-3 py-2 text-body text-ink outline-none"
         />
         <div className="flex items-center gap-2 pt-1">
