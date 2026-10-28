@@ -252,7 +252,10 @@ function ChatBubble({ role, content }: { role: string; content: string }) {
       )}
       <div
         className={clsx(
-          'max-w-[78%] px-3.5 py-2.5 text-body leading-6 shadow-card',
+          // 🔴 whitespace-pre-line 必须有：模型按 prompt 用「\n」分行输出，
+          // HTML 默认会把换行塌成空格，这样删除线/要点结构在气泡里全被抹平，
+          // 看起来就是一大段「杂乱无章」的连续文字。
+          'max-w-[78%] whitespace-pre-line break-words px-3.5 py-2.5 text-body leading-6 shadow-card',
           isUser
             ? 'rounded-card rounded-tr-xs bg-accent text-accent-fg'
             : 'rounded-card rounded-tl-xs bg-surface-sunken text-ink',
