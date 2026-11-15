@@ -18,7 +18,7 @@ import { GoalCard } from '@/components/task/GoalCard';
 import { EmptyState } from '@/components/feedback/EmptyState';
 import { computeTaskProgress, toPercent } from '@/services/progressService';
 import { collectSyncedTaskIds, planTaskSync } from '@/services/taskSyncService';
-import { isPinProjection, isActivelyPinned } from '@/services/pinProjectionService';
+import { isActivelyPinned } from '@/services/pinProjectionService';
 import { useDayFestivals } from '@/hooks/useDayFestivals';
 import { formatShortDate, isToday } from '@/utils/date';
 import { describeSyncCounts, syncButtonLabel } from '@/utils/syncMessage';
@@ -68,7 +68,7 @@ export function TasksPage() {
   const [checked, setChecked] = useState<ReadonlySet<string>>(new Set());
   const items = useItemStore((s) => s.items);
   const syncFromTasks = useItemStore((s) => s.syncFromTasks);
-  const syncedTaskIds = useMemo(() => collectSyncedTaskIds(items), [items]);
+  const syncedTaskIds = useMemo(() => collectSyncedTaskIds(items, date), [items, date]);
 
   /** 就地日期选择弹窗：点日期不再跳日历 Tab（见 DatePickerModal） */
   const [datePickerOpen, setDatePickerOpen] = useState(false);
@@ -124,14 +124,14 @@ export function TasksPage() {
   };
 
   /**
-   * 这条任务能不能同步：必须**已分组（非「其他」）且写了内容**，
-   * 且不是「定住投影」（定住任务每天自动重复，其 date 是定住当天而非今天，
-   * 无法同步到今日页，故显式排除，避免计数与实际同步不符）。
+   * 这条任务能不能同步：必须**已分组（非「其他」）且写了内容**。
+   *
+   * 2026-11-15 改：不再排除「定住投影」任务 —— 定住任务虽然每天自动重复
+   * 出现在任务页，但用户仍可能想把「今天」的这条投影手动同步进今日页，
+   * 与其它任务一样落到对应板块。所以同步判定只保留「分组 + 有内容」两个条件。
    */
   const isSyncable = (task: Task) =>
-    isSyncableSection(task.sectionId) &&
-    task.content.trim().length > 0 &&
-    !isPinProjection(task, date);
+    isSyncableSection(task.sectionId) && task.content.trim().length > 0;
 
   const syncableCount = useMemo(() => dailyAlive.filter(isSyncable).length, [dailyAlive]);
 
@@ -160,6 +160,21 @@ export function TasksPage() {
       else next.add(taskId);
       return next;
     });
+  };
+
+  /** 可同步的任务 id 序列（「其他」分组 / 空内容 / 定住投影不可勾） */
+  const syncableIds = useMemo(
+    () => dailyAlive.filter(isSyncable).map((t) => t.id),
+    [dailyAlive],
+  );
+
+  /** 是否已把**全部可同步**任务都勾上（全选按钮的切换判据） */
+  const allChecked =
+    syncableIds.length > 0 && syncableIds.every((id) => checked.has(id));
+
+  /** 全选 / 全不选：一键勾上所有可同步任务，或清空本轮勾选 */
+  const toggleSelectAll = () => {
+    setChecked(allChecked ? new Set() : new Set(syncableIds));
   };
 
   /** 本次勾选到的任务（每次都现算，不用 state 缓存，避免拿到过期数据） */
@@ -213,11 +228,22 @@ export function TasksPage() {
         {/* 两个批量操作并排：继承昨日（拉进来）与同步到今日（推过去）。
             勾选模式下这一行让位给说明 —— 「继承昨日」此刻不该被点到。 */}
         {selecting ? (
-          <p className="mt-3 text-caption leading-5 text-ink-faint">
-            勾选要同步到今日的任务。
-            <span className="text-ink-muted">只有已分组（非「其他」）且写了内容的能勾</span>
-            ；已经同步过的默认勾上，确认后会把今日页那条更新成现在的样子。
-          </p>
+          <div className="mt-3">
+            <p className="text-caption leading-5 text-ink-faint">
+              勾选要同步到今日的任务。
+              <span className="text-ink-muted">只有已分组（非「其他」）且写了内容的能勾</span>
+              ；已经同步过的默认勾上，确认后会把今日页那条更新成现在的样子。
+            </p>
+            <button
+              type="button"
+              onClick={toggleSelectAll}
+              data-testid="task-select-all"
+              className="press mt-2 inline-flex items-center gap-1 text-caption text-accent active:opacity-60"
+            >
+              <Icon name="check" size={13} strokeWidth={2.5} />
+              {allChecked ? '全不选' : '全选'}
+            </button>
+          </div>
         ) : (
           <div className="mt-3 flex gap-2">
             <button

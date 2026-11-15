@@ -86,7 +86,7 @@ export function TimelinePage() {
   const [checked, setChecked] = useState<ReadonlySet<string>>(new Set());
   const items = useItemStore((s) => s.items);
   const syncFromSlots = useItemStore((s) => s.syncFromSlots);
-  const syncedSlotIds = useMemo(() => collectSyncedSlotIds(items), [items]);
+  const syncedSlotIds = useMemo(() => collectSyncedSlotIds(items, date), [items, date]);
 
   // 时间块上的板块标签取用户自定义后的配置（改名 / 改色都跟着变）
   const sectionConfigs = useSectionConfigs();
@@ -197,6 +197,21 @@ export function TimelinePage() {
     });
   };
 
+  /** 可同步（已分组）的时间段序列 */
+  const selectableSlots = useMemo(
+    () => visibleSlots.filter((slot) => slot.sectionId !== null),
+    [visibleSlots],
+  );
+
+  /** 是否已把**全部可同步**时间段都勾上（全选按钮的切换判据） */
+  const allChecked =
+    selectableSlots.length > 0 && selectableSlots.every((s) => checked.has(s.id));
+
+  /** 全选 / 全不选：一键勾上所有已分组时间段，或清空本轮勾选 */
+  const toggleSelectAll = () => {
+    setChecked(allChecked ? new Set() : new Set(selectableSlots.map((s) => s.id)));
+  };
+
   /** 勾选 → 计划的纯函数（组件只负责「用户勾了谁」） */
   const currentPlan = (): SlotSyncPlan => {
     const selected = visibleSlots.filter((slot) => checked.has(slot.id));
@@ -284,13 +299,24 @@ export function TimelinePage() {
       */}
       <div className="px-5 mt-2">
         {selecting ? (
-          <p className="text-caption leading-5 text-ink-faint">
-            勾选要同步到今日的事件。
-            <span className="text-ink-muted">未分组的时间段不能同步</span>
-            （今日页的条目必须落在某个板块下）；
-            <span className="text-ink-muted">已经同步的默认勾上</span>
-            ，确认后会把今日页那条更新成时间轴现在的样子。
-          </p>
+          <div>
+            <p className="text-caption leading-5 text-ink-faint">
+              勾选要同步到今日的事件。
+              <span className="text-ink-muted">未分组的时间段不能同步</span>
+              （今日页的条目必须落在某个板块下）；
+              <span className="text-ink-muted">已经同步的默认勾上</span>
+              ，确认后会把今日页那条更新成时间轴现在的样子。
+            </p>
+            <button
+              type="button"
+              onClick={toggleSelectAll}
+              data-testid="timeline-select-all"
+              className="press mt-2 inline-flex items-center gap-1 text-caption text-accent active:opacity-60"
+            >
+              <Icon name="check" size={13} strokeWidth={2.5} />
+              {allChecked ? '全不选' : '全选'}
+            </button>
+          </div>
         ) : (
           <div className="flex items-center justify-end gap-4">
             <button

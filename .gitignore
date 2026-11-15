@@ -60,7 +60,7 @@ vite.config.ts.timestamp-*.mjs
 # skill 包、打包脚本、zip 产物、shim 与构建输出都不入库。
 .skill/
 dist-minitool/
-minitool-daily-schedule.zip
+ezschedule-daily.zip
 scripts/minitool-postprocess.mjs
 src/minitool-shims/
 vite.minitool.config.ts

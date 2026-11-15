@@ -158,7 +158,7 @@ describe('任务页同步 — 定住任务边界', () => {
     expect(boxes[0]!.disabled).toBe(false);
   });
 
-  it('定住投影（pinFrom < date）不可同步：只有投影任务时点同步不进入勾选模式', () => {
+  it('定住投影（pinFrom < date）现在可同步：勾选后落成当前查看日的条目', () => {
     useTaskStore.setState({
       tasks: [
         makeTask({ id: 't1', date: '2026-10-09', sectionId: 'work', content: '开组会', pinFrom: '2026-10-09' }),
@@ -172,10 +172,26 @@ describe('任务页同步 — 定住任务边界', () => {
       byTestId(container, 'task-sync-button').click();
     });
 
-    // 投影任务被排除，可同步数为 0 → 不进入勾选模式（无勾选框）
+    // 投影任务不再被排除 → 进入勾选模式，出现一个可勾选的框
     const boxes = syncBoxes(container);
-    expect(boxes).toHaveLength(0);
-    // 底部仍是「添加任务」，不是「取消 + 同步」
-    expect(container.textContent).toContain('+ 添加任务');
+    expect(boxes).toHaveLength(1);
+    expect(boxes[0]!.disabled).toBe(false);
+
+    act(() => {
+      boxes[0]!.click();
+    });
+    const confirm = byTestId(container, 'task-sync-confirm');
+    expect(confirm.disabled).toBe(false);
+
+    act(() => {
+      confirm.click();
+    });
+
+    const items = useItemStore.getState().items;
+    expect(items).toHaveLength(1);
+    expect(items[0]?.title).toBe('开组会');
+    expect(items[0]?.sourceTaskId).toBe('t1');
+    // 同步到当前查看日，而非定住起始日
+    expect(items[0]?.date).toBe(DATE);
   });
 });

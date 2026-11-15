@@ -24,9 +24,6 @@ interface TaskPreviewCardProps {
   testId?: string;
 }
 
-/** 预览最多几条：再多就该进管理页看了，卡片不是第二个列表页 */
-const PREVIEW_LIMIT = 5;
-
 /**
  * 「期限任务 / 长时目标」的**只读预览卡**（任务页底部那两张）。
  *
@@ -111,7 +108,7 @@ export function TaskPreviewCard({
             <p className="text-caption text-ink-faint">{emptyHint}</p>
           ) : (
             <ul className="space-y-1.5">
-              {tasks.slice(0, PREVIEW_LIMIT).map((task) => {
+              {tasks.map((task) => {
                 const meta = renderMeta?.(task) ?? null;
                 return (
                   <li key={task.id} className="flex items-baseline justify-between gap-2">
@@ -127,9 +124,6 @@ export function TaskPreviewCard({
                   </li>
                 );
               })}
-              {tasks.length > PREVIEW_LIMIT && (
-                <li className="text-caption text-ink-faint">还有 {tasks.length - PREVIEW_LIMIT} 条…</li>
-              )}
             </ul>
           )}
         </div>

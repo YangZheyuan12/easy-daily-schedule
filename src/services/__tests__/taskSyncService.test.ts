@@ -57,6 +57,17 @@ describe('planTaskSync — 哪些任务该同步', () => {
     expect(planTaskSync(tasks, [], DATE).create).toHaveLength(0);
   });
 
+  it('定住投影任务（date 早于查看日）也能同步，落到当前查看日', () => {
+    const tasks = [
+      makeTask({ id: 't1', date: '2026-10-09', sectionId: 'work', content: '开组会', pinFrom: '2026-10-09' }),
+    ];
+    const plan = planTaskSync(tasks, [], DATE);
+    expect(plan.create).toHaveLength(1);
+    expect(plan.create[0]?.taskId).toBe('t1');
+    // 同步目标是传入的查看日，而非定住起始日
+    expect(plan.create[0]?.date).toBe(DATE);
+  });
+
   it('已完成任务的 done 会跟随过去', () => {
     const tasks = [makeTask({ id: 't1', date: DATE, sectionId: 'work', done: true })];
     expect(planTaskSync(tasks, [], DATE).create[0]?.done).toBe(true);

@@ -3,6 +3,7 @@ import { isDailyTask } from '@/domain/enums';
 import type { Item, Task, TaskSyncDraft } from '@/domain/types';
 import { isSyncableSection } from '@/domain/constants';
 import type { Clock } from './clock';
+import { isPinProjection } from './pinProjectionService';
 import { createSiblingAfter, nextOrder } from './treeService';
 
 /**
@@ -65,8 +66,13 @@ export function planTaskSync(
 ): TaskSyncPlan {
   // 防御性按当天过滤：本函数的 contract 是「某一天」，漏过滤会把别天的任务同步过来。
   // 只认「每日任务」—— 期限任务 / 长时目标是跨日期持久存在的，不该被同步进今日页。
+  // 🔴 2026-11-15 改：额外放行「定住投影」任务（其 date 是定住起始日、早于当前查看日），
+  // 它们被投影到当前查看日显示，用户仍可手动同步到这一天的当日页。
   const dayTasks = tasks.filter(
-    (task) => task.date === date && task.deletedAt === null && isDailyTask(task),
+    (task) =>
+      task.deletedAt === null &&
+      isDailyTask(task) &&
+      (task.date === date || isPinProjection(task, date)),
   );
   const dayItems = items.filter((item) => item.date === date && item.deletedAt === null);
 
